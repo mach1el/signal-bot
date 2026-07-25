@@ -117,6 +117,34 @@ async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_hourly_map_skips_xau_weekend_closure(monkeypatch):
+  sent = AsyncMock()
+  get_map = AsyncMock(return_value=_map())
+  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
+  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(
+    market_map_delivery,
+    "get_meta",
+    AsyncMock(return_value=None),
+  )
+  monkeypatch.setattr(market_map_delivery, "set_meta", AsyncMock())
+  monkeypatch.setattr(market_map_delivery, "get_current_market_map", get_map)
+  monkeypatch.setattr(market_map_delivery, "send_scanner_with_retry", sent)
+
+  # Friday 21:00 UTC, all Saturday, and Sunday before 22:00 UTC.
+  for stamp in (
+    datetime(2026, 7, 17, 21, 5, tzinfo=timezone.utc),
+    datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    datetime(2026, 7, 19, 21, 0, tzinfo=timezone.utc),
+  ):
+    assert not await market_map_delivery._market_map_scan_tick(stamp)
+
+  sent.assert_not_awaited()
+  get_map.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_on_demand_map_uses_scanner_bot(monkeypatch):
   sent = AsyncMock()
   monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
