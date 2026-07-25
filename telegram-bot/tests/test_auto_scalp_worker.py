@@ -129,6 +129,55 @@ def _range_strategy_match(now: int) -> StrategyMatch:
   )
 
 
+async def _seed_scanner_range_for_match(match: StrategyMatch, now: int) -> None:
+  from app.autotrade.range_context import (
+    RangeBarrier,
+    RangeContext,
+    persist_scanner_range_observation,
+  )
+
+  low = RangeBarrier(
+    float(match.range_low),
+    float(match.range_low) - 0.1,
+    float(match.range_low) + 0.1,
+    touches=3,
+  )
+  high = RangeBarrier(
+    float(match.range_high),
+    float(match.range_high) - 0.1,
+    float(match.range_high) + 0.1,
+    touches=3,
+  )
+  width = float(match.range_high) - float(match.range_low)
+  context = RangeContext(
+    version=1,
+    range_id=str(match.range_id),
+    symbol="XAU",
+    state="confirmed",
+    source="scanner",
+    execution_timeframe="M5",
+    context_timeframes=("M5",),
+    lower=float(match.range_low),
+    upper=float(match.range_high),
+    equilibrium=(float(match.range_low) + float(match.range_high)) / 2,
+    width_price=width,
+    width_pips=width / 0.1,
+    width_atr=width / 2.0,
+    lower_barrier=low,
+    upper_barrier=high,
+    supports=(low,),
+    resistances=(high,),
+    quality=5.0,
+    generated_at=now,
+    expires_at=now + 660,
+  )
+  await persist_scanner_range_observation(
+    redis_state.get_client(),
+    symbol="XAU",
+    context=context,
+  )
+
+
 @pytest.mark.asyncio
 async def test_worker_publishes_one_durable_auto_only_candidate(monkeypatch):
   client = redis_state.get_client()
@@ -368,6 +417,7 @@ async def test_worker_publishes_range_match_as_strategy_and_disarms_edge(
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _range_strategy_match(now)
+  await _seed_scanner_range_for_match(match, now)
   monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
   monkeypatch.setattr(worker.settings, "auto_trade_stream", "auto_trade:test")
   monkeypatch.setattr(worker.settings, "auto_trade_stream_maxlen", 100)
