@@ -962,7 +962,8 @@ async def test_status_explains_when_no_strategy_matches(monkeypatch):
   assert "Source: <b>none</b>" in text
   assert "Scanner M5: <b>no setup matched · range waiting edge</b>" in text
   assert "Range Box <b>waiting for box</b> · Trend <b>no setup</b>" in text
-  assert "Market context: <b>chop</b> <i>(telemetry only)</i>" in text
+  assert "Regime: <b>chop</b>" in text
+  assert "Range execution gate:" in text
   assert "Gate:" not in text
 
 
