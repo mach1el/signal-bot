@@ -4,7 +4,7 @@ using ApexVoid.CTraderFeed;
 
 namespace CTraderFeed.Tests;
 
-public sealed class AutoTradeEngineTests
+public sealed partial class AutoTradeEngineTests
 {
   private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(1_000);
   private static readonly SymbolInfo Symbol = new(
@@ -4794,7 +4794,30 @@ public sealed class AutoTradeEngineTests
     public int? FailAmendmentCall { get; init; }
     public int? FailReconcileCall { get; init; }
     public int? FailLimitOrderCall { get; init; }
+    public int? FailMarketOrderCall { get; init; }
+    public int? FailCancelCall { get; init; }
+    // "Broker accepted, response never arrived": the order exists at the broker
+    // but the caller only sees a transport failure.
+    public int? LoseMarketResponseCall { get; init; }
+    public int? LoseLimitResponseCall { get; init; }
     public bool BlockClose { get; init; }
+    // Broker-call gates: the test releases them once it has rearranged lease
+    // ownership, which is how a long broker operation is modelled without
+    // wall-clock waits.
+    public int? PauseMarketOrderCall { get; init; }
+    public int? PauseLimitOrderCall { get; init; }
+    public TaskCompletionSource<bool> MarketOrderEntered { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> ReleaseMarketOrder { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> LimitOrderEntered { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> ReleaseLimitOrder { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
     public TaskCompletionSource<bool> ReconcileFaultEntered { get; } = new(
       TaskCreationOptions.RunContinuationsAsynchronously
     );
@@ -4806,6 +4829,8 @@ public sealed class AutoTradeEngineTests
     private int _amendmentCalls;
     private int _reconcileCalls;
     private int _limitOrderCalls;
+    private int _marketOrderCalls;
+    private int _cancelCalls;
     private long _nextPositionId = 91;
     private long _nextOrderId = 81;
 
@@ -4840,9 +4865,22 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     ) => Task.FromResult(Grants);
 
+    // Pre-submit fault injection: this is read after the candidate is claimed
+    // but before any broker mutation, so a failure here is a safe retry.
+    public Func<int, bool>? FailAccountCall { get; init; }
+    public int AccountCalls { get; private set; }
+
     public Task<TradingAccountSnapshot> GetTradingAccountAsync(
       CancellationToken cancellationToken
-    ) => Task.FromResult(Account);
+    )
+    {
+      AccountCalls += 1;
+      if (FailAccountCall?.Invoke(AccountCalls) == true)
+      {
+        throw new IOException("simulated account snapshot failure");
+      }
+      return Task.FromResult(Account);
+    }
 
     public Task<IReadOnlyList<TradingPosition>> ReconcilePositionsAsync(
       CancellationToken cancellationToken
@@ -4871,11 +4909,21 @@ public sealed class AutoTradeEngineTests
       );
     }
 
-    public Task<TradeExecution> PlaceMarketOrderAsync(
+    public async Task<TradeExecution> PlaceMarketOrderAsync(
       MarketOrderRequest order,
       CancellationToken cancellationToken
     )
     {
+      _marketOrderCalls++;
+      if (_marketOrderCalls == PauseMarketOrderCall)
+      {
+        MarketOrderEntered.TrySetResult(true);
+        await ReleaseMarketOrder.Task.WaitAsync(cancellationToken);
+      }
+      if (_marketOrderCalls == FailMarketOrderCall)
+      {
+        throw new IOException("simulated market placement response loss");
+      }
       Orders.Add(order);
       var fill = _marketExecutionPrices.TryDequeue(out var queued)
         ? queued
@@ -4896,20 +4944,29 @@ public sealed class AutoTradeEngineTests
         order.Label,
         order.Comment
       ));
-      return Task.FromResult(new TradeExecution(
+      if (_marketOrderCalls == LoseMarketResponseCall)
+      {
+        throw new IOException("simulated market response loss after acceptance");
+      }
+      return new TradeExecution(
         positionId,
         orderId,
         fill,
         order.Volume
-      ));
+      );
     }
 
-    public Task<long> PlaceLimitOrderAsync(
+    public async Task<long> PlaceLimitOrderAsync(
       LimitOrderRequest order,
       CancellationToken cancellationToken
     )
     {
       _limitOrderCalls++;
+      if (_limitOrderCalls == PauseLimitOrderCall)
+      {
+        LimitOrderEntered.TrySetResult(true);
+        await ReleaseLimitOrder.Task.WaitAsync(cancellationToken);
+      }
       if (_limitOrderCalls == FailLimitOrderCall)
       {
         throw new IOException("simulated limit placement failure");
@@ -4925,7 +4982,11 @@ public sealed class AutoTradeEngineTests
         order.Label,
         order.Comment
       ));
-      return Task.FromResult(orderId);
+      if (_limitOrderCalls == LoseLimitResponseCall)
+      {
+        throw new IOException("simulated limit response loss after acceptance");
+      }
+      return orderId;
     }
 
     public Task CancelPendingOrderAsync(
@@ -4933,6 +4994,11 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     )
     {
+      _cancelCalls++;
+      if (_cancelCalls == FailCancelCall)
+      {
+        throw new IOException("simulated cancellation response loss");
+      }
       CancelledOrders.Add(orderId);
       PendingOrders.RemoveAll(order => order.OrderId == orderId);
       return Task.CompletedTask;
@@ -5137,9 +5203,11 @@ public sealed class AutoTradeEngineTests
               0,
               1
             ));
+        // A record that already exists in a non-published state was written by
+        // an earlier attempt, so a reclaim is at least the second one.
         attempt = _candidateAttempts.TryGetValue(candidateId, out var previous)
           ? previous
-          : 0;
+          : state == CandidateExecutionStates.Published ? 0 : 1;
         if (state is null || !CandidateExecutionStates.IsKnown(state))
         {
           return Task.FromResult(CandidateClaimResult.Conflict(record));
@@ -5464,8 +5532,21 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     )
     {
-      Metrics.Add(metric);
+      // The lease heartbeat records metrics from its own loop, so writes are
+      // serialised and readers take a snapshot.
+      lock (Metrics)
+      {
+        Metrics.Add(metric);
+      }
       return Task.CompletedTask;
+    }
+
+    public string[] MetricsSnapshot()
+    {
+      lock (Metrics)
+      {
+        return [.. Metrics];
+      }
     }
     public Task SetValueAsync(
       string key,
