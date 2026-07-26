@@ -39,10 +39,14 @@ def event_loop():
 @pytest.fixture(autouse=True)
 def _fake_redis(monkeypatch):
   """Back the watcher's Redis state with an isolated in-memory fake per test."""
+  client = fakeredis.FakeAsyncRedis(decode_responses=True)
+  # Production publication fails closed if Redis EVAL is unavailable. Tests
+  # opt into the rollback-safe compatibility path explicitly.
+  client._apexvoid_allow_non_atomic_test_fallback = True
   monkeypatch.setattr(
     redis_state,
     "_client",
-    fakeredis.FakeAsyncRedis(decode_responses=True),
+    client,
   )
   market_map_delivery.clear_market_map_cache()
   yield

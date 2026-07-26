@@ -347,7 +347,7 @@ def test_overlap_resolves_to_sell_thesis_on_bearish_m1_rejection():
 
 
 @pytest.mark.parametrize("direction", ["BUY", "SELL"])
-def test_ambiguous_overlap_waits_without_deleting_either_thesis(direction):
+def test_ambiguous_overlap_is_advisory_in_observe(direction):
   outcome = worker._resolve_overlap_thesis(
     direction,
     4118.0,
@@ -357,7 +357,7 @@ def test_ambiguous_overlap_waits_without_deleting_either_thesis(direction):
     cfg=_Cfg(auto_trade_structural_guard_mode="observe"),
   )
 
-  assert outcome.outcome == "wait"
+  assert outcome.outcome == "allow_with_warning"
   assert outcome.reason_code == "ambiguous_waiting_confirmation"
   assert not outcome.hard_block
 
@@ -762,7 +762,7 @@ async def test_crossed_invalidation_is_terminal_for_only_that_match(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_one_overlap_wait_does_not_silence_publishable_sibling(monkeypatch):
+async def test_observe_overlap_allows_both_direct_route_evaluations(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   waiting = _match(
@@ -806,10 +806,10 @@ async def test_one_overlap_wait_does_not_silence_publishable_sibling(monkeypatch
     market_map=_overlap_map(),
   )
 
-  assert waiting_result is None
+  assert waiting_result == waiting.match_id
   assert published_result == publishable.match_id
-  assert await client.xlen("auto_trade:replay") == 1
+  assert await client.xlen("auto_trade:replay") == 2
   remaining = deserialize_matches(
     await client.get(strategy_matches_key("XAU"))
   )
-  assert [item.match_id for item in remaining] == [waiting.match_id]
+  assert remaining == []

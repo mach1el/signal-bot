@@ -40,6 +40,7 @@ def _cfg(**overrides):
 
 class FakeRedis:
   def __init__(self):
+    self._apexvoid_allow_non_atomic_test_fallback = True
     self.kv = {}
     self.stream = []
     self.metrics = {}
@@ -57,6 +58,9 @@ class FakeRedis:
     for key in keys:
       self.kv.pop(key, None)
     return 1
+
+  async def exists(self, key):
+    return int(key in self.kv)
 
   async def eval(self, *args, **kwargs):
     raise RuntimeError("lua unavailable in FakeRedis")
@@ -97,13 +101,13 @@ def _match(
     strategy_mode="mapped_zone_reaction",
     direction="BUY",
     key_level=4072.38,
-    entry_low=4060.0,
+    entry_low=4070.0,
     entry_high=4073.0,
     current_price=4072.55,
     confluence=3,
     reasons=("mapped",),
     atr=2.4,
-    structure_swing=4060.39,
+    structure_swing=4068.0,
     targets_pips=(30, 60),
     family="mapped_zone",
     structural_source="market_map_zone",
