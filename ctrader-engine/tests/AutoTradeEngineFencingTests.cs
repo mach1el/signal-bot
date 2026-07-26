@@ -784,8 +784,9 @@ public sealed partial class AutoTradeEngineTests
     Assert.Empty(client.Orders);
     Assert.Contains(store.Events, item =>
       item.Type == "rejected"
-      && item.Message.Contains("final_protective_stop_contract_mismatch")
+      && item.Message.Contains("final_stop_zone_identity_mismatch")
     );
+    Assert.Contains("final_stop_zone_identity_mismatch", store.MetricsSnapshot());
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -797,6 +798,108 @@ public sealed partial class AutoTradeEngineTests
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(PushedStopCandidateJson(
       dropZoneId: true
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    // A pushed stop with no zone identity is a mismatch, never an implicit
+    // pass, so it must fail on identity rather than on geometry.
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("final_stop_zone_identity_mismatch")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
+  // Same identity, geometry moved by more than a tick on one edge: the zone
+  // Python approved is not the zone the executor measured.
+  [InlineData(3995.0, null)]
+  [InlineData(null, 3996.9)]
+  public async Task ShiftedOpposingZoneGeometryRejectsThePushedStop(
+    double? lowOverride,
+    double? highOverride
+  )
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(PushedStopCandidateJson(
+      zoneLowOverride: lowOverride is null ? null : (decimal)lowOverride.Value,
+      zoneHighOverride: highOverride is null ? null : (decimal)highOverride.Value
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("final_stop_zone_identity_mismatch")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ContextOnlyZoneNeedsNoPushIdentity()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    // The zone is carried for context but is not execution-grade, so neither
+    // side pushes the stop and no identity is required to validate it.
+    var store = new FakeAutoTradeStore(PushedStopCandidateJson(
+      executionGrade: false,
+      dropZoneId: true
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Single(client.Orders);
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
+    Assert.DoesNotContain(
+      "final_stop_zone_identity_mismatch", store.MetricsSnapshot()
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task NoAdjustmentContractCannotValidateAgainstAPushedPlan()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    // Python claims it never pushed, while the executor's own planner does
+    // push beyond the same execution-grade zone.
+    var store = new FakeAutoTradeStore(PushedStopCandidateJson(
+      claimNoAdjustment: true
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
@@ -1057,13 +1160,17 @@ public sealed partial class AutoTradeEngineTests
     string? zoneIdOverride = null,
     bool dropZoneId = false,
     decimal? zoneLowOverride = null,
-    decimal? zoneHighOverride = null
+    decimal? zoneHighOverride = null,
+    bool executionGrade = true,
+    bool claimNoAdjustment = false
   )
   {
     // The base structure stop lands inside this zone, and pushing beyond it
     // still fits the stop envelope, so the contract really is a pushed stop.
+    // A context-only zone is simply too wide to trade against, which is how
+    // the executor classifies it, so widening it drops the push entirely.
     const decimal structureSwing = 3996.5m;
-    const decimal zoneLow = 3996.0m;
+    var zoneLow = executionGrade ? 3996.0m : 3980.0m;
     const decimal zoneHigh = 3996.4m;
     var identity = AutoTradeEngine.OpposingZoneFingerprint(
       "XAU",
@@ -1077,14 +1184,18 @@ public sealed partial class AutoTradeEngineTests
     var plan = PlannedStopContract(
       4000.2m,
       structureSwing: structureSwing,
-      zone: new OpposingZoneStopContext(
-        identity,
-        zoneLow,
-        zoneHigh,
-        true,
-        true,
-        0.3m
-      )
+      // `claimNoAdjustment` prices the contract as if no zone existed, so the
+      // published plan says "none" while the executor still pushes.
+      zone: claimNoAdjustment || !executionGrade
+        ? null
+        : new OpposingZoneStopContext(
+          identity,
+          zoneLow,
+          zoneHigh,
+          true,
+          true,
+          0.3m
+        )
     ).Plan;
     return JsonSerializer.Serialize(new
     {
