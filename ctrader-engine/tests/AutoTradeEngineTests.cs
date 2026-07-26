@@ -4402,7 +4402,12 @@ public sealed partial class AutoTradeEngineTests
     CandidateStream: "auto_trade:candidates",
     EventStream: "auto_trade:events",
     Label: "apexvoid-auto",
-    ManualAlgoEnabled: true
+    ManualAlgoEnabled: true,
+    // Quorum is still required (2 snapshots); the recheck delay is zero so
+    // recovery tests do not sleep on the wall clock.
+    BrokerAbsenceConfirmations: 2,
+    BrokerAbsenceRecheckSeconds: 0,
+    BrokerRecoveryTimeoutSeconds: 30
   );
 
   private static AutoTradeOptions DemoEvalOptions() => Options() with
@@ -4800,6 +4805,9 @@ public sealed partial class AutoTradeEngineTests
     // but the caller only sees a transport failure.
     public int? LoseMarketResponseCall { get; init; }
     public int? LoseLimitResponseCall { get; init; }
+    // Number of reconcile snapshots after acceptance that omit the accepted
+    // position. The next snapshot after that count reveals it.
+    public int HideAcceptedMarketPositionsForReconcileCalls { get; set; }
     public bool BlockClose { get; init; }
     // Broker-call gates: the test releases them once it has rearranged lease
     // ownership, which is how a long broker operation is modelled without
@@ -4825,12 +4833,14 @@ public sealed partial class AutoTradeEngineTests
       TaskCreationOptions.RunContinuationsAsynchronously
     );
     private readonly List<TradingPosition> _positions = [];
+    private readonly List<TradingPosition> _hiddenPositions = [];
     private readonly Queue<decimal> _marketExecutionPrices = [];
     private int _amendmentCalls;
     private int _reconcileCalls;
     private int _limitOrderCalls;
     private int _marketOrderCalls;
     private int _cancelCalls;
+    private int _hiddenRemainingReconciles;
     private long _nextPositionId = 91;
     private long _nextOrderId = 81;
 
@@ -4897,6 +4907,18 @@ public sealed partial class AutoTradeEngineTests
     )
     {
       _reconcileCalls++;
+      if (_hiddenPositions.Count > 0)
+      {
+        if (_hiddenRemainingReconciles > 0)
+        {
+          _hiddenRemainingReconciles--;
+        }
+        else
+        {
+          _positions.AddRange(_hiddenPositions);
+          _hiddenPositions.Clear();
+        }
+      }
       if (_reconcileCalls == FailReconcileCall)
       {
         ReconcileFaultEntered.TrySetResult(true);
@@ -4934,7 +4956,7 @@ public sealed partial class AutoTradeEngineTests
       var stopLoss = order.Direction == TradeDirection.Buy
         ? fill - distance
         : fill + distance;
-      _positions.Add(new TradingPosition(
+      var accepted = new TradingPosition(
         positionId,
         order.SymbolId,
         order.Direction,
@@ -4943,7 +4965,17 @@ public sealed partial class AutoTradeEngineTests
         stopLoss,
         order.Label,
         order.Comment
-      ));
+      );
+      if (
+        _marketOrderCalls == LoseMarketResponseCall
+        && HideAcceptedMarketPositionsForReconcileCalls > 0
+      )
+      {
+        _hiddenPositions.Add(accepted);
+        _hiddenRemainingReconciles = HideAcceptedMarketPositionsForReconcileCalls;
+        throw new IOException("simulated market response loss after acceptance");
+      }
+      _positions.Add(accepted);
       if (_marketOrderCalls == LoseMarketResponseCall)
       {
         throw new IOException("simulated market response loss after acceptance");
@@ -5237,16 +5269,28 @@ public sealed partial class AutoTradeEngineTests
             ));
           }
         }
-        else if (
-          CandidateExecutionStates.IsActiveLeaseOwned(state)
-          && !_expiredLeases.Contains(candidateId)
-        )
+        else if (CandidateExecutionStates.IsActiveLeaseOwned(state))
         {
-          return Task.FromResult(new CandidateClaimResult(
-            CandidateClaimDisposition.ActiveElsewhere,
-            null,
-            record
-          ));
+          if (!_expiredLeases.Contains(candidateId))
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.ActiveElsewhere,
+              null,
+              record
+            ));
+          }
+          // Expired broker_submitting is recovery-required for normal intake.
+          if (
+            state == CandidateExecutionStates.BrokerSubmitting
+            && !effective.AllowBrokerSubmittingReclaim
+          )
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.RecoveryRequired,
+              null,
+              record
+            ));
+          }
         }
       }
       _expiredLeases.Remove(candidateId);

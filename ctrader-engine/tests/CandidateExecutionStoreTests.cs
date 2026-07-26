@@ -236,8 +236,7 @@ public sealed class CandidateExecutionStoreTests
       fixture.CandidateId,
       fixture.StreamEventId,
       Lease,
-      CancellationToken.None,
-      new CandidateClaimPolicy(AllowBrokerSubmittingReclaim: false)
+      CancellationToken.None
     );
     Assert.Equal(CandidateClaimDisposition.RecoveryRequired, denied.Disposition);
 
@@ -245,7 +244,8 @@ public sealed class CandidateExecutionStoreTests
       fixture.CandidateId,
       fixture.StreamEventId,
       Lease,
-      CancellationToken.None
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
     );
     Assert.Equal(CandidateClaimDisposition.Claimed, allowed.Disposition);
   }
@@ -533,6 +533,33 @@ public sealed class CandidateExecutionStoreTests
     );
   }
 
+  [Fact]
+  public async Task StructuredRecordMissingIdentityIsConflict()
+  {
+    await using var fixture = await StartAsync("missing-identity");
+    await fixture.SeedRawAsync(
+      """{"version":1,"candidate_id":"","stream_event_id":"1-0","state":"published","updated_at":1}"""
+    );
+    var missingCandidate = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None
+    );
+    Assert.Equal(CandidateClaimDisposition.Conflict, missingCandidate.Disposition);
+
+    await fixture.SeedRawAsync(
+      """{"version":1,"candidate_id":"cand","stream_event_id":"","state":"published","updated_at":1}"""
+    );
+    var missingEvent = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None
+    );
+    Assert.Equal(CandidateClaimDisposition.Conflict, missingEvent.Disposition);
+  }
+
   // -------------------------------------------------------------- heartbeat
 
   [Fact]
@@ -622,6 +649,48 @@ public sealed class CandidateExecutionStoreTests
     );
     Assert.True(staleHeartbeat.OwnershipLost);
     Assert.Equal(ownerB.Lease!.Token, (await fixture.ReadAsync()).LeaseToken);
+  }
+
+  [Fact]
+  public async Task OwnershipTokenCancelsEvenWhenMetricWriteFails()
+  {
+    await using var fixture = await StartAsync("heartbeat-metric-fail");
+    await fixture.SeedPublishedAsync();
+    var owner = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None
+    );
+    await fixture.ExpireLeaseAsync();
+    _ = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None
+    );
+    using var sessionCts = new CancellationTokenSource();
+    sessionCts.Cancel();
+    var metricFailures = 0;
+    await using var heartbeat = CandidateLeaseHeartbeat.Start(
+      fixture.Store,
+      owner.Lease!,
+      Lease,
+      sessionCts.Token,
+      TimeSpan.FromHours(1),
+      metric: (_, _) =>
+      {
+        metricFailures++;
+        return Task.FromException(
+          new InvalidOperationException("metric sink unavailable")
+        );
+      }
+    );
+
+    Assert.False(await heartbeat.EnsureOwnershipAsync(CancellationToken.None));
+    Assert.True(heartbeat.OwnershipLost);
+    Assert.True(heartbeat.OwnershipToken.IsCancellationRequested);
+    Assert.True(metricFailures >= 1);
   }
 
   // ------------------------------------------------------- state transitions

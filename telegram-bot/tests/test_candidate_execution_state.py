@@ -145,6 +145,44 @@ def test_identity_mismatch_is_never_compatible():
   )
 
 
+def test_structured_record_missing_candidate_id_is_incompatible():
+  raw = (
+    '{"version":1,"candidate_id":"","stream_event_id":"8-0",'
+    '"state":"processing","updated_at":1720000006}'
+  )
+  record = parse_candidate_execution_record(raw)
+  assert not record.is_legacy
+  assert not candidate_record_compatible(
+    record,
+    candidate_id="candidate-8",
+    stream_event_id="8-0",
+  )
+
+
+def test_structured_record_missing_stream_event_id_is_incompatible():
+  raw = (
+    '{"version":1,"candidate_id":"candidate-9","stream_event_id":"",'
+    '"state":"processing","updated_at":1720000007}'
+  )
+  record = parse_candidate_execution_record(raw)
+  assert not record.is_legacy
+  assert not candidate_record_compatible(
+    record,
+    candidate_id="candidate-9",
+    stream_event_id="9-0",
+  )
+
+
+def test_legacy_published_remains_compatible():
+  record = parse_candidate_execution_record("published")
+  assert record.is_legacy
+  assert candidate_record_compatible(
+    record,
+    candidate_id="any",
+    stream_event_id="1-0",
+  )
+
+
 @pytest.mark.parametrize(
   "raw",
   ["half-written", "processing_v2", "ordered", "{not json"],

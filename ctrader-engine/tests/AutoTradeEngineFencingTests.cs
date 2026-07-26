@@ -158,20 +158,23 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await client.MarketOrderEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-    // The lease expires mid-call and a successor claims the candidate.
+    // The lease expires mid-call. An expired broker_submitting state is
+    // recovery-required for normal intake; only the recovery claim policy
+    // may take it over.
     store.ExpireLease(CandidateId);
     var successor = await store.TryClaimCandidateAsync(
       CandidateId,
       "1-0",
       TimeSpan.FromMinutes(2),
-      cts.Token
+      cts.Token,
+      CandidateClaimPolicy.Recovery
     );
     Assert.Equal(CandidateClaimDisposition.Claimed, successor.Disposition);
     client.ReleaseMarketOrder.TrySetResult(true);
 
     await WaitUntilAsync(() =>
-      store.Metrics.Contains("executor_stale_complete_blocked")
-      || store.Events.Any(item => item.Type == "candidate_lease_lost")
+      store.MetricsSnapshot().Contains("executor_stale_complete_blocked")
+      || store.Events.ToArray().Any(item => item.Type == "candidate_lease_lost")
     );
 
     // Whatever the stale executor did next, it never rewrote the successor's
@@ -417,8 +420,113 @@ public sealed partial class AutoTradeEngineTests
 
     Assert.Single(client.Orders);
     Assert.Contains("broker_outcome_confirmed_absent", store.Metrics);
+    Assert.Contains("broker_recovery_absence_confirmed", store.Metrics);
+    Assert.Contains("broker_recovery_empty_snapshot", store.Metrics);
+    Assert.True(
+      store.Metrics.Count(item => item == "broker_recovery_empty_snapshot") >= 2
+    );
     Assert.Contains("candidate_retry_waiting", store.Metrics);
     Assert.Contains("candidate_retry_reclaimed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task DelayedBrokerVisibilityIsAdoptedWithoutDuplicateSubmission()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    // Broker accepts the order, acknowledgement is lost, and the position is
+    // invisible on the first reconcile snapshot only.
+    var client = new FakeTradingClient
+    {
+      LoseMarketResponseCall = 1,
+      // One empty recovery snapshot, then the accepted position appears.
+      HideAcceptedMarketPositionsForReconcileCalls = 1,
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitUntilAsync(() => store.Metrics.Contains("broker_outcome_adopted"));
+
+    Assert.Single(client.Orders);
+    Assert.Contains("broker_response_unknown", store.Metrics);
+    Assert.Contains("broker_recovery_empty_snapshot", store.Metrics);
+    Assert.DoesNotContain("broker_recovery_absence_confirmed", store.Metrics);
+    Assert.Contains("broker_duplicate_prevented", store.Metrics);
+    Assert.DoesNotContain("candidate_retry_reclaimed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task UnknownPlannedRouteRejectsBeforeAnyBrokerCall()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(4000.2m),
+      plannedRoute: "twap_unknown",
+      plannedEntryPrice: 4000.2m,
+      legEntryPrices: [4000.2m],
+      orderTypePreference: "market",
+      entryDistribution: "single"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    Assert.Empty(client.LimitOrders);
+    Assert.Contains("final_stop_entry_route_invalid", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task SingleLimitMissingLegEntryRejectsBeforeBrokerCall()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(4000.2m),
+      plannedRoute: "single_limit",
+      plannedEntryPrice: 4000.2m,
+      legEntryPrices: [],
+      orderTypePreference: "limit",
+      entryDistribution: "single"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions() with { ZoneFillEnabled = false },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    Assert.Empty(client.LimitOrders);
+    Assert.Contains("final_stop_leg_entries_missing", store.Metrics);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
