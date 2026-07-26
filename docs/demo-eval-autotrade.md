@@ -156,8 +156,10 @@ The evaluation evidence is:
   `lifecycle_state:service` or reopens terminal lifecycle as `managing`.
 - Candidate markers are structured JSON (`state`, `stream_event_id`, lease
   fields, `attempt`, `last_error`) or legacy-compatible plain strings during
-  rollout. `retryable_error` is reclaimable; `broker_outcome_unknown` is
-  recovery-required and never a normal retry.
+  rollout. `retryable_error` is reclaimable; `broker_outcome_unknown` and
+  expired `broker_submitting` are recovery-required and never a normal retry.
+  Broker absence needs consecutive empty snapshots (or deterministic client
+  order lookup), not a single empty reconcile.
 - Candidates carry `planned_execution_route`, `planned_entry_price` and
   `opposing_zone_id`; the executor rejects route/entry drift and zone-identity
   mismatch before any broker call, and the broker stop is the approved

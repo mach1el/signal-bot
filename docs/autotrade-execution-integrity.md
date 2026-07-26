@@ -239,7 +239,9 @@ string, and the cursor follows the disposition:
 
 A claim policy states explicitly what a caller may reclaim, so an ordinary
 intake claim can never adopt a `broker_submitting` or `broker_outcome_unknown`
-record; only the recovery flow can.
+record; only the recovery flow can. An *expired* `broker_submitting` lease
+also returns `RecoveryRequired` under the default claim policy — never a
+normal reclaim that could place a duplicate order.
 
 ## Publication authority and all-or-nothing recovery
 
@@ -326,16 +328,69 @@ Errors are classified by what the broker may have done, not by exception type:
 
 A `BrokerOutcomeUnknownException` carries the candidate and the deterministic
 client order id, and the outer handler preserves the recovery state instead of
-releasing it to `retryable_error` (`broker_outcome_unknown_preserved`). The
-group plan is **kept** while the outcome is unknown, because it holds the
-identities needed to adopt the order.
+releasing it to `retryable_error` (`broker_outcome_unknown_preserved`). Metric
+semantics are separated:
 
-Recovery then searches the broker by deterministic client order id and either
-adopts the position or pending order (`broker_outcome_adopted`,
-`broker_duplicate_prevented`) or confirms absence
-(`broker_outcome_confirmed_absent`), only then deleting the group plan and
-allowing a retry. Rollback cancels only confirmed accepted orders, is fenced
-by the current lease, and an unverified cancellation stays recovery-required.
+- `broker_response_unknown` — acknowledgement is uncertain while the lease may
+  still be held;
+- `executor_lease_lost_after_broker` — the lease was lost after a broker
+  request may have begun;
+- `final_stop_amendment_unknown` — the order exists but stop amendment
+  acknowledgement is uncertain.
+
+The group plan is **kept** while the outcome is unknown, because it holds the
+identities needed to adopt the order (`candidate_id`, `stream_event_id`,
+route, `client_order_ids`, `submitted_at`, recovery counters).
+
+### Absence must not be confirmed from one snapshot
+
+Recovery uses the strongest available evidence, in order:
+
+1. query / match by deterministic `client_order_id`;
+2. search pending orders and positions by that identity;
+3. search by exact candidate identity in broker metadata;
+4. only then an absence-confirmation quorum.
+
+A single empty broker snapshot never becomes confirmed absence. When direct
+client-order lookup is unavailable, recovery requires consecutive empty
+authoritative snapshots separated by
+`AUTO_TRADE_BROKER_ABSENCE_RECHECK_SECONDS` (default 3s), with
+`AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` (default 2) empties required, within
+`AUTO_TRADE_BROKER_RECOVERY_TIMEOUT_SECONDS` (default 30s). The candidate stays
+`broker_outcome_unknown` during that window; normal intake returns
+`RecoveryRequired` and cannot retry. Expired `broker_submitting` is also
+`RecoveryRequired` for normal claims — only the recovery claim policy may
+acquire it.
+
+Typed dispositions:
+
+```text
+AdoptedPosition | AdoptedPendingOrder | ConfirmedAbsent | StillUnknown | Conflict
+```
+
+Metrics: `broker_recovery_started`, `broker_recovery_direct_lookup`,
+`broker_recovery_empty_snapshot`, `broker_recovery_absence_confirmed`,
+`broker_recovery_still_unknown`, `broker_recovery_conflict`,
+`broker_outcome_adopted`, `broker_duplicate_prevented`.
+
+The group plan is deleted only after adoption with persisted execution state,
+confirmed absence (lookup or quorum), or an explicitly verified rollback.
+
+## Route and planned-entry contracts
+
+Supported declared routes: `market`, `single_limit`, `zone_split`, `either`.
+Unknown values fail closed (`final_stop_entry_route_invalid`) before any broker
+mutation. Committed routes require `planned_entry_price`; limit and zone routes
+also require matching `planned_leg_entry_prices`. Explicit `either` leaves the
+executor free to choose a supported route but never reinterprets an invalid
+route string as either.
+
+## Structured candidate identity
+
+Legacy plain markers (`published`, `processing`, `ordered:<id>`, …) remain
+conservatively compatible. Structured records with `version >= 1` require
+non-empty exact `candidate_id` and `stream_event_id` on every mutation;
+missing identity is a conflict, never an implicit pass.
 
 ## Lifecycle events versus lifecycle transitions
 
