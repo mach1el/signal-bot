@@ -178,9 +178,10 @@ public sealed partial class AutoTradeEngineTests
     );
 
     // Whatever the stale executor did next, it never rewrote the successor's
-    // record and never produced a terminal outcome of its own.
+    // record and never produced a terminal outcome of its own. The successor
+    // recovery claim is structurally recovery-owned, never normal processing.
     Assert.Equal(
-      CandidateExecutionStates.Processing,
+      CandidateExecutionStates.BrokerReconciling,
       store.CandidateState(CandidateId)
     );
     Assert.False(store.Ordered.Task.IsCompleted);

@@ -4403,10 +4403,11 @@ public sealed partial class AutoTradeEngineTests
     EventStream: "auto_trade:events",
     Label: "apexvoid-auto",
     ManualAlgoEnabled: true,
-    // Quorum is still required (2 snapshots); the recheck delay is zero so
-    // recovery tests do not sleep on the wall clock.
+    // Quorum requires two time-separated snapshots. The interval must be
+    // positive (validation fails closed on zero); recovery tests avoid wall-
+    // clock sleeps through the fake store's absence clock and RecoveryDelay.
     BrokerAbsenceConfirmations: 2,
-    BrokerAbsenceRecheckSeconds: 0,
+    BrokerAbsenceRecheckSeconds: 1,
     BrokerRecoveryTimeoutSeconds: 30
   );
 
@@ -4867,7 +4868,8 @@ public sealed partial class AutoTradeEngineTests
         request.LimitPrice,
         stopLoss,
         request.Label,
-        request.Comment
+        request.Comment,
+        request.ClientOrderId
       ));
     }
 
@@ -4964,7 +4966,8 @@ public sealed partial class AutoTradeEngineTests
         fill,
         stopLoss,
         order.Label,
-        order.Comment
+        order.Comment,
+        order.ClientOrderId
       );
       if (
         _marketOrderCalls == LoseMarketResponseCall
@@ -5012,7 +5015,8 @@ public sealed partial class AutoTradeEngineTests
         order.Volume,
         order.LimitPrice,
         order.Label,
-        order.Comment
+        order.Comment,
+        order.ClientOrderId
       ));
       if (_limitOrderCalls == LoseLimitResponseCall)
       {
@@ -5131,6 +5135,14 @@ public sealed partial class AutoTradeEngineTests
       [];
     private readonly Dictionary<string, int> _candidateAttempts = [];
     private readonly HashSet<string> _expiredLeases = [];
+    // Leases created by recovery claims: a live recovery heartbeat must block
+    // a second recovery owner.
+    private readonly HashSet<string> _recoveryLeases = [];
+    // Durable absence-confirmation progress per candidate.
+    private readonly Dictionary<
+      string,
+      (string StreamEventId, int Confirmations, long LastCheckAt)
+    > _absenceProgress = [];
     private readonly List<string> _payloads = [payload];
     private readonly List<string> _commandPayloads = [];
     public Dictionary<long, AutoTradePositionState> Positions { get; } = [];
@@ -5219,6 +5231,7 @@ public sealed partial class AutoTradeEngineTests
     {
       var effective = policy ?? CandidateClaimPolicy.Default;
       var attempt = 0;
+      string? recoveredFrom = null;
       if (_candidateStatus.TryGetValue(candidateId, out var current))
       {
         var state = StateOf(current);
@@ -5268,6 +5281,21 @@ public sealed partial class AutoTradeEngineTests
               record
             ));
           }
+          // A live recovery heartbeat blocks a second recovery owner. A
+          // normal executor's leftover lease on broker_outcome_unknown is
+          // modelled as already expired (the fake has no clock).
+          if (
+            _recoveryLeases.Contains(candidateId)
+            && !_expiredLeases.Contains(candidateId)
+          )
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.ActiveElsewhere,
+              null,
+              record
+            ));
+          }
+          recoveredFrom = state;
         }
         else if (CandidateExecutionStates.IsActiveLeaseOwned(state))
         {
@@ -5280,25 +5308,41 @@ public sealed partial class AutoTradeEngineTests
             ));
           }
           // Expired broker_submitting is recovery-required for normal intake.
-          if (
-            state == CandidateExecutionStates.BrokerSubmitting
-            && !effective.AllowBrokerSubmittingReclaim
-          )
+          if (state == CandidateExecutionStates.BrokerSubmitting)
           {
-            return Task.FromResult(new CandidateClaimResult(
-              CandidateClaimDisposition.RecoveryRequired,
-              null,
-              record
-            ));
+            if (!effective.AllowBrokerSubmittingReclaim)
+            {
+              return Task.FromResult(new CandidateClaimResult(
+                CandidateClaimDisposition.RecoveryRequired,
+                null,
+                record
+              ));
+            }
+            // A broker side effect may already exist: this is a recovery
+            // acquisition, never a normal execution restart.
+            recoveredFrom = state;
           }
         }
       }
       _expiredLeases.Remove(candidateId);
       attempt += 1;
       var token = Guid.NewGuid().ToString("N");
+      // Recovery claims stay structurally recovery-owned so a crashed
+      // recovery worker can never decay into reclaimable normal processing.
+      var claimedState = recoveredFrom is null
+        ? CandidateExecutionStates.Processing
+        : CandidateExecutionStates.BrokerReconciling;
       _candidateAttempts[candidateId] = attempt;
-      _candidateStatus[candidateId] = CandidateExecutionStates.Processing;
+      _candidateStatus[candidateId] = claimedState;
       _candidateLeases[candidateId] = (streamEventId, token);
+      if (recoveredFrom is null)
+      {
+        _recoveryLeases.Remove(candidateId);
+      }
+      else
+      {
+        _recoveryLeases.Add(candidateId);
+      }
       Claims.Add(candidateId);
       return Task.FromResult(new CandidateClaimResult(
         CandidateClaimDisposition.Claimed,
@@ -5311,13 +5355,14 @@ public sealed partial class AutoTradeEngineTests
         new CandidateExecutionRecord(
           candidateId,
           streamEventId,
-          CandidateExecutionStates.Processing,
+          claimedState,
           token,
           DateTimeOffset.UtcNow.Add(leaseDuration).ToUnixTimeSeconds(),
           null,
           0,
           1,
-          attempt
+          attempt,
+          recoveredFrom
         )
       ));
     }
@@ -5391,9 +5436,84 @@ public sealed partial class AutoTradeEngineTests
       if (newState == CandidateExecutionStates.RetryableError)
       {
         _candidateLeases.Remove(candidateId);
+        _recoveryLeases.Remove(candidateId);
       }
       return Task.FromResult(true);
     }
+
+    // Authoritative-clock seam for durable absence confirmations. The default
+    // step models a fully elapsed interval so quorum flows never sleep on the
+    // wall clock; interval tests disable auto-advance and move it explicitly.
+    public long AbsenceClockSeconds { get; set; } = 1_000_000;
+    public bool AutoAdvanceAbsenceClock { get; set; } = true;
+
+    public Task<BrokerAbsenceProgress?> TryRecordBrokerAbsenceCheckAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
+      int minIntervalSeconds,
+      TimeSpan ttl,
+      CancellationToken cancellationToken
+    )
+    {
+      // Fenced exactly like the Redis script: exact lease token, unexpired
+      // lease, and the recovery-active state.
+      if (
+        !OwnsLease(candidateId, leaseToken)
+        || _expiredLeases.Contains(candidateId)
+        || CandidateState(candidateId) != CandidateExecutionStates.BrokerReconciling
+      )
+      {
+        return Task.FromResult<BrokerAbsenceProgress?>(null);
+      }
+      if (AutoAdvanceAbsenceClock)
+      {
+        AbsenceClockSeconds += minIntervalSeconds;
+      }
+      var now = AbsenceClockSeconds;
+      var confirmations = 0;
+      long? last = null;
+      if (
+        _absenceProgress.TryGetValue(candidateId, out var progress)
+        && progress.StreamEventId == streamEventId
+      )
+      {
+        confirmations = progress.Confirmations;
+        last = progress.LastCheckAt;
+      }
+      if (last is long previous && now - previous < minIntervalSeconds)
+      {
+        return Task.FromResult<BrokerAbsenceProgress?>(new BrokerAbsenceProgress(
+          false,
+          confirmations,
+          previous,
+          now - previous
+        ));
+      }
+      confirmations += 1;
+      _absenceProgress[candidateId] = (streamEventId, confirmations, now);
+      return Task.FromResult<BrokerAbsenceProgress?>(new BrokerAbsenceProgress(
+        true,
+        confirmations,
+        now,
+        last is long anchor ? now - anchor : -1
+      ));
+    }
+
+    public Task ClearBrokerAbsenceProgressAsync(
+      string candidateId,
+      CancellationToken cancellationToken
+    )
+    {
+      _absenceProgress.Remove(candidateId);
+      return Task.CompletedTask;
+    }
+
+    public (string StreamEventId, int Confirmations, long LastCheckAt)?
+      AbsenceProgressFor(string candidateId) =>
+        _absenceProgress.TryGetValue(candidateId, out var progress)
+          ? progress
+          : null;
 
     public Task<string?> GetCandidateStatusAsync(
       string candidateId,
@@ -5447,6 +5567,7 @@ public sealed partial class AutoTradeEngineTests
       }
       _candidateStatus[candidateId] = outcome;
       _candidateLeases.Remove(candidateId);
+      _recoveryLeases.Remove(candidateId);
       Processed.TrySetResult(true);
       if (outcome.StartsWith("ordered:", StringComparison.Ordinal))
       {

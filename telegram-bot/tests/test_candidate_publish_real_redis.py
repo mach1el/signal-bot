@@ -18,6 +18,7 @@ from app.autotrade.candidate_execution_state import (
   parse_candidate_execution_record,
   serialize_candidate_execution_record,
   STATE_BROKER_OUTCOME_UNKNOWN,
+  STATE_BROKER_RECONCILING,
   STATE_ORDERED,
   STATE_PROCESSING,
   STATE_PUBLISHED,
@@ -459,3 +460,128 @@ async def test_real_lua_reconcile_decodes_records_carrying_json_punctuation(
   assert preserved.state == STATE_RETRYABLE_ERROR
   assert preserved.candidate_id == candidate_id
   assert preserved.last_error == hostile_error
+
+
+@pytest.mark.asyncio
+async def test_real_lua_reconcile_preserves_broker_reconciling_recovery(
+  real_redis,
+):
+  # The recovery-active state is executor progress like any other: the
+  # publication reconciler must never rewrite or restore over it.
+  candidate_id = "reconciling-candidate"
+  event_id = await _publish_then_overwrite_record(
+    real_redis,
+    stream="test:lua:reconciling",
+    candidate_id=candidate_id,
+    record=lambda assigned: serialize_candidate_execution_record(
+      candidate_id=candidate_id,
+      stream_event_id=assigned,
+      state=STATE_BROKER_RECONCILING,
+      lease_token="recovery-token",
+      lease_expires_at=9999999999,
+      attempt=2,
+      last_error=STATE_BROKER_OUTCOME_UNKNOWN,
+    ),
+  )
+
+  recovered = await reconcile_candidate_publication(
+    real_redis,
+    stream="test:lua:reconciling",
+    event_id=event_id,
+  )
+
+  assert recovered.published
+  preserved = parse_candidate_execution_record(
+    await real_redis.get(candidate_key(candidate_id))
+  )
+  assert preserved.state == STATE_BROKER_RECONCILING
+  assert preserved.lease_token == "recovery-token"
+  assert preserved.last_error == STATE_BROKER_OUTCOME_UNKNOWN
+  assert await real_redis.get(
+    candidate_stream_event_key(candidate_id)
+  ) == event_id
+
+
+# The shared malformed-record matrix: publication reconciliation must refuse
+# to restore claims over any structured record that fails the strict schema,
+# exactly like the Python parser, the C# parser and the execution Lua.
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+  ("name", "template"),
+  [
+    (
+      "missing-version",
+      '{{"candidate_id":"{c}","stream_event_id":"{e}","state":"published"}}',
+    ),
+    (
+      "zero-version",
+      (
+        '{{"version":0,"candidate_id":"{c}","stream_event_id":"{e}",'
+        '"state":"published"}}'
+      ),
+    ),
+    (
+      "future-version",
+      (
+        '{{"version":2,"candidate_id":"{c}","stream_event_id":"{e}",'
+        '"state":"published"}}'
+      ),
+    ),
+    (
+      "string-version",
+      (
+        '{{"version":"one","candidate_id":"{c}","stream_event_id":"{e}",'
+        '"state":"published"}}'
+      ),
+    ),
+    (
+      "missing-state",
+      '{{"version":1,"candidate_id":"{c}","stream_event_id":"{e}"}}',
+    ),
+    (
+      "unknown-state",
+      (
+        '{{"version":1,"candidate_id":"{c}","stream_event_id":"{e}",'
+        '"state":"unknown"}}'
+      ),
+    ),
+    (
+      "empty-candidate",
+      (
+        '{{"version":1,"candidate_id":"","stream_event_id":"{e}",'
+        '"state":"published"}}'
+      ),
+    ),
+    (
+      "empty-event",
+      (
+        '{{"version":1,"candidate_id":"{c}","stream_event_id":"",'
+        '"state":"published"}}'
+      ),
+    ),
+  ],
+)
+async def test_real_lua_reconcile_refuses_malformed_structured_records(
+  real_redis, name, template,
+):
+  candidate_id = f"malformed-{name}"
+  event_id = await _publish_then_overwrite_record(
+    real_redis,
+    stream="test:lua:malformed",
+    candidate_id=candidate_id,
+    record=lambda assigned: template.format(c=candidate_id, e=assigned),
+  )
+
+  recovered = await reconcile_candidate_publication(
+    real_redis,
+    stream="test:lua:malformed",
+    event_id=event_id,
+  )
+
+  assert not recovered.published
+  assert recovered.status == "reconciliation_conflict"
+  # No partial restoration: the malformed record and the missing identity
+  # key are untouched for a human to inspect.
+  assert await real_redis.get(
+    candidate_stream_event_key(candidate_id)
+  ) is None

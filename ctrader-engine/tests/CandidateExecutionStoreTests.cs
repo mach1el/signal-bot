@@ -49,6 +49,7 @@ public sealed class CandidateExecutionStoreTests
     public async ValueTask DisposeAsync()
     {
       await Db.KeyDeleteAsync(Key);
+      await Db.KeyDeleteAsync($"auto_trade:recovery_progress:{CandidateId}");
       await Store.DisposeAsync();
     }
 
@@ -248,6 +249,11 @@ public sealed class CandidateExecutionStoreTests
       CandidateClaimPolicy.Recovery
     );
     Assert.Equal(CandidateClaimDisposition.Claimed, allowed.Disposition);
+    // The reclaim is a recovery acquisition, never a normal execution restart:
+    // the claimed record is recovery-owned and remembers what it recovered from.
+    var record = await fixture.ReadAsync();
+    Assert.Equal(CandidateExecutionStates.BrokerReconciling, record.State);
+    Assert.Equal(CandidateExecutionStates.BrokerSubmitting, record.LastError);
   }
 
   [Theory]
@@ -809,10 +815,34 @@ public sealed class CandidateExecutionStoreTests
       CancellationToken.None
     );
 
-    Assert.True(await fixture.Store.ReleaseCandidateAsync(
+    // broker_outcome_unknown can never be released directly: the release to
+    // retryable_error is reserved for the recovery-active state after quorum.
+    Assert.False(await fixture.Store.ReleaseCandidateAsync(
       fixture.CandidateId,
       fixture.StreamEventId,
       owner.Lease.Token,
+      CancellationToken.None,
+      "broker_outcome_confirmed_absent"
+    ));
+
+    await fixture.ExpireLeaseAsync();
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    Assert.Equal(CandidateClaimDisposition.Claimed, recovery.Disposition);
+    Assert.Equal(
+      CandidateExecutionStates.BrokerReconciling,
+      (await fixture.ReadAsync()).State
+    );
+
+    Assert.True(await fixture.Store.ReleaseCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease!.Token,
       CancellationToken.None,
       "broker_outcome_confirmed_absent"
     ));
@@ -921,5 +951,478 @@ public sealed class CandidateExecutionStoreTests
     );
     var hostNow = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     Assert.InRange(record.LeaseExpiresAt.Value - hostNow, 60, 120);
+  }
+
+  // ------------------------------------------- recovery-only state machine
+
+  // Moves a freshly seeded candidate into broker_outcome_unknown and expires
+  // the executor's lease, the canonical starting point for broker recovery.
+  private static async Task SeedRecoveryRequiredAsync(Fixture fixture)
+  {
+    await fixture.SeedPublishedAsync();
+    var owner = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+    );
+    Assert.True(await fixture.Store.TransitionCandidateStateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      owner.Lease!.Token,
+      CandidateExecutionStates.BrokerOutcomeUnknown,
+      CancellationToken.None,
+      "broker_response_lost"
+    ));
+    await fixture.ExpireLeaseAsync();
+  }
+
+  [Fact]
+  public async Task RecoveryClaimWritesBrokerReconcilingNeverProcessing()
+  {
+    await using var fixture = await StartAsync("reconciling-claim");
+    await SeedRecoveryRequiredAsync(fixture);
+
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+
+    Assert.Equal(CandidateClaimDisposition.Claimed, recovery.Disposition);
+    var record = await fixture.ReadAsync();
+    Assert.Equal(CandidateExecutionStates.BrokerReconciling, record.State);
+    Assert.Equal(CandidateExecutionStates.BrokerOutcomeUnknown, record.LastError);
+    Assert.Equal(recovery.Lease!.Token, record.LeaseToken);
+    Assert.Equal(fixture.CandidateId, record.CandidateId);
+    Assert.Equal(fixture.StreamEventId, record.StreamEventId);
+    Assert.Equal(2, record.Attempt);
+  }
+
+  // A crashed recovery worker leaves broker_reconciling behind. Normal intake
+  // must keep refusing it even after the lease expires; only recovery may
+  // resume, and a live recovery lease blocks a second recovery owner.
+  [Fact]
+  public async Task BrokerReconcilingIsRecoveryOnlyBeforeAndAfterLeaseExpiry()
+  {
+    await using var fixture = await StartAsync("reconciling-expiry");
+    await SeedRecoveryRequiredAsync(fixture);
+    var first = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    Assert.Equal(CandidateClaimDisposition.Claimed, first.Disposition);
+
+    // While the recovery lease is live: normal claim refuses, and a second
+    // recovery worker cannot steal the operation.
+    Assert.Equal(
+      CandidateClaimDisposition.RecoveryRequired,
+      (await fixture.Store.TryClaimCandidateAsync(
+        fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+      )).Disposition
+    );
+    Assert.Equal(
+      CandidateClaimDisposition.ActiveElsewhere,
+      (await fixture.Store.TryClaimCandidateAsync(
+        fixture.CandidateId,
+        fixture.StreamEventId,
+        Lease,
+        CancellationToken.None,
+        CandidateClaimPolicy.Recovery
+      )).Disposition
+    );
+
+    // Crash: the lease expires while the state is broker_reconciling. It never
+    // decays into a reclaimable normal processing record.
+    await fixture.ExpireLeaseAsync();
+    Assert.Equal(
+      CandidateClaimDisposition.RecoveryRequired,
+      (await fixture.Store.TryClaimCandidateAsync(
+        fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+      )).Disposition
+    );
+    Assert.Equal(
+      CandidateExecutionStates.BrokerReconciling,
+      (await fixture.ReadAsync()).State
+    );
+
+    var resumed = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    Assert.Equal(CandidateClaimDisposition.Claimed, resumed.Disposition);
+    Assert.NotEqual(first.Lease!.Token, resumed.Lease!.Token);
+    Assert.Equal(
+      CandidateExecutionStates.BrokerReconciling,
+      (await fixture.ReadAsync()).State
+    );
+  }
+
+  // Scenario E at the store level: after a successor recovery acquisition the
+  // stale owner can neither count confirmations, complete, release, nor move
+  // the record back to broker_outcome_unknown.
+  [Fact]
+  public async Task StaleRecoveryOwnerIsFencedFromEveryRecoveryMutation()
+  {
+    await using var fixture = await StartAsync("stale-recovery-owner");
+    await SeedRecoveryRequiredAsync(fixture);
+    var ownerA = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    await fixture.ExpireLeaseAsync();
+    var ownerB = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    Assert.Equal(CandidateClaimDisposition.Claimed, ownerB.Disposition);
+
+    Assert.Null(await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerA.Lease!.Token,
+      1,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    ));
+    Assert.False(await fixture.Store.CompleteCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerA.Lease.Token,
+      "ordered:1",
+      CancellationToken.None
+    ));
+    Assert.False(await fixture.Store.ReleaseCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerA.Lease.Token,
+      CancellationToken.None,
+      "broker_outcome_confirmed_absent"
+    ));
+    Assert.False(await fixture.Store.TransitionCandidateStateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerA.Lease.Token,
+      CandidateExecutionStates.BrokerOutcomeUnknown,
+      CancellationToken.None
+    ));
+
+    var record = await fixture.ReadAsync();
+    Assert.Equal(CandidateExecutionStates.BrokerReconciling, record.State);
+    Assert.Equal(ownerB.Lease!.Token, record.LeaseToken);
+  }
+
+  // --------------------------------------- durable absence confirmations
+
+  [Fact]
+  public async Task FirstAbsenceCheckRecordsExactlyOneConfirmation()
+  {
+    await using var fixture = await StartAsync("absence-first");
+    await SeedRecoveryRequiredAsync(fixture);
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+
+    var progress = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease!.Token,
+      30,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+
+    Assert.NotNull(progress);
+    Assert.True(progress!.Recorded);
+    Assert.Equal(1, progress.Confirmations);
+    // No previous durable confirmation existed.
+    Assert.Equal(-1, progress.SecondsSincePrevious);
+  }
+
+  // An immediate second snapshot (same worker or a restarted process) must be
+  // deferred: the durable Redis-time interval has not elapsed.
+  [Fact]
+  public async Task ImmediateSecondAbsenceCheckIsDeferredNotCounted()
+  {
+    await using var fixture = await StartAsync("absence-deferred");
+    await SeedRecoveryRequiredAsync(fixture);
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    var first = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease!.Token,
+      30,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.True(first!.Recorded);
+
+    var second = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease.Token,
+      30,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+
+    Assert.NotNull(second);
+    Assert.False(second!.Recorded);
+    Assert.Equal(1, second.Confirmations);
+    Assert.Equal(first.LastCheckAt, second.LastCheckAt);
+  }
+
+  // Scenario B at the store level: the persisted confirmation timestamp
+  // survives a recovery crash and a successor claim, so an immediate restart
+  // cannot accelerate quorum. Once the authoritative interval elapses, the
+  // successor's snapshot counts on top of the surviving progress.
+  [Fact]
+  public async Task AbsenceProgressSurvivesRecoveryCrashWithoutAcceleration()
+  {
+    await using var fixture = await StartAsync("absence-crash");
+    await SeedRecoveryRequiredAsync(fixture);
+    var ownerA = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    var first = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerA.Lease!.Token,
+      2,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.True(first!.Recorded);
+    Assert.Equal(1, first.Confirmations);
+
+    // Crash + immediate successor: progress survives, quorum does not advance.
+    await fixture.ExpireLeaseAsync();
+    var ownerB = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    var immediate = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerB.Lease!.Token,
+      2,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.NotNull(immediate);
+    Assert.False(immediate!.Recorded);
+    Assert.Equal(1, immediate.Confirmations);
+    Assert.Equal(first.LastCheckAt, immediate.LastCheckAt);
+
+    // After the real Redis-time interval, the next empty snapshot counts.
+    await Task.Delay(TimeSpan.FromSeconds(2.5));
+    var separated = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      ownerB.Lease.Token,
+      2,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.NotNull(separated);
+    Assert.True(separated!.Recorded);
+    Assert.Equal(2, separated.Confirmations);
+    Assert.True(separated.SecondsSincePrevious >= 2);
+  }
+
+  // Only the recovery-active state may count confirmations: a normal
+  // processing owner (or any non-reconciling state) is fenced out.
+  [Fact]
+  public async Task NormalProcessingOwnerCannotRecordAbsenceProgress()
+  {
+    await using var fixture = await StartAsync("absence-wrong-state");
+    await fixture.SeedPublishedAsync();
+    var owner = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+    );
+
+    Assert.Null(await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      owner.Lease!.Token,
+      1,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    ));
+  }
+
+  [Fact]
+  public async Task ClearedAbsenceProgressStartsANewQuorum()
+  {
+    await using var fixture = await StartAsync("absence-clear");
+    await SeedRecoveryRequiredAsync(fixture);
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    var first = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease!.Token,
+      30,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.Equal(1, first!.Confirmations);
+
+    await fixture.Store.ClearBrokerAbsenceProgressAsync(
+      fixture.CandidateId,
+      CancellationToken.None
+    );
+
+    var restarted = await fixture.Store.TryRecordBrokerAbsenceCheckAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      recovery.Lease.Token,
+      30,
+      TimeSpan.FromMinutes(5),
+      CancellationToken.None
+    );
+    Assert.True(restarted!.Recorded);
+    Assert.Equal(1, restarted.Confirmations);
+    Assert.Equal(-1, restarted.SecondsSincePrevious);
+  }
+
+  // -------------------------------- structured-record cross-language parity
+
+  // The shared malformed-record matrix: Python, C# and Redis Lua must all
+  // fail these closed. Placeholders are substituted with the fixture's real
+  // identity so the only defect in each record is the one under test.
+  public static TheoryData<string, string> MalformedStructuredRecords() => new()
+  {
+    {
+      "missing-version",
+      """{"candidate_id":"{C}","stream_event_id":"{E}","state":"published","updated_at":1}"""
+    },
+    {
+      "zero-version",
+      """{"version":0,"candidate_id":"{C}","stream_event_id":"{E}","state":"published","updated_at":1}"""
+    },
+    {
+      "future-version",
+      """{"version":2,"candidate_id":"{C}","stream_event_id":"{E}","state":"published","updated_at":1}"""
+    },
+    {
+      "string-version",
+      """{"version":"one","candidate_id":"{C}","stream_event_id":"{E}","state":"published","updated_at":1}"""
+    },
+    {
+      "missing-state",
+      """{"version":1,"candidate_id":"{C}","stream_event_id":"{E}","updated_at":1}"""
+    },
+    {
+      "unknown-state",
+      """{"version":1,"candidate_id":"{C}","stream_event_id":"{E}","state":"unknown","updated_at":1}"""
+    },
+    {
+      "empty-candidate",
+      """{"version":1,"candidate_id":"","stream_event_id":"{E}","state":"published","updated_at":1}"""
+    },
+    {
+      "empty-event",
+      """{"version":1,"candidate_id":"{C}","stream_event_id":"","state":"published","updated_at":1}"""
+    },
+  };
+
+  [Theory]
+  [MemberData(nameof(MalformedStructuredRecords))]
+  public async Task MalformedStructuredRecordsFailEveryMutationClosed(
+    string name,
+    string template
+  )
+  {
+    await using var fixture = await StartAsync($"malformed-{name}");
+    await fixture.SeedRawAsync(
+      template
+        .Replace("{C}", fixture.CandidateId)
+        .Replace("{E}", fixture.StreamEventId)
+    );
+
+    var normal = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+    );
+    Assert.Equal(CandidateClaimDisposition.Conflict, normal.Disposition);
+    Assert.False(normal.AdvancesCursor);
+
+    var recovery = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      Lease,
+      CancellationToken.None,
+      CandidateClaimPolicy.Recovery
+    );
+    Assert.Equal(CandidateClaimDisposition.Conflict, recovery.Disposition);
+
+    Assert.False(await fixture.Store.TransitionCandidateStateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      "any-token",
+      CandidateExecutionStates.BrokerSubmitting,
+      CancellationToken.None
+    ));
+    Assert.False(await fixture.Store.CompleteCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      "any-token",
+      "ordered:1",
+      CancellationToken.None
+    ));
+    Assert.False(await fixture.Store.ReleaseCandidateAsync(
+      fixture.CandidateId,
+      fixture.StreamEventId,
+      "any-token",
+      CancellationToken.None,
+      "should_never_apply"
+    ));
+  }
+
+  [Fact]
+  public async Task WellFormedStructuredRecordRemainsClaimable()
+  {
+    await using var fixture = await StartAsync("wellformed-json");
+    await fixture.SeedRawAsync(
+      $$"""{"version":1,"candidate_id":"{{fixture.CandidateId}}","stream_event_id":"{{fixture.StreamEventId}}","state":"published","updated_at":1}"""
+    );
+
+    var claim = await fixture.Store.TryClaimCandidateAsync(
+      fixture.CandidateId, fixture.StreamEventId, Lease, CancellationToken.None
+    );
+    Assert.Equal(CandidateClaimDisposition.Claimed, claim.Disposition);
   }
 }

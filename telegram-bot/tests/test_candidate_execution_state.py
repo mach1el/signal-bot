@@ -7,6 +7,7 @@ from app.autotrade.candidate_execution_state import (
   published_candidate_record,
   serialize_candidate_execution_record,
   STATE_BROKER_OUTCOME_UNKNOWN,
+  STATE_BROKER_RECONCILING,
   STATE_INTEGRITY_ERROR,
   STATE_ORDERED,
   STATE_PUBLISHED,
@@ -190,3 +191,125 @@ def test_legacy_published_remains_compatible():
 def test_unknown_marker_is_rejected_rather_than_treated_as_retryable(raw):
   with pytest.raises(ValueError):
     parse_candidate_execution_record(raw)
+
+
+def test_broker_reconciling_is_recovery_required_not_retryable():
+  # The recovery-active state is structurally separate from `processing`: a
+  # crashed recovery worker must never decay into a normal retry.
+  record = parse_candidate_execution_record(
+    serialize_candidate_execution_record(
+      candidate_id="candidate-10",
+      stream_event_id="10-0",
+      state=STATE_BROKER_RECONCILING,
+      attempt=2,
+      last_error=STATE_BROKER_OUTCOME_UNKNOWN,
+      updated_at=1720000008,
+    )
+  )
+
+  assert record.requires_recovery
+  assert not record.is_retryable
+  assert not record.is_terminal
+  assert candidate_record_is_progressed(record)
+
+
+# The shared malformed-record matrix: Python, C# and Redis Lua must all fail
+# these closed. A structured record never becomes legacy and never defaults a
+# missing version or state.
+@pytest.mark.parametrize(
+  "raw",
+  [
+    # missing version
+    '{"candidate_id":"candidate-1","stream_event_id":"1-0","state":"published"}',
+    # version 0 must not default to 1
+    (
+      '{"version":0,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    # unsupported future version
+    (
+      '{"version":2,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    # non-integer version
+    (
+      '{"version":"one","candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    # boolean version is not an integer
+    (
+      '{"version":true,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    # missing state must not default to published
+    '{"version":1,"candidate_id":"candidate-1","stream_event_id":"1-0"}',
+    # empty state
+    (
+      '{"version":1,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":""}'
+    ),
+    # unknown state
+    (
+      '{"version":1,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+      '"state":"unknown"}'
+    ),
+    # missing identity keys entirely
+    '{"version":1,"state":"published"}',
+    # non-string identity types
+    (
+      '{"version":1,"candidate_id":7,"stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    (
+      '{"version":1,"candidate_id":"candidate-1","stream_event_id":7,'
+      '"state":"published"}'
+    ),
+  ],
+)
+def test_malformed_structured_records_fail_closed(raw):
+  with pytest.raises(ValueError):
+    parse_candidate_execution_record(raw)
+
+
+def test_valid_structured_record_parses_with_exact_identity():
+  raw = (
+    '{"version":1,"candidate_id":"candidate-1","stream_event_id":"1-0",'
+    '"state":"published"}'
+  )
+  record = parse_candidate_execution_record(raw)
+  assert not record.is_legacy
+  assert record.state == STATE_PUBLISHED
+  assert candidate_record_compatible(
+    record,
+    candidate_id="candidate-1",
+    stream_event_id="1-0",
+  )
+
+
+@pytest.mark.parametrize(
+  "raw",
+  [
+    # empty identity strings parse (for classification) but can never be
+    # compatible with any concrete candidate.
+    (
+      '{"version":1,"candidate_id":"","stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+    (
+      '{"version":1,"candidate_id":"candidate-1","stream_event_id":"",'
+      '"state":"published"}'
+    ),
+    (
+      '{"version":1,"candidate_id":null,"stream_event_id":"1-0",'
+      '"state":"published"}'
+    ),
+  ],
+)
+def test_structured_record_with_blank_identity_is_a_conflict(raw):
+  record = parse_candidate_execution_record(raw)
+  assert not record.is_legacy
+  assert not candidate_record_compatible(
+    record,
+    candidate_id="candidate-1",
+    stream_event_id="1-0",
+  )
