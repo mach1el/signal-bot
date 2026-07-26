@@ -211,7 +211,7 @@ async def test_worker_publishes_one_durable_auto_only_candidate(monkeypatch):
   assert payload["direction"] == "BUY"
   assert payload["entry_zone"] == {"low": 4016.5, "high": 4017.1}
   assert payload["spot_ts"] == now
-  assert payload["version"] == 3
+  assert payload["version"] == 5
   assert payload["range_id"] == "xau-8034-8050"
   assert payload["range_low"] == 4016.8
   assert payload["range_high"] == 4025.1
@@ -333,7 +333,7 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
     "auto_trade:last_route_outcome:XAU"
   )
   candidate = json.loads(entries[0][1]["payload"])
-  assert candidate["version"] == 4
+  assert candidate["version"] == 5
   assert candidate["mode"] == "auto_strategy_match"
   assert candidate["setup"] == "Liquidity Sweep"
   assert candidate["signal_source"] == "scanner_strategy_match"
@@ -460,7 +460,7 @@ async def test_worker_publishes_range_match_as_strategy_and_disarms_edge(
   assert candidate_id == match.match_id
   entries = await client.xrange("auto_trade:test")
   payload = json.loads(entries[0][1]["payload"])
-  assert payload["version"] == 4
+  assert payload["version"] == 5
   assert payload["timeframe"] == "M5"
   assert payload["mode"] == "auto_strategy_match"
   assert payload["setup"] == "Range Edge Scalp"
@@ -1304,7 +1304,7 @@ async def test_counter_bias_target_barrier_adapts_before_eq(monkeypatch):
   monkeypatch.setattr(worker.settings, "auto_trade_stream", "auto_trade:test")
   monkeypatch.setattr(worker.settings, "auto_trade_min_confluence", 2)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
-  barrier = Zone(4078.0, 4080.0, "supply", touches=0)
+  barrier = Zone(4080.0, 4082.0, "supply", touches=0)
 
   candidate_id = await worker._publish_strategy_match(
     client,
@@ -1322,7 +1322,7 @@ async def test_counter_bias_target_barrier_adapts_before_eq(monkeypatch):
   entries = await client.xrange("auto_trade:test")
   payload = json.loads(entries[0][1]["payload"])
   assert payload["target_price"] < barrier.low
-  assert payload["target_adjustment"]["selected_target_pips"] == 30
+  assert payload["target_adjustment"]["selected_target_pips"] == 60
 
 
 @pytest.mark.asyncio

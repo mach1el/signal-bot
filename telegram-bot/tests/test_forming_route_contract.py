@@ -51,9 +51,9 @@ def _supply_match() -> StrategyMatch:
     reasons=("sweep_reclaim",),
     atr=4.0,
     structure_swing=4066.18,
-    targets_pips=(20, 30, 40),
+    targets_pips=(20, 30, 40, 60),
     tags=("counter_bias",),
-    target_price=4059.03,
+    target_price=4057.03,
     family="supply_demand",
     structural_source="supply_demand",
     zone_id=structural_id,
@@ -181,4 +181,3 @@ def test_structural_supply_match_round_trips_through_redis_contract():
 
 async def _no_news(*args, **kwargs):
   return None
-

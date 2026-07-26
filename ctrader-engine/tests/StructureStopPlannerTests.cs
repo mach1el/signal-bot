@@ -16,6 +16,86 @@ public sealed class StructureStopPlannerTests
     LotSize: 10_000
   );
 
+  public static TheoryData<
+    TradeDirection,
+    decimal,
+    decimal,
+    decimal?,
+    int,
+    int,
+    decimal,
+    decimal,
+    decimal,
+    bool
+  > PythonParityCases => new()
+  {
+    { TradeDirection.Buy, 4100m, 4097m, null, 20, 60, 4096.70m, 33m, 4096.7m, false },
+    { TradeDirection.Sell, 4100m, 4103m, null, 20, 60, 4103.30m, 33m, 4103.3m, false },
+    { TradeDirection.Buy, 4100m, 4097m, 4096m, 20, 60, 4095.85m, 41.5m, 4095.85m, false },
+    { TradeDirection.Sell, 4100m, 4103m, 4104m, 20, 60, 4104.15m, 41.5m, 4104.15m, false },
+    { TradeDirection.Buy, 4100m, 4099.9m, null, 20, 60, 4098m, 20m, 4099.6m, true },
+    { TradeDirection.Buy, 4100m, 4090m, null, 20, 60, 4094m, 60m, 4089.7m, true },
+    { TradeDirection.Buy, 4100m, 4100.29m, null, 20, 60, 4098m, 20m, 4099.99m, true },
+  };
+
+  [Theory]
+  [MemberData(nameof(PythonParityCases))]
+  public void MatchesPythonDecimalParityTable(
+    TradeDirection direction,
+    decimal entry,
+    decimal swing,
+    decimal? sweep,
+    int minimum,
+    int maximum,
+    decimal expectedStop,
+    decimal expectedPips,
+    decimal expectedRaw,
+    bool expectedClamped
+  )
+  {
+    var plan = StructureStopPlanner.Plan(
+      direction,
+      entry,
+      swing,
+      atr: 1m,
+      bufferAtr: 0.3m,
+      sweepExtreme: sweep,
+      wickBufferAtr: 0.15m,
+      minimumStopPips: minimum,
+      maximumStopPips: maximum,
+      pipSize: 0.1m,
+      Symbol
+    );
+
+    Assert.Equal(expectedStop, plan.StopLoss);
+    Assert.Equal(expectedPips, plan.StopPips);
+    Assert.Equal(expectedRaw, plan.RawStopLoss);
+    Assert.Equal(expectedClamped, plan.Clamped);
+    Assert.Equal(sweep is null ? "structure" : "wick", plan.Source);
+  }
+
+  [Fact]
+  public void RoundingParityRecalculatesDistanceAndClampedFlag()
+  {
+    var plan = StructureStopPlanner.Plan(
+      TradeDirection.Buy,
+      entryPrice: 4100.005m,
+      structureSwing: 4097.302m,
+      atr: 1m,
+      bufferAtr: 0m,
+      sweepExtreme: null,
+      wickBufferAtr: 0.15m,
+      minimumStopPips: 20,
+      maximumStopPips: 60,
+      pipSize: 0.1m,
+      Symbol
+    );
+
+    Assert.Equal(4097.30m, plan.StopLoss);
+    Assert.Equal(27.05m, plan.StopPips);
+    Assert.True(plan.Clamped);
+  }
+
   [Theory]
   [InlineData(TradeDirection.Buy, 3998.5, 3998.2)]
   [InlineData(TradeDirection.Sell, 4001.5, 4001.8)]
@@ -40,6 +120,7 @@ public sealed class StructureStopPlannerTests
     );
 
     Assert.Equal(Convert.ToDecimal(expectedStop), plan.StopLoss);
+    Assert.Equal("structure", plan.Source);
     Assert.Equal(18m, plan.StopPips);
     Assert.False(plan.Clamped);
   }
@@ -99,6 +180,7 @@ public sealed class StructureStopPlannerTests
     );
 
     Assert.Equal(Convert.ToDecimal(expectedStop), plan.StopLoss);
+    Assert.Equal("wick", plan.Source);
   }
 
   [Fact]

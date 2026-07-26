@@ -1,7 +1,7 @@
 # Auto-trade configuration contract
 
 The Python publisher and C# executor share config manifest version 2 and
-candidate contract version 5. Cross-service values use these canonical
+candidate contract version 6. Cross-service values use these canonical
 environment variables:
 
 ```text
@@ -14,7 +14,14 @@ AUTO_TRADE_CANDIDATE_CONTRACT_VERSION
 AUTO_TRADE_SYMBOLS
 AUTO_TRADE_CANONICAL_SYMBOL
 AUTO_TRADE_XAU_PIP_SIZE
+AUTO_TRADE_XAU_PRICE_DIGITS
 AUTO_TRADE_XAU_CONTRACT_SIZE
+AUTO_TRADE_ADD_STOP_BUFFER_ATR
+AUTO_TRADE_ADD_MIN_STOP_PIPS
+AUTO_TRADE_SL_DISTANCE
+AUTO_TRADE_WICK_STOP_BUFFER_ATR
+AUTO_TRADE_TREND_STOP_MIN_PIPS
+AUTO_TRADE_TREND_STOP_MAX_PIPS
 AUTO_TRADE_TARGET_PLANS_PIPS
 AUTO_TRADE_RANGE_TARGETS_PIPS
 AUTO_TRADE_RANGE_TP_BUFFER_PIPS
@@ -55,6 +62,12 @@ descending before selection so the largest target that fits is selected.
 `AUTO_TRADE_CANDIDATE_MAX_AGE_SECONDS` controls order eligibility.
 `AUTO_TRADE_CANDIDATE_STORAGE_TTL_SECONDS` controls Redis audit retention.
 The former is fatal when services disagree; the latter is warning-only.
+
+The six stop-planning values are fatal manifest fields. Python uses
+`AUTO_TRADE_XAU_PRICE_DIGITS` when creating the Decimal stop plan; C# uses the
+broker symbol digits and rejects candidate payload v5 when the recomputed stop
+differs by more than one symbol tick. Candidate contract v6 is therefore
+required before a publisher may emit stop-plan-bearing payload v5 events.
 
 For non-hedged accounts,
 `AUTO_TRADE_NON_HEDGED_OPPOSITE_POLICY` must be one of:

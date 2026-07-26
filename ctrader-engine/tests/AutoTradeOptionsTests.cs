@@ -286,7 +286,7 @@ public sealed class AutoTradeOptionsTests
       Assert.False(options.DryRun);
       Assert.Equal(420, options.CandidateMaxAgeSeconds);
       Assert.Equal(604800, options.CandidateStorageTtlSeconds);
-      Assert.Equal(5, options.CandidateContractVersion);
+      Assert.Equal(6, options.CandidateContractVersion);
       Assert.True(options.ZoneFillEnabled);
       Assert.Equal("broker_netting", options.NonHedgedOppositePolicy);
       Assert.Equal("observe", options.StructuralGuardMode);

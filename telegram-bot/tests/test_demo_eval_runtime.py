@@ -55,7 +55,7 @@ def test_demo_profile_resolves_execution_defaults(monkeypatch):
   assert cfg.auto_trade_track_all_structural_matches
   assert cfg.auto_trade_enabled
   assert not cfg.auto_trade_dry_run
-  assert cfg.auto_trade_candidate_contract_version == 5
+  assert cfg.auto_trade_candidate_contract_version == 6
   assert cfg.auto_trade_candidate_max_age_seconds == 420
   assert cfg.auto_trade_candidate_ttl == 604800
   assert cfg.auto_trade_spot_max_age == 5
@@ -348,7 +348,7 @@ def _contract_manifest(**overrides):
     "canonical_symbol": "XAU",
     "pip_size": 0.1,
     "contract_size": 100,
-    "candidate_contract_version": 5,
+    "candidate_contract_version": 6,
     "target_plans": [30, 60, 90, 120, 200],
     "range_target_plans": [20, 30, 40, 50, 70],
     "range_tp_buffer": 3,
@@ -438,7 +438,7 @@ def test_manifest_canonicalizes_descending_runtime_targets(monkeypatch):
   manifest = python_manifest()
 
   assert manifest["range_target_plans"] == [20, 30, 40, 50, 70]
-  assert manifest["candidate_contract_version"] == 5
+  assert manifest["candidate_contract_version"] == 6
   assert manifest["config_manifest_version"] == 2
 
 
