@@ -1298,6 +1298,71 @@ public sealed class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task StrategyPolicyLimitRequiresZoneFillCapability()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      orderTypePreference: "limit"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with { ZoneFillEnabled = false },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "rejected"
+        && item.Message.Contains("requires a limit-capable zone fill")
+    );
+    Assert.Empty(client.Orders);
+    Assert.Empty(client.LimitOrders);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task StrategyPolicyLimitUsesZoneFillWhenCapable()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      orderTypePreference: "limit",
+      entryLow: 3999.0m,
+      entryHigh: 4000.5m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with { ZoneFillEnabled = true, SizingMode = "table" },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.4m, 4000.6m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "zone_planned");
+
+    Assert.Equal(2, client.LimitOrders.Count);
+    Assert.Empty(client.Orders);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task PriceInsideSellZoneFallsBackToSingleEntryInsteadOfRejectingProximalSide()
   {
     // Production incident: Breakout Continuation SELL with price inside
@@ -2959,7 +3024,7 @@ public sealed class AutoTradeEngineTests
   [InlineData("Session Level Reaction", "session_level")]
   [InlineData("Trendline Reaction", "trendline")]
   [InlineData("Supply Zone Reaction", "supply_demand")]
-  public async Task DemoEvalRangeBoxOpensBesideAnotherStrategy(
+  public async Task DemoEvalRejectsRangeBoxOppositeAnotherStrategy(
     string existingSetup,
     string existingFamily
   )
@@ -2996,34 +3061,29 @@ public sealed class AutoTradeEngineTests
       groupId: "range-sell",
       strategyFamily: "range"
     ));
-    await WaitUntilAsync(() => client.Orders.Count == 2);
+    await WaitForEventAsync(store, "rejected");
 
     Assert.Contains(client.Orders, item => item.Direction == TradeDirection.Buy);
-    Assert.Contains(client.Orders, item => item.Direction == TradeDirection.Sell);
-    Assert.Equal(2, store.Positions.Values.Select(item => item.GroupId).Distinct().Count());
+    Assert.DoesNotContain(
+      client.Orders,
+      item => item.Direction == TradeDirection.Sell
+    );
+    Assert.Single(
+      store.Positions.Values.Select(item => item.GroupId).Distinct()
+    );
     var lifecycle = store.LifecycleEvents
       .Where(item => item.CandidateId == new string('r', 64))
       .Select(item => item.State)
       .ToArray();
     Assert.Contains("executor_received", lifecycle);
-    Assert.Contains("routing_selected", lifecycle);
-    Assert.Contains("order_planned", lifecycle);
-    Assert.Contains("order_submitted", lifecycle);
-    Assert.Contains("order_accepted", lifecycle);
-    Assert.Contains("order_filled", lifecycle);
-    Assert.Contains("managing", lifecycle);
     Assert.Contains(
-      "range_box_would_have_awaited_flat",
+      "executor_opposite_initial_rejected",
       store.Metrics
     );
     Assert.Contains(
-      "range_box_executed_with_opposite_exposure",
-      store.Metrics
-    );
-    Assert.DoesNotContain(
       store.Events,
       item => item.Type == "rejected"
-        && item.Message.Contains("waits for flat")
+        && item.Message.Contains("opposite autonomous initial group")
     );
 
     cts.Cancel();
@@ -3031,7 +3091,7 @@ public sealed class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task DemoEvalTrendBuyAndSupplyReactionSellSurviveRestartIndependently()
+  public async Task DemoEvalTrendBuyRejectsSupplyReactionSellAcrossRestart()
   {
     using var firstCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
     var store = new FakeAutoTradeStore(TrendCandidateJson());
@@ -3055,7 +3115,7 @@ public sealed class AutoTradeEngineTests
       groupId: "supply-sell",
       strategyFamily: "reaction"
     ));
-    await WaitUntilAsync(() => store.Positions.Count == 2);
+    await WaitForEventAsync(store, "rejected");
 
     var beforeRestart = store.Positions.Values
       .OrderBy(state => state.Direction)
@@ -3066,14 +3126,14 @@ public sealed class AutoTradeEngineTests
         state.CurrentStopLoss
       ))
       .ToArray();
-    Assert.Equal(2, beforeRestart.Select(item => item.GroupId).Distinct().Count());
+    Assert.Single(beforeRestart.Select(item => item.GroupId).Distinct());
     Assert.Contains(beforeRestart, item =>
       item.Direction == TradeDirection.Buy
       && item.Setup == "Trend Pullback"
     );
-    Assert.Contains(beforeRestart, item =>
-      item.Direction == TradeDirection.Sell
-      && item.Setup == "Supply Reaction"
+    Assert.DoesNotContain(
+      beforeRestart,
+      item => item.Direction == TradeDirection.Sell
     );
 
     firstCts.Cancel();
@@ -3096,14 +3156,14 @@ public sealed class AutoTradeEngineTests
       ))
       .ToArray();
     Assert.Equal(beforeRestart, afterRestart);
-    Assert.Equal(2, client.Orders.Count);
+    Assert.Single(client.Orders);
 
     restartCts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => restartRun);
   }
 
   [Fact]
-  public async Task DemoEvalKeepsBuyAndSellRangeGroupsIndependent()
+  public async Task DemoEvalRejectsSellRangeWhileBuyRangeIsActive()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(BoxCandidateJson(
@@ -3160,23 +3220,24 @@ public sealed class AutoTradeEngineTests
       cts.Token
     );
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
-    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await WaitForEventAsync(store, "rejected");
 
     Assert.Contains(store.Positions.Values, item =>
       item.GroupId == "range-buy" && item.Direction == TradeDirection.Buy
     );
-    Assert.Contains(store.Positions.Values, item =>
-      item.GroupId == "range-sell" && item.Direction == TradeDirection.Sell
+    Assert.DoesNotContain(
+      store.Positions.Values,
+      item => item.Direction == TradeDirection.Sell
     );
     Assert.DoesNotContain(client.Closes, item => item.PositionId == 77);
-    Assert.Contains("range_two_sided_simultaneous", store.Metrics);
+    Assert.Contains("executor_opposite_initial_rejected", store.Metrics);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
   [Fact]
-  public async Task DemoEvalBuyRangeDoesNotAdoptOrAmendExistingSellGroup()
+  public async Task DemoEvalRejectsBuyRangeWithoutAmendingExistingSellGroup()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(BoxCandidateJson(
@@ -3234,27 +3295,27 @@ public sealed class AutoTradeEngineTests
     );
 
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
-    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await WaitForEventAsync(store, "rejected");
 
     Assert.Contains(store.Positions.Values, item =>
       item.GroupId == "range-sell"
       && item.Direction == TradeDirection.Sell
       && item.CurrentStopLoss == 4014.5m
     );
-    Assert.Contains(store.Positions.Values, item =>
-      item.GroupId == "range-buy"
-      && item.Direction == TradeDirection.Buy
+    Assert.DoesNotContain(
+      store.Positions.Values,
+      item => item.Direction == TradeDirection.Buy
     );
     Assert.DoesNotContain(client.StopAmendments, item => item.PositionId == 77);
     Assert.DoesNotContain(client.Closes, item => item.PositionId == 77);
-    Assert.Contains("range_two_sided_simultaneous", store.Metrics);
+    Assert.Contains("executor_opposite_initial_rejected", store.Metrics);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
   [Fact]
-  public async Task DemoEvalPendingOrderDedupIsScopedToCandidateGroup()
+  public async Task DemoEvalRejectsOppositeInitialWhilePendingOrderExists()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(BoxCandidateJson(
@@ -3284,14 +3345,14 @@ public sealed class AutoTradeEngineTests
     );
 
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
-    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await WaitForEventAsync(store, "rejected");
 
-    Assert.Single(client.Orders);
+    Assert.Empty(client.Orders);
     Assert.Contains(client.PendingOrders, item => item.OrderId == 55);
-    Assert.DoesNotContain(
+    Assert.Contains(
       store.Events,
       item => item.Type == "rejected"
-        && item.Message.Contains("planned zone fill is still pending")
+        && item.Message.Contains("opposite autonomous initial group")
     );
 
     cts.Cancel();
@@ -3766,7 +3827,10 @@ public sealed class AutoTradeEngineTests
     string? zoneId = null,
     string? structuralSource = null,
     decimal? structuralZoneLow = null,
-    decimal? structuralZoneHigh = null
+    decimal? structuralZoneHigh = null,
+    string? orderTypePreference = null,
+    decimal entryLow = 3999.5m,
+    decimal entryHigh = 4000.5m
   ) => JsonSerializer.Serialize(new
   {
     version = 4,
@@ -3782,7 +3846,7 @@ public sealed class AutoTradeEngineTests
     spot_ts = 1_000,
     current_price = 4000.1,
     key_level = 4000.0,
-    entry_zone = new { low = 3999.5m, high = 4000.5m },
+    entry_zone = new { low = entryLow, high = entryHigh },
     confluence = 3,
     reasons = new[] { "scanner detector matched structure" },
     bar_ts = 1_000,
@@ -3799,6 +3863,7 @@ public sealed class AutoTradeEngineTests
     structural_zone_id = zoneId,
     structural_zone_low = structuralZoneLow,
     structural_zone_high = structuralZoneHigh,
+    order_type_preference = orderTypePreference,
   });
 
   private static string BoxCandidateJson(

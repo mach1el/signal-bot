@@ -44,6 +44,7 @@ def test_demo_profile_resolves_execution_defaults(monkeypatch):
   assert cfg.auto_trade_trend_enabled
   assert cfg.auto_trade_range_enabled
   assert cfg.auto_trade_mapped_zone_enabled
+  assert cfg.auto_trade_market_map_guard_enabled
   assert cfg.auto_trade_strategy_match_enabled
   assert cfg.auto_trade_breakout_enabled
   assert cfg.auto_trade_retest_enabled
@@ -92,6 +93,23 @@ def test_demo_profile_does_not_override_explicit_environment(monkeypatch):
   assert cfg.auto_trade_candidate_max_age_seconds == 123
   assert cfg.auto_trade_candidate_ttl == 456
   assert cfg.scanner_top_n == 7
+
+
+def test_market_map_guard_follows_execution_flag_unless_explicit(monkeypatch):
+  neutral = _settings(
+    monkeypatch,
+    AUTO_TRADE_MAPPED_ZONE_ENABLED="false",
+  )
+  guarded = _settings(
+    monkeypatch,
+    AUTO_TRADE_MAPPED_ZONE_ENABLED="false",
+    AUTO_TRADE_MARKET_MAP_GUARD_ENABLED="true",
+  )
+
+  assert not neutral.auto_trade_mapped_zone_enabled
+  assert not neutral.auto_trade_market_map_guard_enabled
+  assert not guarded.auto_trade_mapped_zone_enabled
+  assert guarded.auto_trade_market_map_guard_enabled
 
 
 def test_demo_profile_cannot_disable_demo_account_guard(monkeypatch):

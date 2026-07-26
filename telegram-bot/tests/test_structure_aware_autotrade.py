@@ -1,5 +1,6 @@
 """Structure-aware high-frequency autotrade regression fixtures."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pandas as pd
@@ -271,6 +272,57 @@ def test_multi_match_keeps_distinct_family_trigger_and_target_theses():
   )
 
   assert len(kept) == 4
+
+
+def test_narrow_wrapper_overlap_is_not_lost_to_absolute_price_floor():
+  first_class = _match(
+    "Supply Zone Reaction", "SELL", 4067.47, 4067.68, event_ts="100",
+  )
+  wrapper = _match(
+    "Zone Reaction", "SELL", 4067.49, 4067.69, event_ts="100",
+  )
+
+  assert same_thesis(first_class, wrapper, atr=2.0)
+
+
+def test_dedupe_keeps_fresh_geometry_and_recomputes_risk():
+  old = replace(
+    _match(
+      "Supply Zone Reaction",
+      "SELL",
+      4067.47,
+      4067.68,
+      confluence=2,
+      event_ts="100",
+    ),
+    tier="B",
+    risk_multiplier=0.5,
+    confirmation_bar_ts="100",
+    structural_zone_id="supply-zone-1",
+  )
+  fresh = replace(
+    _match(
+      "Supply Zone Reaction",
+      "SELL",
+      4067.49,
+      4067.69,
+      confluence=2,
+      event_ts="101",
+    ),
+    tier="B",
+    risk_multiplier=0.5,
+    confirmation_bar_ts="101",
+    structural_zone_id="supply-zone-1",
+  )
+
+  kept, _ = dedupe_matches([old, fresh], atr=2.0)
+
+  assert len(kept) == 1
+  assert kept[0].strategy == "Supply Zone Reaction"
+  assert kept[0].entry_low == fresh.entry_low
+  assert kept[0].event_ts == fresh.event_ts
+  assert kept[0].tier == "A"
+  assert kept[0].risk_multiplier == 1.0
 
 
 def test_role_flip_creates_opposite_side_barrier():

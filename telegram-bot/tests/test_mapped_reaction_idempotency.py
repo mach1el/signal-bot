@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -245,13 +246,18 @@ async def test_incident_replay_publishes_one_candidate(monkeypatch):
     )
     assert decision.state == "candidate"
     assert decision.match is not None
-    matches.append(decision.match)
+    match = replace(
+      decision.match,
+      entry_low=4056.0,
+      entry_high=4060.5,
+    )
+    matches.append(match)
     spot = SimpleNamespace(price=4058.5, ts=1_780_000_000 + hour, fresh=True)
     result = await _publish_strategy_match(
       client,
       "XAUUSD",
       spot,
-      decision.match,
+      match,
       consume_redis_match=False,
       match_source="market_map_strategy",
       market_map=_map(_zone(lo, hi), price=4058.5),

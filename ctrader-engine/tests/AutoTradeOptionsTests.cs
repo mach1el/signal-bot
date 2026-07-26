@@ -36,6 +36,35 @@ public sealed class AutoTradeOptionsTests
   }
 
   [Fact]
+  public void MarketMapGuardFollowsMappedExecutionUnlessExplicit()
+  {
+    Environment.SetEnvironmentVariable("AUTO_TRADE_MAPPED_ZONE_ENABLED", "false");
+    Environment.SetEnvironmentVariable("AUTO_TRADE_MARKET_MAP_GUARD_ENABLED", null);
+    try
+    {
+      var neutral = AutoTradeOptions.FromEnvironment();
+      Assert.False(neutral.MappedZoneEnabled);
+      Assert.False(neutral.MarketMapGuardEnabled);
+
+      Environment.SetEnvironmentVariable(
+        "AUTO_TRADE_MARKET_MAP_GUARD_ENABLED",
+        "true"
+      );
+      var guarded = AutoTradeOptions.FromEnvironment();
+      Assert.False(guarded.MappedZoneEnabled);
+      Assert.True(guarded.MarketMapGuardEnabled);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("AUTO_TRADE_MAPPED_ZONE_ENABLED", null);
+      Environment.SetEnvironmentVariable(
+        "AUTO_TRADE_MARKET_MAP_GUARD_ENABLED",
+        null
+      );
+    }
+  }
+
+  [Fact]
   public void ConflictingStrategyMatchLegacyAliasesFail()
   {
     Environment.SetEnvironmentVariable(

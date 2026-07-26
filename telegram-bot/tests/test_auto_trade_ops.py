@@ -793,7 +793,7 @@ async def test_pause_resume_and_status(monkeypatch):
   await delivery.set_auto_trade_paused(True)
   client = redis_state.get_client()
   await client.set(
-    "auto_trade:last_gate",
+    "auto_trade:last_gate:XAU",
     '{"state":"waiting_rejection","box_state":"candidate",'
     '"trend_state":"no_setup","selected_strategy":"Range Box Scalp",'
     '"selected_timeframe":"M1","direction":"BUY",'
@@ -911,7 +911,7 @@ async def test_status_identifies_scanner_strategy_match(monkeypatch):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   client = redis_state.get_client()
   await client.set(
-    "auto_trade:last_gate",
+    "auto_trade:last_gate:XAU",
     json.dumps({
       "state": "strategy_match_waiting",
       "gate_source": "scanner_strategy_match",
@@ -942,7 +942,7 @@ async def test_status_identifies_scanner_strategy_match(monkeypatch):
 async def test_status_explains_when_no_strategy_matches(monkeypatch):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   client = redis_state.get_client()
-  await client.set("auto_trade:last_gate", json.dumps({
+  await client.set("auto_trade:last_gate:XAU", json.dumps({
     "state": "waiting_for_box",
     "box_state": "waiting_for_box",
     "trend_state": "no_setup",
@@ -951,7 +951,7 @@ async def test_status_explains_when_no_strategy_matches(monkeypatch):
     "regime": "chop",
     "reasons": ["no valid M1 consolidation box in the lookback window"],
   }))
-  await client.set("scanner:last_tick", json.dumps({
+  await client.set("scanner:last_tick:XAU:M5", json.dumps({
     "detected": [],
     "scalp": {"state": "waiting_edge"},
   }))
@@ -973,7 +973,7 @@ async def test_status_shows_market_map_working_set_and_filter_counts(
 ):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   client = redis_state.get_client()
-  await client.set("auto_trade:last_gate", json.dumps({
+  await client.set("auto_trade:last_gate:XAU", json.dumps({
     "state": "waiting_for_touch",
     "box_state": "waiting_for_box",
     "trend_state": "no_setup",

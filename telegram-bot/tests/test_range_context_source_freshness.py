@@ -12,6 +12,7 @@ from app.autotrade.range_context import (
   SCANNER_SOURCE_MAX_AGE_SECONDS,
   RangeBarrier,
   RangeContext,
+  continue_range_episode,
   evaluate_range_box_eligibility,
   is_range_context_current,
   persist_private_range_observation,
@@ -270,3 +271,51 @@ def test_private_range_context_absent_without_box():
     generated_at=1_000,
     ttl=150,
   ) is None
+
+
+def test_private_range_uses_native_box_as_episode_identity():
+  box = AutoScalpBox(
+    box_id="native-private-episode",
+    lower=AutoScalpRail(
+      "support", 3999.8, 4000.2, 4000.0, 3, 3.0, ("M1",), ("M1",),
+    ),
+    upper=AutoScalpRail(
+      "resistance", 4009.8, 4010.2, 4010.0, 3, 3.0, ("M1",), ("M1",),
+    ),
+    width_pips=100.0,
+  )
+  context = private_range_context(
+    symbol="XAU",
+    decision=AutoScalpDecision(state="candidate", box=box),
+    atr=2.0,
+    pip_size=0.1,
+    generated_at=1_000,
+    ttl=150,
+  )
+
+  assert context is not None
+  assert context.range_id == "native-private-episode"
+
+
+def test_range_episode_survives_small_drift_but_not_new_auction():
+  previous = _context(
+    source="scanner", generated_at=1_000, ttl=600,
+    lower=4000.0, upper=4010.0,
+  )
+  small_drift = _context(
+    source="scanner", generated_at=1_300, ttl=600,
+    lower=4000.2, upper=4010.1,
+  )
+  new_auction = _context(
+    source="scanner", generated_at=1_600, ttl=600,
+    lower=4007.0, upper=4017.0,
+  )
+
+  continued = continue_range_episode(previous, small_drift)
+  restarted = continue_range_episode(previous, new_auction)
+
+  assert continued is not None
+  assert continued.range_id == previous.range_id
+  assert continued.episode_started_at == previous.generated_at
+  assert restarted is not None
+  assert restarted.range_id == new_auction.range_id

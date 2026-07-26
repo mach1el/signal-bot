@@ -200,7 +200,9 @@ async def test_worker_publishes_one_durable_auto_only_candidate(monkeypatch):
   assert first is not None
   assert second is None
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1
+  assert len(entries) == 1, await client.get(
+    "auto_trade:last_route_outcome:XAU"
+  )
   payload = json.loads(entries[0][1]["payload"])
   assert payload["candidate_id"] == first
   assert payload["setup"] == "Range Box Scalp"
@@ -250,6 +252,13 @@ async def test_worker_handles_m1_without_calling_scanner(monkeypatch):
     worker,
     "build_auto_scale_context",
     lambda *args, **kwargs: _scale_context(now),
+  )
+  monkeypatch.setattr(
+    worker,
+    "classify_regime",
+    lambda *args, **kwargs: RegimeInfo(
+      "chop", None, 0, 1.0, False, None, ("isolated range test",),
+    ),
   )
   forming = AsyncMock()
   monkeypatch.setattr(scanner, "_handle_event", forming)
@@ -320,7 +329,9 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
   assert result.state == "waiting_for_box"
   trend_publish.assert_not_awaited()
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1
+  assert len(entries) == 1, await client.get(
+    "auto_trade:last_route_outcome:XAU"
+  )
   candidate = json.loads(entries[0][1]["payload"])
   assert candidate["version"] == 4
   assert candidate["mode"] == "auto_strategy_match"
@@ -392,13 +403,27 @@ async def test_worker_routes_m1_market_map_reaction_as_its_own_strategy(
     "evaluate_market_map_strategy",
     lambda *args, **kwargs: map_decision,
   )
+  monkeypatch.setattr(
+    worker,
+    "evaluate_trend_gate",
+    lambda *args, **kwargs: TrendDecision("no_setup"),
+  )
+  monkeypatch.setattr(
+    worker,
+    "classify_regime",
+    lambda *args, **kwargs: RegimeInfo(
+      "trend", "down", 2, 1.1, True, None, ("isolated map test",),
+    ),
+  )
 
   await worker._handle_event(
     f"XAU:M1:{now}", source=source, client=client,
   )
 
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1
+  assert len(entries) == 1, await client.get(
+    "auto_trade:last_route_outcome:XAU"
+  )
   candidate = json.loads(entries[0][1]["payload"])
   assert candidate["setup"] == "Mapped Zone Reaction"
   assert candidate["signal_source"] == "market_map_strategy"
@@ -435,9 +460,10 @@ async def test_worker_publishes_range_match_as_strategy_and_disarms_edge(
   assert candidate_id == match.match_id
   entries = await client.xrange("auto_trade:test")
   payload = json.loads(entries[0][1]["payload"])
-  assert payload["version"] == 3
+  assert payload["version"] == 4
   assert payload["timeframe"] == "M5"
-  assert payload["mode"] == "auto_box_scalp"
+  assert payload["mode"] == "auto_strategy_match"
+  assert payload["setup"] == "Range Edge Scalp"
   assert payload["source_strategy"] == "Range Edge Scalp"
   assert payload["full_take_profit_pips"] == 70
   edge = worker._box_edge_key("XAU", match.range_id, "BUY")
@@ -483,7 +509,7 @@ async def test_range_edge_match_blocked_outside_chop_regime(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
   ("guard_mode", "publishes"),
-  [("observe", True), ("strict", False)],
+  [("observe", False), ("strict", False)],
 )
 async def test_private_range_regime_guard_is_profile_aware(
   monkeypatch,
@@ -1266,10 +1292,10 @@ async def test_counter_bias_target_barrier_adapts_before_eq(monkeypatch):
     strategy="Mapped Zone Reaction",
     strategy_mode="mapped_zone_reaction",
     direction="BUY",
-    entry_low=4066.0,
-    entry_high=4074.5,
+    entry_low=4072.0,
+    entry_high=4074.2,
     current_price=4072.88,
-    structure_swing=4066.0,
+    structure_swing=4070.5,
     targets_pips=(30, 60, 90, 111),
     tags=("counter_bias",),
     target_price=4084.0,
@@ -1290,7 +1316,9 @@ async def test_counter_bias_target_barrier_adapts_before_eq(monkeypatch):
     htf_zones=[barrier],
   )
 
-  assert candidate_id is not None
+  assert candidate_id is not None, await client.get(
+    "auto_trade:last_route_outcome:XAU"
+  )
   entries = await client.xrange("auto_trade:test")
   payload = json.loads(entries[0][1]["payload"])
   assert payload["target_price"] < barrier.low
@@ -1313,10 +1341,10 @@ async def test_counter_bias_tag_reaches_candidate_setup_and_stats_label(
     strategy="Mapped Zone Reaction",
     strategy_mode="mapped_zone_reaction",
     direction="BUY",
-    entry_low=4066.0,
-    entry_high=4074.5,
+    entry_low=4072.0,
+    entry_high=4074.2,
     current_price=4072.88,
-    structure_swing=4066.0,
+    structure_swing=4070.5,
     targets_pips=(30, 60, 90, 111),
     tags=("counter_bias",),
     target_price=4084.0,
@@ -1335,7 +1363,9 @@ async def test_counter_bias_tag_reaches_candidate_setup_and_stats_label(
     match_source="market_map_strategy",
   )
 
-  assert candidate_id == match.match_id
+  assert candidate_id == match.match_id, await client.get(
+    "auto_trade:last_route_outcome:XAU"
+  )
   entries = await client.xrange("auto_trade:test")
   payload = json.loads(entries[0][1]["payload"])
   assert payload["setup"] == "Mapped Zone Reaction · counter_bias"
@@ -1630,16 +1660,16 @@ async def test_publish_candidate_overlap_veto_disabled_still_increments_counter(
   assert passed is not None
 
   monkeypatch.setattr(worker.settings, "auto_trade_overlap_veto_enabled", True)
-  vetoed = await worker._publish_candidate(
+  warned = await worker._publish_candidate(
     client, "XAU", "2", spot, decision, _scale_context(now),
     market_map=market_map,
   )
-  assert vetoed is None
+  assert warned is not None
   reject_count = await client.hget(
     "auto_trade:gate_reject:XAU:overlapping_zone_conflict", "count",
   )
   assert reject_count is None
-  waiting = await client.hget(
-    "auto_trade:guard_evaluation:XAU:overlap:wait", "count",
+  advisory = await client.hget(
+    "auto_trade:guard_evaluation:XAU:overlap:allow_with_warning", "count",
   )
-  assert waiting is not None and int(waiting) >= 1
+  assert advisory is not None and int(advisory) >= 1
