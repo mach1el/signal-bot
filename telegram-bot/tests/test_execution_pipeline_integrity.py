@@ -28,8 +28,12 @@ from app.autotrade.candidate_publish import (
   publish_ranked_cycle,
   release_owned_lock,
 )
-from app.autotrade.execution_policy import evaluate_execution_policy
+from app.autotrade.execution_policy import (
+  ENTRY_PLAN_VERSION,
+  evaluate_execution_policy,
+)
 from app.autotrade.route_outcome import record_route_outcome
+from app.autotrade import worker
 from app.persistence import redis_state
 
 
@@ -215,6 +219,188 @@ def test_private_trend_policy_forwards_limit_and_single_distribution():
   assert evaluation.policy is not None
   assert evaluation.policy.order_type_preference == "limit"
   assert evaluation.measured["entry_distribution"] == "single"
+
+
+def test_single_limit_route_publishes_the_limit_price_as_planned_entry():
+  # A narrow limit zone commits to one deterministic leg price, so the
+  # executor is held to it and validates the final stop there.
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      entry_low=4100.0,
+      entry_high=4100.3,
+      current_price=4100.2,
+      structure_swing=4098.5,
+    ),
+    spot_price=4100.2,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  assert evaluation.allowed
+  assert evaluation.measured["planned_execution_route"] == "single_limit"
+  assert evaluation.measured["planned_entry_price"] == 4100.2
+  assert evaluation.measured["planned_leg_entry_prices"] == [4100.2]
+  assert evaluation.measured["entry_plan_version"] == ENTRY_PLAN_VERSION
+
+
+def test_buy_limit_planned_entry_is_the_zone_edge_not_the_drifted_quote():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      entry_low=4100.0,
+      entry_high=4100.3,
+      current_price=4100.2,
+      structure_swing=4098.5,
+    ),
+    spot_price=4101.0,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  # The limit rests at the zone edge, so that - not the quote - is the entry
+  # the stop contract and the executor's entry contract are measured against.
+  assert evaluation.measured["planned_entry_price"] == 4100.3
+  assert evaluation.measured["planned_leg_entry_prices"] == [4100.3]
+
+
+def test_sell_limit_planned_entry_is_the_zone_edge_not_the_drifted_quote():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      direction="SELL",
+      entry_low=4100.0,
+      entry_high=4100.3,
+      current_price=4100.1,
+      structure_swing=4101.8,
+    ),
+    spot_price=4099.4,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  assert evaluation.measured["planned_entry_price"] == 4100.0
+  assert evaluation.measured["planned_leg_entry_prices"] == [4100.0]
+
+
+def test_zone_split_route_publishes_no_committed_leg_prices():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      entry_low=4100.0,
+      entry_high=4100.8,
+      current_price=4100.5,
+      structure_swing=4098.5,
+    ),
+    spot_price=4100.5,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  assert evaluation.allowed
+  assert evaluation.measured["entry_distribution"] == "zone_split"
+  assert evaluation.measured["planned_execution_route"] == "zone_split"
+  # Leg prices depend on executor zone-fill sizing; only the reference entry
+  # is authoritative, so no leg is published for the executor to be held to.
+  assert evaluation.measured["planned_entry_price"] == 4100.5
+  assert evaluation.measured["planned_leg_entry_prices"] == []
+
+
+def test_market_route_publishes_the_quote_as_planned_entry():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Momentum Ride",
+      entry_low=4100.0,
+      entry_high=4101.0,
+      current_price=4100.5,
+      structure_swing=4098.0,
+    ),
+    spot_price=4100.5,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  assert evaluation.allowed
+  assert evaluation.measured["planned_execution_route"] == "market"
+  assert evaluation.measured["planned_entry_price"] == 4100.5
+  assert evaluation.measured["planned_leg_entry_prices"] == []
+
+
+def test_uncommitted_route_leaves_the_executor_free_to_choose():
+  evaluation = evaluate_execution_policy(
+    _policy_match(),
+    spot_price=4100.5,
+    regime="range",
+    pip_size=0.1,
+  )
+
+  assert evaluation.allowed
+  assert evaluation.measured["order_type_preference"] == "either"
+  assert evaluation.measured["planned_execution_route"] == "either"
+  assert evaluation.measured["planned_leg_entry_prices"] == []
+
+
+def test_reward_risk_is_measured_against_the_final_absolute_stop():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      entry_low=4100.0,
+      entry_high=4100.3,
+      current_price=4100.2,
+      structure_swing=4098.5,
+      targets_pips=(30, 60),
+    ),
+    spot_price=4100.2,
+    regime="trend",
+    pip_size=0.1,
+  )
+  measured = evaluation.measured
+
+  planned_entry = measured["planned_entry_price"]
+  # The stop contract is published as exact decimal strings.
+  final_stop = float(measured["planned_stop_price"])
+  final_stop_pips = float(measured["planned_stop_pips"])
+  # The published RR must be derived from the same absolute stop the executor
+  # sends to the broker, measured from the same planned entry.
+  assert float(measured["planned_stop_entry_price"]) == planned_entry
+  assert final_stop_pips == pytest.approx(
+    (planned_entry - final_stop) / 0.1, abs=1e-6,
+  )
+  assert measured["reward_risk"] == pytest.approx(
+    round(60.0 / final_stop_pips, 4), abs=1e-4,
+  )
+
+
+def test_entry_plan_fields_reach_the_published_candidate_contract():
+  evaluation = evaluate_execution_policy(
+    _policy_match(
+      strategy="Trend Pullback",
+      entry_low=4100.0,
+      entry_high=4100.3,
+      current_price=4100.2,
+      structure_swing=4098.5,
+    ),
+    spot_price=4100.2,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  forwarded = worker._stop_contract_fields(evaluation.measured)
+
+  # The executor rejects route or entry drift using exactly these fields, so
+  # a field that never reaches the payload is a silent contract hole.
+  for field in (
+    "planned_execution_route",
+    "planned_entry_price",
+    "planned_leg_entry_prices",
+    "entry_plan_version",
+    "planned_stop_entry_price",
+    "planned_stop_price",
+    "planned_stop_pips",
+  ):
+    assert field in forwarded, field
+  assert forwarded["planned_execution_route"] == "single_limit"
+  assert forwarded["planned_entry_price"] == 4100.2
 
 
 def test_execution_policy_rejects_wide_and_unknown_strategies():
