@@ -108,7 +108,7 @@ def _match(
     reasons=("mapped",),
     atr=2.4,
     structure_swing=4068.0,
-    targets_pips=(30, 60),
+    targets_pips=(30, 60, 90),
     family="mapped_zone",
     structural_source="market_map_zone",
     zone_id=zone_id,

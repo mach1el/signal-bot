@@ -637,6 +637,17 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
     int ttlMinutes,
     CancellationToken cancellationToken
   ) => Task.CompletedTask;
+
+  public Task SaveGroupPlanAsync(
+    AutoTradeGroupPlan plan,
+    TimeSpan ttl,
+    CancellationToken cancellationToken
+  ) => Task.CompletedTask;
+
+  public Task DeleteGroupPlanAsync(
+    string groupId,
+    CancellationToken cancellationToken
+  ) => Task.CompletedTask;
 }
 
 internal sealed class RecordingSink : IBarSink

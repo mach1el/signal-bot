@@ -11,14 +11,18 @@ import fakeredis
 import pytest
 
 from app.autotrade.arbitration import (
+  CandidatePublicationResult,
   ExecutionPreflightDecision,
   ExecutionIntent,
   arbitrate_execution_intents,
   arbitrate_preflight_decisions,
 )
 from app.autotrade.candidate_publish import (
+  acquire_owned_lock,
   autonomous_cycle_owner_key,
   publish_candidate_atomic,
+  publish_ranked_cycle,
+  release_owned_lock,
 )
 from app.autotrade.execution_policy import evaluate_execution_policy
 from app.autotrade.route_outcome import record_route_outcome
@@ -174,8 +178,8 @@ def test_absolute_target_room_is_measured_from_planned_entry():
   evaluation = evaluate_execution_policy(
     _policy_match(
       target_model="absolute",
-      absolute_target_price=4106.5,
-      target_price=4106.5,
+      absolute_target_price=4108.5,
+      target_price=4108.5,
       targets_pips=(),
       target_reference_price="structural_level",
     ),
@@ -186,7 +190,7 @@ def test_absolute_target_room_is_measured_from_planned_entry():
 
   assert evaluation.allowed
   assert evaluation.measured["planned_entry_price"] == 4102.5
-  assert evaluation.measured["remaining_target_room_pips"] == 40.0
+  assert evaluation.measured["remaining_target_room_pips"] == 60.0
 
 
 def test_private_trend_policy_forwards_limit_and_single_distribution():
@@ -351,6 +355,182 @@ async def test_one_cycle_owner_allows_only_one_distinct_candidate():
   assert sum(item.published for item in results) == 1
   assert await client.xlen("auto_trade:test:cycle") == 1
   assert sum(item.status == "conflict" for item in results) == 11
+
+
+@pytest.mark.asyncio
+async def test_busy_top_route_blocks_lower_ranked_intent():
+  client = redis_state.get_client()
+  top = _intent("top", direction="BUY", confluence=4)
+  lower = _intent("lower", direction="BUY", confluence=3)
+  attempted: list[str] = []
+
+  async def publisher(intent):
+    attempted.append(intent.intent_id)
+    if intent.intent_id == "top":
+      return CandidatePublicationResult.blocked("route_in_progress")
+    pytest.fail("lower-ranked route must not run while top is in progress")
+
+  result = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="busy-top",
+    ordered=(top, lower),
+    publisher=publisher,
+  )
+
+  assert result.status == "route_in_progress"
+  assert attempted == ["top"]
+  assert await client.xlen("auto_trade:test:busy-top") == 0
+
+
+@pytest.mark.asyncio
+async def test_two_workers_preserve_highest_ranked_publication():
+  client = redis_state.get_client()
+  top = _intent("top-concurrent", direction="BUY", confluence=4)
+  lower = _intent("lower-concurrent", direction="BUY", confluence=3)
+  entered = asyncio.Event()
+  release = asyncio.Event()
+
+  async def publisher(intent):
+    assert intent.intent_id == top.intent_id
+    entered.set()
+    await release.wait()
+    atomic = await publish_candidate_atomic(
+      client,
+      stream="auto_trade:test:ranked-workers",
+      candidate_id="candidate-top-concurrent",
+      payload=json.dumps({"intent_id": intent.intent_id}),
+      ttl=300,
+      maxlen=100,
+      ownership_key=autonomous_cycle_owner_key("XAU", "workers-cycle"),
+      ownership_payload="candidate-top-concurrent",
+      ownership_ttl=300,
+    )
+    return (
+      CandidatePublicationResult.published("candidate-top-concurrent")
+      if atomic.published
+      else CandidatePublicationResult.blocked("cycle_conflict")
+    )
+
+  first = asyncio.create_task(publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="workers-cycle",
+    ordered=(top, lower),
+    publisher=publisher,
+  ))
+  await entered.wait()
+  second = asyncio.create_task(publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="workers-cycle",
+    ordered=(top, lower),
+    publisher=publisher,
+  ))
+  await asyncio.sleep(0)
+  release.set()
+  results = await asyncio.gather(first, second)
+
+  assert sum(result.status == "published" for result in results) == 1
+  assert sum(result.status == "route_in_progress" for result in results) == 1
+  assert await client.xlen("auto_trade:test:ranked-workers") == 1
+  payload = json.loads((await client.xrange(
+    "auto_trade:test:ranked-workers",
+  ))[0][1]["payload"])
+  assert payload["intent_id"] == top.intent_id
+
+
+@pytest.mark.asyncio
+async def test_duplicate_cycle_delivery_keeps_original_winner():
+  client = redis_state.get_client()
+  top = _intent("top-duplicate", direction="BUY", confluence=4)
+  lower = _intent("lower-duplicate", direction="BUY", confluence=3)
+
+  async def publisher(intent):
+    atomic = await publish_candidate_atomic(
+      client,
+      stream="auto_trade:test:duplicate-cycle",
+      candidate_id=f"candidate-{intent.intent_id}",
+      payload=json.dumps({"intent_id": intent.intent_id}),
+      ttl=300,
+      maxlen=100,
+      ownership_key=autonomous_cycle_owner_key("XAU", "duplicate-cycle"),
+      ownership_payload=f"candidate-{intent.intent_id}",
+      ownership_ttl=300,
+    )
+    return (
+      CandidatePublicationResult.published(f"candidate-{intent.intent_id}")
+      if atomic.published
+      else CandidatePublicationResult.blocked("cycle_conflict")
+    )
+
+  first = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="duplicate-cycle",
+    ordered=(top, lower),
+    publisher=publisher,
+  )
+  second = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="duplicate-cycle",
+    ordered=(top, lower),
+    publisher=publisher,
+  )
+
+  assert first.candidate_id == "candidate-top-duplicate"
+  assert second.status == "cycle_conflict"
+  assert await client.xlen("auto_trade:test:duplicate-cycle") == 1
+
+
+@pytest.mark.asyncio
+async def test_true_terminal_top_rejection_allows_ranked_fallback():
+  client = redis_state.get_client()
+  top = _intent("top-terminal", direction="BUY", confluence=4)
+  lower = _intent("lower-valid", direction="BUY", confluence=3)
+
+  async def publisher(intent):
+    if intent.intent_id == top.intent_id:
+      return CandidatePublicationResult.terminal_reject("zone_invalidated")
+    atomic = await publish_candidate_atomic(
+      client,
+      stream="auto_trade:test:terminal-fallback",
+      candidate_id="candidate-lower-valid",
+      payload=json.dumps({"intent_id": intent.intent_id}),
+      ttl=300,
+      maxlen=100,
+      ownership_key=autonomous_cycle_owner_key("XAU", "terminal-fallback"),
+      ownership_payload="candidate-lower-valid",
+      ownership_ttl=300,
+    )
+    assert atomic.published
+    return CandidatePublicationResult.published("candidate-lower-valid")
+
+  result = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="terminal-fallback",
+    ordered=(top, lower),
+    publisher=publisher,
+  )
+
+  assert result.candidate_id == "candidate-lower-valid"
+  assert await client.xlen("auto_trade:test:terminal-fallback") == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_owner_cannot_delete_successor_lock():
+  client = redis_state.get_client()
+  key = "auto_trade:route_lock:XAU:owned-release"
+  original = await acquire_owned_lock(client, key, ttl=30)
+  assert original is not None
+  await client.set(key, "successor-token", ex=30)
+
+  released = await release_owned_lock(client, key, original)
+
+  assert not released
+  assert await client.get(key) == "successor-token"
 
 
 @pytest.mark.asyncio
@@ -634,3 +814,126 @@ async def test_route_keeps_preflight_arbitration_and_publication_evidence():
   assert route["executor_event_id"] == "171-0"
   assert route["winner_intent_id"] == "strategy:route-stages-1"
   assert route["signal_source"] == "scanner_strategy_match"
+
+
+@pytest.mark.asyncio
+async def test_route_recovery_clears_stale_terminal_reason_and_keeps_history():
+  client = redis_state.get_client()
+  match = SimpleNamespace(
+    symbol="XAU",
+    match_id="route-recovery-1",
+    strategy="Liquidity Sweep",
+    family="liquidity_reversal",
+    direction="BUY",
+    structural_source="liquidity",
+    issued_at=1_000,
+    expires_at=2_000,
+    current_price=4100.0,
+    entry_low=4100.0,
+    entry_high=4101.0,
+  )
+  await record_route_outcome(
+    client,
+    match,
+    stage="stream_publish",
+    status="blocked",
+    reason_code="atomic_publish_unavailable",
+    message="Redis scripting unavailable",
+    retained=True,
+  )
+  await record_route_outcome(
+    client,
+    match,
+    stage="stream_publish",
+    status="candidate_published",
+    reason_code="candidate_published",
+    message="published after recovery",
+    retained=False,
+  )
+
+  route = json.loads(await client.get(
+    "auto_trade:route_outcome:XAU:route-recovery-1"
+  ))
+  history = await client.xrange("auto_trade:route_history:XAU")
+  reasons = [
+    json.loads(dict(item[1])["payload"])["reason_code"]
+    for item in history
+  ]
+  assert route["terminal_reason_code"] is None
+  assert reasons[-2:] == [
+    "atomic_publish_unavailable", "candidate_published",
+  ]
+
+
+@pytest.mark.asyncio
+async def test_executor_reject_clears_on_rearmed_checking_transition():
+  client = redis_state.get_client()
+  match = SimpleNamespace(
+    symbol="XAU",
+    match_id="route-rearm-1",
+    strategy="Mapped Zone Reaction",
+    family="mapped_zone_reaction",
+    direction="SELL",
+    structural_source="supply",
+    issued_at=1_000,
+    expires_at=2_000,
+    current_price=4100.0,
+    entry_low=4100.0,
+    entry_high=4101.0,
+  )
+  await record_route_outcome(
+    client,
+    match,
+    stage="executor",
+    status="executor_rejected",
+    reason_code="protective_stop_contract_mismatch",
+    message="executor rejected old publication",
+    retained=False,
+  )
+  await record_route_outcome(
+    client,
+    match,
+    stage="preflight",
+    status="checking",
+    reason_code="thesis_rearmed",
+    message="new reaction is being checked",
+    retained=True,
+  )
+
+  route = json.loads(await client.get(
+    "auto_trade:route_outcome:XAU:route-rearm-1"
+  ))
+  assert route["terminal_reason_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_new_terminal_transition_replaces_old_terminal_reason():
+  client = redis_state.get_client()
+  match = SimpleNamespace(
+    symbol="XAU",
+    match_id="route-terminal-update",
+    strategy="Demand Zone Reaction",
+    family="supply_demand",
+    direction="BUY",
+    structural_source="demand",
+    issued_at=1_000,
+    expires_at=2_000,
+    current_price=4100.0,
+    entry_low=4100.0,
+    entry_high=4101.0,
+  )
+  for reason in ("atomic_publish_unavailable", "zone_invalidated"):
+    await record_route_outcome(
+      client,
+      match,
+      stage="stream_publish" if reason.startswith("atomic") else "entry_invalidation",
+      status="blocked",
+      reason_code=reason,
+      message=reason,
+      retained=False,
+    )
+
+  route = json.loads(await client.get(
+    "auto_trade:route_outcome:XAU:route-terminal-update"
+  ))
+  assert route["terminal_reason_code"] == "zone_invalidated"
