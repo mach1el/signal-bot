@@ -135,6 +135,40 @@ public sealed class AutoTradeOptionsTests
   }
 
   [Fact]
+  public void ValidatesBrokerAbsenceQuorumTimingAsOneSet()
+  {
+    Options().Validate();
+
+    // A single broker snapshot never confirms absence.
+    Assert.Throws<AutoTradeConfigurationException>(
+      () => (Options() with { BrokerAbsenceConfirmations = 1 }).Validate()
+    );
+    // A zero-second recheck interval provides no visibility window, so an
+    // immediate restart could otherwise accelerate the quorum.
+    Assert.Throws<AutoTradeConfigurationException>(
+      () => (Options() with { BrokerAbsenceRecheckSeconds = 0 }).Validate()
+    );
+    Assert.Throws<AutoTradeConfigurationException>(
+      () => (Options() with { BrokerRecoveryTimeoutSeconds = 0 }).Validate()
+    );
+    // The timeout must allow the configured quorum to be achieved.
+    Assert.Throws<AutoTradeConfigurationException>(
+      () => (Options() with
+      {
+        BrokerAbsenceConfirmations = 4,
+        BrokerAbsenceRecheckSeconds = 30,
+        BrokerRecoveryTimeoutSeconds = 60,
+      }).Validate()
+    );
+    (Options() with
+    {
+      BrokerAbsenceConfirmations = 3,
+      BrokerAbsenceRecheckSeconds = 30,
+      BrokerRecoveryTimeoutSeconds = 90,
+    }).Validate();
+  }
+
+  [Fact]
   public void SizingModeDefaultsToMinAndRejectsUnknownValues()
   {
     Assert.Equal("min", Options().SizingMode);

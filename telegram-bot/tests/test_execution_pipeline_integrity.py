@@ -283,7 +283,7 @@ def test_sell_limit_planned_entry_is_the_zone_edge_not_the_drifted_quote():
   assert evaluation.measured["planned_leg_entry_prices"] == [4100.0]
 
 
-def test_zone_split_route_publishes_no_committed_leg_prices():
+def test_zone_split_route_publishes_proximal_and_midpoint_legs():
   evaluation = evaluate_execution_policy(
     _policy_match(
       strategy="Trend Pullback",
@@ -300,10 +300,9 @@ def test_zone_split_route_publishes_no_committed_leg_prices():
   assert evaluation.allowed
   assert evaluation.measured["entry_distribution"] == "zone_split"
   assert evaluation.measured["planned_execution_route"] == "zone_split"
-  # Leg prices depend on executor zone-fill sizing; only the reference entry
-  # is authoritative, so no leg is published for the executor to be held to.
-  assert evaluation.measured["planned_entry_price"] == 4100.5
-  assert evaluation.measured["planned_leg_entry_prices"] == []
+  # Proximal (BUY high) + midpoint, matching ZoneFillPlanner.
+  assert evaluation.measured["planned_entry_price"] == 4100.8
+  assert evaluation.measured["planned_leg_entry_prices"] == [4100.8, 4100.4]
 
 
 def test_market_route_publishes_the_quote_as_planned_entry():

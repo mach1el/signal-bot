@@ -202,8 +202,14 @@ matching - decides what may happen next:
 | --- | --- | --- |
 | Active lease-owned | `processing`, `broker_submitting` | One executor owns it until its lease expires |
 | Retryable | `published`, `retryable_error` | No broker side effect; claimable now |
-| Recovery-required | `broker_outcome_unknown` | A broker request may exist; only reconciliation may move it |
+| Recovery-required | `broker_outcome_unknown`, `broker_reconciling` | A broker request may exist; only the recovery claim policy may move it |
 | Terminal | `ordered`, `completed`, `rejected`, `dry_run`, `flip_pending`, `integrity_error` | Immutable outcome |
+
+`broker_reconciling` is the recovery-**active** state: it marks a candidate
+currently owned by a recovery worker. It is structurally separate from
+`processing` so a crashed recovery worker can never decay into a reclaimable
+normal execution — an expired `broker_reconciling` lease stays
+recovery-required and may only be resumed by another recovery claim.
 
 Allowed transitions:
 
@@ -212,13 +218,21 @@ published            → processing
 retryable_error      → processing
 processing           → broker_submitting | rejected | retryable_error
 broker_submitting    → ordered | broker_outcome_unknown | rejected
-broker_outcome_unknown → ordered    (adoption)
-                       → rejected   (confirmed non-acceptance)
-                       → retryable_error (confirmed no side effect)
-                       → processing (recovery claim)
+broker_outcome_unknown → broker_reconciling (recovery claim; never processing)
+broker_reconciling   → ordered    (adoption)
+                     → rejected   (confirmed non-acceptance)
+                     → retryable_error (only after durable absence quorum)
+                     → broker_outcome_unknown (timeout before quorum)
 ordered | completed | rejected | dry_run | flip_pending | integrity_error
-                       → immutable
+                     → immutable
 ```
+
+`broker_outcome_unknown` can never be released to `retryable_error` directly:
+the release is reserved for the recovery-active state after the absence
+quorum has been durably proven. An expired `broker_submitting` lease is also
+reclaimed only by the recovery policy, and the reclaim writes
+`broker_reconciling` (with `last_error` remembering the recovered-from state),
+never `processing`.
 
 Readers also parse legacy plain strings (`published`, `processing`,
 `ordered:<id>`, `rejected:<reason>`, `dry_run`, `flip_pending:<…>`). An
@@ -238,8 +252,11 @@ string, and the cursor follows the disposition:
 | `Conflict` | hold | integrity error; surface it (`candidate_state_conflict`) |
 
 A claim policy states explicitly what a caller may reclaim, so an ordinary
-intake claim can never adopt a `broker_submitting` or `broker_outcome_unknown`
-record; only the recovery flow can.
+intake claim can never adopt a `broker_submitting`, `broker_outcome_unknown`
+or `broker_reconciling` record; only the recovery flow can. An *expired*
+`broker_submitting` or `broker_reconciling` lease also returns
+`RecoveryRequired` under the default claim policy — never a normal reclaim
+that could place a duplicate order.
 
 ## Publication authority and all-or-nothing recovery
 
@@ -326,16 +343,135 @@ Errors are classified by what the broker may have done, not by exception type:
 
 A `BrokerOutcomeUnknownException` carries the candidate and the deterministic
 client order id, and the outer handler preserves the recovery state instead of
-releasing it to `retryable_error` (`broker_outcome_unknown_preserved`). The
-group plan is **kept** while the outcome is unknown, because it holds the
-identities needed to adopt the order.
+releasing it to `retryable_error` (`broker_outcome_unknown_preserved`). Metric
+semantics are separated:
 
-Recovery then searches the broker by deterministic client order id and either
-adopts the position or pending order (`broker_outcome_adopted`,
-`broker_duplicate_prevented`) or confirms absence
-(`broker_outcome_confirmed_absent`), only then deleting the group plan and
-allowing a retry. Rollback cancels only confirmed accepted orders, is fenced
-by the current lease, and an unverified cancellation stays recovery-required.
+- `broker_response_unknown` — acknowledgement is uncertain while the lease may
+  still be held;
+- `executor_lease_lost_after_broker` — the lease was lost after a broker
+  request may have begun;
+- `final_stop_amendment_unknown` — the order exists but stop amendment
+  acknowledgement is uncertain.
+
+The group plan is **kept** while the outcome is unknown, because it holds the
+identities needed to adopt the order (`candidate_id`, `stream_event_id`,
+route, `client_order_ids`, `submitted_at`, recovery counters).
+
+### Absence must not be confirmed from one snapshot
+
+Recovery uses the strongest available evidence, in order:
+
+1. query / match by deterministic `client_order_id`;
+2. search pending orders and positions by that identity;
+3. search by exact candidate identity in broker metadata;
+4. only then an absence-confirmation quorum.
+
+A single empty broker snapshot never becomes confirmed absence. When direct
+client-order lookup is unavailable, recovery requires consecutive empty
+authoritative snapshots separated by
+`AUTO_TRADE_BROKER_ABSENCE_RECHECK_SECONDS` (default 3s), with
+`AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` (default 2) empties required, within
+`AUTO_TRADE_BROKER_RECOVERY_TIMEOUT_SECONDS` (default 30s). The candidate is
+`broker_reconciling` while the recovery owner works and returns to
+`broker_outcome_unknown` on timeout; normal intake returns `RecoveryRequired`
+throughout and cannot retry.
+
+### Durable, fenced, time-separated confirmations
+
+Confirmation progress is persisted in Redis
+(`auto_trade:recovery_progress:{candidate_id}`) and incremented by a fenced
+Lua script that:
+
+- uses Redis `TIME` — never the executor host clock — for the eligibility
+  decision;
+- refuses to count a snapshot until
+  `current_redis_time - last_check_at >= AUTO_TRADE_BROKER_ABSENCE_RECHECK_SECONDS`
+  (`broker_recovery_confirmation_deferred`), so an immediate process restart
+  cannot accelerate the quorum;
+- only counts for the exact candidate identity, stream event, current recovery
+  lease token and `broker_reconciling` state — a stale recovery owner is
+  fenced out instead of counting;
+- survives recovery crashes: a successor resumes from the persisted count and
+  timestamp.
+
+Startup validation fails closed (`AutoTradeConfigurationException`) when
+`AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS < 2`, when the recheck interval or
+recovery timeout is not positive, or when the timeout cannot cover
+`recheck × (confirmations − 1)`.
+
+The whole recovery operation — group-plan load, every broker snapshot, the
+delays between snapshots, and the final fenced mutation — runs under its own
+`CandidateLeaseHeartbeat`. While it renews, a second recovery worker cannot
+claim the candidate; on ownership loss the linked cancellation token stops
+broker queries and delays, and the stale worker leaves the record, the group
+plan and the persisted absence progress untouched for the successor
+(`broker_recovery_ownership_lost`).
+
+Typed dispositions:
+
+```text
+AdoptedPosition | AdoptedPendingOrder | ConfirmedAbsent | StillUnknown | Conflict
+```
+
+Broker evidence matching priority: exact broker `ClientOrderId` equality
+(`broker_recovery_direct_lookup` — counted only for a real exact match), then
+exact persisted client-order identity in broker metadata, then the legacy
+candidate-token fallback for objects that carry no client-order identity at
+all (`broker_recovery_legacy_token_lookup`). An object that references the
+candidate but carries a *different* exact client-order identity is a
+`Conflict`: it is never adopted and blocks absence confirmation. A partial
+zone outcome (one visible leg, or a filled leg plus a pending leg) is adopted
+as-is — never treated as absence, never re-submitted.
+
+Metrics: `broker_recovery_started`, `broker_recovery_direct_lookup`,
+`broker_recovery_legacy_token_lookup`, `broker_recovery_empty_snapshot`,
+`broker_recovery_confirmation_deferred`,
+`broker_recovery_confirmation_recorded`, `broker_recovery_absence_confirmed`,
+`broker_recovery_ownership_lost`, `broker_recovery_still_unknown`,
+`broker_recovery_conflict`, `broker_outcome_adopted`,
+`broker_duplicate_prevented`.
+
+The group plan is deleted only after adoption with persisted execution state,
+confirmed absence (durable quorum, released under the recovery fence), or an
+explicitly verified rollback. Every broker-submitting route persists the
+**resolved** route and the exact client order IDs it is about to submit
+(`av-{candidate}` market, `av-{candidate}-l1` single limit,
+`av-{candidate}-z1`/`-z2` zone split) into the group plan *before* the first
+broker side effect — never the declared candidate route, which may be
+`either`.
+
+## Route and planned-entry contracts
+
+Supported declared routes: `market`, `single_limit`, `zone_split`, `either`.
+Unknown values fail closed (`final_stop_entry_route_invalid`) before any broker
+mutation. Committed routes require `planned_entry_price`; limit and zone routes
+also require matching `planned_leg_entry_prices`. Explicit `either` leaves the
+executor free to choose a supported route but never reinterprets an invalid
+route string as either.
+
+## Structured candidate identity
+
+Legacy plain markers (`published`, `processing`, `ordered:<id>`, …) remain
+conservatively compatible; legacy status is determined **only** by the
+original raw value being one of those supported plain-string markers.
+
+A structured (JSON) record must explicitly carry the full schema, validated
+identically by the Python parser, the C# parser, the Redis execution Lua and
+the publication-reconciliation Lua:
+
+```text
+version           integer, exactly the supported version (1); never defaulted
+candidate_id      string; empty/missing is a conflict, never an implicit pass
+stream_event_id   string; empty/missing is a conflict, never an implicit pass
+state             non-empty known state; never defaulted to published
+```
+
+A structured record never becomes legacy because fields are missing, a
+missing or malformed `version` is never interpreted as version 1, and a
+missing `state` never falls back to `published`. Malformed structured records
+fail closed everywhere: Python raises, C# raises, the execution Lua returns a
+claim conflict and refuses every mutation, and publication reconciliation
+refuses restoration.
 
 ## Lifecycle events versus lifecycle transitions
 
