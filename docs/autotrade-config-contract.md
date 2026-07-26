@@ -74,6 +74,19 @@ broker symbol digits and rejects candidate payload v5 when the recomputed stop
 differs by more than one symbol tick. Candidate contract v6 is therefore
 required before a publisher may emit stop-plan-bearing payload v5 events.
 
+The broker-absence quorum settings are validated fatally at startup
+(`AutoTradeConfigurationException` disables auto trading):
+
+- `AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` must be at least 2 — a single
+  broker snapshot never confirms absence;
+- `AUTO_TRADE_BROKER_ABSENCE_RECHECK_SECONDS` must be positive — a
+  zero-second interval provides no visibility window and would let an
+  immediate restart accelerate the quorum;
+- `AUTO_TRADE_BROKER_RECOVERY_TIMEOUT_SECONDS` must be positive and at least
+  `recheck × (confirmations − 1)` so the configured quorum is achievable
+  within one recovery attempt. The recovery lease heartbeat renews across the
+  whole window, so the timeout is not limited by a single lease duration.
+
 For non-hedged accounts,
 `AUTO_TRADE_NON_HEDGED_OPPOSITE_POLICY` must be one of:
 
