@@ -66,6 +66,7 @@ AUTO_TRADE_SPOT_MAX_AGE_SECONDS=5
 AUTO_TRADE_ZONE_FILL_ENABLED=true
 AUTO_TRADE_MIN_CONFLUENCE=2
 AUTO_TRADE_NON_HEDGED_OPPOSITE_POLICY=broker_netting
+AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS=3
 MANUAL_ALGO_ENABLED=true
 MANUAL_ALGO_DRY_RUN=false
 SCANNER_TOP_N=0
@@ -154,7 +155,13 @@ The evaluation evidence is:
 - Telemetry (`warning`, `config_health`, `account_capability`) never creates
   `lifecycle_state:service` or reopens terminal lifecycle as `managing`.
 - Candidate markers are structured JSON (`state`, `stream_event_id`, lease
-  fields) or legacy-compatible plain strings during rollout.
+  fields, `attempt`, `last_error`) or legacy-compatible plain strings during
+  rollout. `retryable_error` is reclaimable; `broker_outcome_unknown` is
+  recovery-required and never a normal retry.
+- Candidates carry `planned_execution_route`, `planned_entry_price` and
+  `opposing_zone_id`; the executor rejects route/entry drift and zone-identity
+  mismatch before any broker call, and the broker stop is the approved
+  absolute final stop even after fill slippage.
 - Executor metrics include Range Box execution with existing/opposite exposure.
 - Position snapshots retain distinct candidate and group IDs after restart.
 - Counter-bias candidates retain `bias` and `relationship_to_bias` metadata
@@ -173,6 +180,19 @@ Switching to `AUTO_TRADE_PROFILE=conservative` restores the prior flat exposure
 policy defaults. Existing broker positions remain owned and reconciled; the
 profile change does not close them automatically.
 
-During the final-stop / lease rollout, roll back publisher first if structured
-candidate markers confuse an old executor, then the executor. Keep
-`AUTO_TRADE_REQUIRE_DEMO_ACCOUNT=true` for the observation window.
+During the final-stop / lease rollout, pause intake first if either side is
+still on the pre-fencing build:
+
+```text
+AUTO_TRADE_ENABLED=false
+→ wait for active execution to settle
+→ clear only confirmed nonterminal stale records
+→ deploy executor
+→ deploy publisher
+→ verify config health
+→ re-enable demo intake
+```
+
+Roll back publisher first if structured candidate markers confuse an old
+executor, then the executor. Keep `AUTO_TRADE_REQUIRE_DEMO_ACCOUNT=true` for
+the observation window. Do not enable live accounts.
