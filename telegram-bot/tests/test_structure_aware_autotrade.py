@@ -4,6 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from app.analysis.scalp_ranges import (
   RANGE_STATE_CONFIRMED,
@@ -234,7 +235,7 @@ def test_multi_match_dedupe_and_storage():
   assert same_thesis(a, duplicate, atr=2.0)
   assert not same_thesis(a, b, atr=2.0)
   assert len(kept) == 3
-  assert any(item["event"] == "merged_confluence" for item in events)
+  assert any(item["event"] == "replay_updated" for item in events)
   primary = select_primary(kept)
   assert primary is not None
   raw = serialize_matches(kept)
@@ -323,6 +324,37 @@ def test_dedupe_keeps_fresh_geometry_and_recomputes_risk():
   assert kept[0].event_ts == fresh.event_ts
   assert kept[0].tier == "A"
   assert kept[0].risk_multiplier == 1.0
+
+
+def test_same_match_replayed_five_times_never_inflates_confluence():
+  original = _match(
+    "Liquidity Sweep",
+    "BUY",
+    4100.0,
+    4101.0,
+    confluence=2,
+    event_ts="100",
+  )
+  replays = [
+    replace(
+      original,
+      event_ts=str(100 + index),
+      confirmation_bar_ts=str(100 + index),
+      current_price=4100.1 + index * 0.01,
+    )
+    for index in range(5)
+  ]
+
+  kept, events = dedupe_matches(replays, atr=2.0)
+
+  assert len(kept) == 1
+  assert kept[0].confluence == 2
+  assert kept[0].event_ts == "104"
+  assert kept[0].current_price == pytest.approx(4100.14)
+  assert all(
+    not tag.startswith("contributor:") for tag in kept[0].tags
+  )
+  assert sum(item["event"] == "replay_updated" for item in events) == 4
 
 
 def test_role_flip_creates_opposite_side_barrier():

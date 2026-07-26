@@ -1302,7 +1302,8 @@ public sealed class AutoTradeEngineTests
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
-      orderTypePreference: "limit"
+      orderTypePreference: "limit",
+      entryDistribution: "zone_split"
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
@@ -1322,7 +1323,7 @@ public sealed class AutoTradeEngineTests
     Assert.Contains(
       store.Events,
       item => item.Type == "rejected"
-        && item.Message.Contains("requires a limit-capable zone fill")
+        && item.Message.Contains("requires unavailable zone_split")
     );
     Assert.Empty(client.Orders);
     Assert.Empty(client.LimitOrders);
@@ -1337,6 +1338,7 @@ public sealed class AutoTradeEngineTests
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       orderTypePreference: "limit",
+      entryDistribution: "zone_split",
       entryLow: 3999.0m,
       entryHigh: 4000.5m
     ));
@@ -1360,6 +1362,141 @@ public sealed class AutoTradeEngineTests
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task NarrowPolicyLimitUsesOnePendingOrderWithoutZoneSplit()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      setup: "Trend Pullback",
+      orderTypePreference: "limit",
+      entryDistribution: "single",
+      entryLow: 3999.8m,
+      entryHigh: 4000.0m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with { ZoneFillEnabled = true },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "order_accepted");
+
+    var limit = Assert.Single(client.LimitOrders);
+    Assert.Equal(4000.0m, limit.LimitPrice);
+    Assert.Empty(client.Orders);
+    Assert.DoesNotContain(store.Events, item => item.Type == "zone_planned");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RequiredMarketOrderNeverRoutesThroughZoneFill()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      orderTypePreference: "market",
+      entryDistribution: "single",
+      entryLow: 3999.0m,
+      entryHigh: 4000.5m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with { ZoneFillEnabled = true },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Single(client.Orders);
+    Assert.Empty(client.LimitOrders);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
+  [InlineData(1.0, 600)]
+  [InlineData(0.5, 300)]
+  [InlineData(0.375, 200)]
+  public async Task CandidateRiskMultiplierScalesAndNormalizesInitialVolume(
+    double multiplier,
+    long expectedVolume
+  )
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson(
+      riskMultiplier: (decimal)multiplier
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(expectedVolume, Assert.Single(client.Orders).Volume);
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "opened"
+        && item.RiskMultiplier == (decimal)multiplier
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingAutonomousRiskMultiplierIsRejectedExplicitly()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson(riskMultiplier: null));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "rejected"
+        && item.Message.Contains("invalid autonomous risk_multiplier")
+    );
+    Assert.Empty(client.Orders);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public void RiskMultiplierSurvivesSnakeCaseJsonDeserialization()
+  {
+    var candidate = JsonSerializer.Deserialize(
+      StrategyMatchCandidateJson(riskMultiplier: 0.375m),
+      RedisJsonContext.Default.TradeCandidate
+    );
+
+    Assert.NotNull(candidate);
+    Assert.Equal(0.375m, candidate.RiskMultiplier);
   }
 
   [Fact]
@@ -1650,6 +1787,88 @@ public sealed class AutoTradeEngineTests
     var order = Assert.Single(client.Orders);
     Assert.Contains("|25,55,85|", order.Comment);
     Assert.DoesNotContain("30,60,90,120,200", order.Comment);
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task FillRelativeTargetsAnchorToBrokerFill()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      targetsPips: [30, 60],
+      targetModel: "fill_relative"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var state = Assert.Single(store.Positions.Values);
+    Assert.Equal(4000.2m, state.EntryPrice);
+    Assert.Equal(new decimal[] { 4003.2m, 4006.2m }, state.TargetPrices);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task AbsoluteTargetUsesStructuralPrice()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      targetsPips: [60],
+      targetModel: "absolute",
+      absoluteTargetPrice: 4006.5m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(
+      new decimal[] { 4006.5m },
+      Assert.Single(store.Positions.Values).TargetPrices
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task HybridTargetsNeverCrossStructuralCap()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
+      targetsPips: [30, 60, 90],
+      targetModel: "hybrid",
+      absoluteTargetPrice: 4004.0m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, 1_000),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(
+      new decimal[] { 4003.2m, 4004.0m, 4004.0m },
+      Assert.Single(store.Positions.Values).TargetPrices
+    );
+
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
@@ -3685,7 +3904,8 @@ public sealed class AutoTradeEngineTests
     decimal entryLow = 3999.5m,
     decimal entryHigh = 4000.5m,
     string? regime = null,
-    string? parentGroupId = null
+    string? parentGroupId = null,
+    decimal? riskMultiplier = 1.0m
   ) => JsonSerializer.Serialize(new
   {
     version = 2,
@@ -3712,6 +3932,7 @@ public sealed class AutoTradeEngineTests
     bos_direction = direction == "BUY" ? "up" : "down",
     bos_ts = 1_000,
     opposing_level_distance_atr = 2.0,
+    risk_multiplier = riskMultiplier,
     regime,
     parent_group_id = parentGroupId,
   });
@@ -3729,7 +3950,12 @@ public sealed class AutoTradeEngineTests
     decimal entryHigh = 4000.5m,
     int[]? targetsPips = null,
     string regime = "trend",
-    string? parentGroupId = null
+    string? parentGroupId = null,
+    string? orderTypePreference = null,
+    string? entryDistribution = null,
+    decimal? riskMultiplier = 1.0m,
+    string? targetModel = null,
+    decimal? absoluteTargetPrice = null
   ) => JsonSerializer.Serialize(new
   {
     version = 3,
@@ -3756,6 +3982,11 @@ public sealed class AutoTradeEngineTests
     bos_direction = direction == "BUY" ? "up" : "down",
     bos_ts = 1_000,
     opposing_level_distance_atr = 2.0,
+    risk_multiplier = riskMultiplier,
+    order_type_preference = orderTypePreference,
+    entry_distribution = entryDistribution,
+    target_model = targetModel,
+    absolute_target_price = absoluteTargetPrice,
     regime,
     parent_group_id = parentGroupId,
   });
@@ -3830,7 +4061,11 @@ public sealed class AutoTradeEngineTests
     decimal? structuralZoneHigh = null,
     string? orderTypePreference = null,
     decimal entryLow = 3999.5m,
-    decimal entryHigh = 4000.5m
+    decimal entryHigh = 4000.5m,
+    string? entryDistribution = null,
+    decimal? riskMultiplier = 1.0m,
+    string? targetModel = null,
+    decimal? absoluteTargetPrice = null
   ) => JsonSerializer.Serialize(new
   {
     version = 4,
@@ -3864,6 +4099,10 @@ public sealed class AutoTradeEngineTests
     structural_zone_low = structuralZoneLow,
     structural_zone_high = structuralZoneHigh,
     order_type_preference = orderTypePreference,
+    entry_distribution = entryDistribution,
+    risk_multiplier = riskMultiplier,
+    target_model = targetModel,
+    absolute_target_price = absoluteTargetPrice,
   });
 
   private static string BoxCandidateJson(
@@ -3880,7 +4119,8 @@ public sealed class AutoTradeEngineTests
     int? confluence = null,
     string? groupId = null,
     string? strategyFamily = null,
-    decimal atr = 1.0m
+    decimal atr = 1.0m,
+    decimal? riskMultiplier = 1.0m
   )
   {
     // Range height must cover Full TP distance when flip is disabled.
@@ -3921,6 +4161,7 @@ public sealed class AutoTradeEngineTests
     sweep_high = sweepHigh,
     group_id = groupId,
     strategy_family = strategyFamily,
+    risk_multiplier = riskMultiplier,
   });
   }
 

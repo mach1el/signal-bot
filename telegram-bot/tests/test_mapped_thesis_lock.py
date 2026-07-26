@@ -40,6 +40,7 @@ def _cfg(**overrides):
 
 class FakeRedis:
   def __init__(self):
+    self._apexvoid_allow_non_atomic_test_fallback = True
     self.kv = {}
     self.stream = []
     self.metrics = {}

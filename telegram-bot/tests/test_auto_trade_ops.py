@@ -861,6 +861,44 @@ async def test_pause_resume_and_status(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_status_attributes_the_exact_published_secondary_strategy(
+  monkeypatch,
+):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:last_gate:XAU",
+    json.dumps({
+      "state": "candidate",
+      "box_state": "waiting_for_touch",
+      "trend_state": "no_setup",
+      "selected_strategy": "Liquidity Sweep",
+      "selected_timeframe": "M5",
+      "direction": "BUY",
+      "gate_source": "multi_strategy_match",
+      "candidate_id": "secondary-candidate",
+      "published_candidate": {
+        "winner_intent_id": "strategy:secondary",
+        "candidate_id": "secondary-candidate",
+        "source_strategy": "Supply Zone Reaction",
+        "signal_source": "scanner_strategy_match",
+        "family": "supply_demand",
+        "direction": "SELL",
+        "timeframe": "M5",
+        "group_id": "secondary-group",
+      },
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Selected strategy: <b>Supply Zone Reaction · SELL · M5</b>" in text
+  assert "Source: <b>scanner detector</b>" in text
+  assert "Liquidity Sweep · BUY" not in text
+
+
+@pytest.mark.asyncio
 async def test_status_surfaces_match_build_rejection_reason(monkeypatch):
   # 23 Jul incident: Telegram showed a Range Edge Scalp card with ~40-49
   # pips of room but no autonomous order ever opened, and nothing recorded

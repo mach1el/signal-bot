@@ -67,6 +67,41 @@ def _box(
   )
 
 
+def _auction_frame(start: str) -> pd.DataFrame:
+  index = pd.date_range(start, periods=61, freq="1min", tz="UTC")
+  rows = []
+  for offset in range(61):
+    rows.append({
+      "open": 101.0 if offset % 2 == 0 else 109.0,
+      "high": 109.0 if offset % 2 == 0 else 110.0,
+      "low": 100.0 if offset % 2 == 0 else 101.0,
+      "close": 101.0 if offset % 2 == 0 else 109.0,
+      "volume": 1.0,
+    })
+  return pd.DataFrame(rows, index=index)
+
+
+def test_identical_rails_in_different_formation_windows_are_new_episodes():
+  first = gate._m1_consolidation_box(
+    _auction_frame("2026-07-20"),
+    2.0,
+    "XAU",
+  )
+  second = gate._m1_consolidation_box(
+    _auction_frame("2026-07-21"),
+    2.0,
+    "XAU",
+  )
+
+  assert first is not None
+  assert second is not None
+  assert first.lower.level == second.lower.level
+  assert first.upper.level == second.upper.level
+  assert first.box_id != second.box_id
+  assert first.box_id.startswith("v2|XAU|")
+  assert second.formation_start_ts > first.formation_start_ts
+
+
 def test_support_rejection_creates_buy_with_full_50_pip_target(monkeypatch):
   rails = [
     _rail("support", 100.0, touches=3),

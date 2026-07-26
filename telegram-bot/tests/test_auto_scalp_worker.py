@@ -771,8 +771,8 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
     key_level=4016.2,
     atr=1.2,
     structure_swing=4010.0,
-    target_prices=(4020.0,),
-    targets_pips=(38,),
+    target_prices=(4025.5,),
+    targets_pips=(90,),
     confluence=2,
     reasons=("forced",),
   )
@@ -841,8 +841,8 @@ async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
     key_level=4016.2,
     atr=1.2,
     structure_swing=4010.0,
-    target_prices=(4020.0,),
-    targets_pips=(38,),
+    target_prices=(4025.5,),
+    targets_pips=(90,),
     confluence=2,
     reasons=("forced",),
   )
@@ -920,8 +920,8 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
     key_level=4016.2,
     atr=1.2,
     structure_swing=4010.0,
-    target_prices=(4020.0,),
-    targets_pips=(38,),
+    target_prices=(4025.5,),
+    targets_pips=(90,),
     confluence=2,
     reasons=("forced",),
   )
