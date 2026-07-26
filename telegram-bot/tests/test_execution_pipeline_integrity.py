@@ -17,6 +17,10 @@ from app.autotrade.arbitration import (
   arbitrate_execution_intents,
   arbitrate_preflight_decisions,
 )
+from app.autotrade.candidate_execution_state import (
+  parse_candidate_execution_record,
+  STATE_PUBLISHED,
+)
 from app.autotrade.candidate_publish import (
   acquire_owned_lock,
   autonomous_cycle_owner_key,
@@ -327,9 +331,9 @@ async def test_candidate_claim_and_stream_append_are_single_winner():
 
   assert sum(1 for published, _ in results if published) == 1
   assert await client.xlen("auto_trade:test:atomic") == 1
-  assert await client.get(
-    "auto_trade:candidate:candidate-atomic"
-  ) == "published"
+  assert parse_candidate_execution_record(
+    await client.get("auto_trade:candidate:candidate-atomic")
+  ).state == STATE_PUBLISHED
 
 
 @pytest.mark.asyncio
@@ -631,9 +635,9 @@ async def test_eval_failure_uses_only_explicit_test_fallback():
   assert result.published
   assert result.status == "published"
   assert await client.xlen("auto_trade:test:explicit-fallback") == 1
-  assert await client.get(
-    "auto_trade:candidate:candidate-explicit-fallback"
-  ) == "published"
+  assert parse_candidate_execution_record(
+    await client.get("auto_trade:candidate:candidate-explicit-fallback")
+  ).state == STATE_PUBLISHED
 
 
 def test_all_selected_publication_failures_keep_exact_publisher_evidence():

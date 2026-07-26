@@ -250,4 +250,94 @@ public sealed class StructureStopPlannerTests
 
     Assert.Equal("stop_exceeds_envelope_after_wick", error.Message);
   }
+
+  [Fact]
+  public void PushesStopBeyondExecutionGradeOpposingZone()
+  {
+    var plan = StructureStopPlanner.Plan(
+      TradeDirection.Buy,
+      entryPrice: 4000.2m,
+      structureSwing: 3998m,
+      atr: 1m,
+      bufferAtr: 0.3m,
+      sweepExtreme: null,
+      wickBufferAtr: 0.15m,
+      minimumStopPips: 30,
+      maximumStopPips: 65,
+      pipSize: 0.1m,
+      Symbol,
+      new OpposingZoneStopContext(
+        "demand-1",
+        3997m,
+        3998.5m,
+        ExecutionGrade: true,
+        PushBeyondZone: true,
+        BufferAtr: 0.3m
+      )
+    );
+
+    Assert.Equal(3997.20m, plan.BaseStopLoss);
+    Assert.Equal(3996.70m, plan.StopLoss);
+    Assert.Equal("opposing_zone_push", plan.Adjustment);
+    Assert.Equal(2, plan.Version);
+  }
+
+  [Fact]
+  public void RejectsStopInsideOpposingZoneWhenPushDisabled()
+  {
+    var error = Assert.Throws<VolumePlanningException>(() =>
+      StructureStopPlanner.Plan(
+        TradeDirection.Buy,
+        4000m,
+        3998m,
+        atr: 1m,
+        bufferAtr: 0.3m,
+        sweepExtreme: null,
+        wickBufferAtr: 0.15m,
+        minimumStopPips: 30,
+        maximumStopPips: 65,
+        pipSize: 0.1m,
+        Symbol,
+        new OpposingZoneStopContext(
+          "demand-1",
+          3997m,
+          3998.5m,
+          ExecutionGrade: true,
+          PushBeyondZone: false,
+          BufferAtr: 0.3m
+        )
+      )
+    );
+
+    Assert.Equal("stop_inside_opposing_zone", error.Message);
+  }
+
+  [Fact]
+  public void ContextOnlyOpposingZoneLeavesBaseStopUntouched()
+  {
+    var plan = StructureStopPlanner.Plan(
+      TradeDirection.Buy,
+      4000m,
+      3998m,
+      atr: 1m,
+      bufferAtr: 0.3m,
+      sweepExtreme: null,
+      wickBufferAtr: 0.15m,
+      minimumStopPips: 30,
+      maximumStopPips: 65,
+      pipSize: 0.1m,
+      Symbol,
+      new OpposingZoneStopContext(
+        "demand-wide",
+        3990m,
+        4025m,
+        ExecutionGrade: false,
+        PushBeyondZone: true,
+        BufferAtr: 0.3m
+      )
+    );
+
+    Assert.Equal(plan.BaseStopLoss, plan.StopLoss);
+    Assert.Equal("none", plan.Adjustment);
+  }
 }

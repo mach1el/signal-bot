@@ -554,8 +554,26 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
     return Task.FromResult<IReadOnlyList<TradeStreamEntry>>([]);
   }
 
-  public Task<bool> TryClaimCandidateAsync(
+  public Task<CandidateExecutionLease?> TryClaimCandidateAsync(
     string candidateId,
+    string streamEventId,
+    TimeSpan leaseDuration,
+    CancellationToken cancellationToken
+  ) => Task.FromResult<CandidateExecutionLease?>(null);
+
+  public Task<bool> RenewCandidateLeaseAsync(
+    string candidateId,
+    string streamEventId,
+    string leaseToken,
+    TimeSpan leaseDuration,
+    CancellationToken cancellationToken
+  ) => Task.FromResult(false);
+
+  public Task<bool> TransitionCandidateStateAsync(
+    string candidateId,
+    string streamEventId,
+    string leaseToken,
+    string newState,
     CancellationToken cancellationToken
   ) => Task.FromResult(false);
 
@@ -566,14 +584,18 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
 
   public Task CompleteCandidateAsync(
     string candidateId,
+    string streamEventId,
+    string leaseToken,
     string outcome,
     CancellationToken cancellationToken
   ) => Task.CompletedTask;
 
-  public Task ReleaseCandidateAsync(
+  public Task<bool> ReleaseCandidateAsync(
     string candidateId,
+    string streamEventId,
+    string leaseToken,
     CancellationToken cancellationToken
-  ) => Task.CompletedTask;
+  ) => Task.FromResult(false);
 
   public Task SavePositionAsync(
     AutoTradePositionState state,

@@ -14,6 +14,12 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 
+from app.autotrade.candidate_execution_state import (
+  parse_candidate_execution_record,
+  serialize_candidate_execution_record,
+  STATE_PROCESSING,
+  STATE_PUBLISHED,
+)
 from app.autotrade.candidate_publish import (
   autonomous_cycle_owner_key,
   candidate_key,
@@ -30,7 +36,7 @@ pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 async def real_redis():
   url = os.getenv("REAL_REDIS_URL")
   if not url:
-    pytest.skip("REAL_REDIS_URL is required for production Lua tests")
+    pytest.fail("REAL_REDIS_URL is required for production Lua tests")
   client = Redis.from_url(url, decode_responses=True)
   await client.ping()
   await client.flushdb()
@@ -218,3 +224,60 @@ async def test_orphan_event_reconciles_without_second_xadd(real_redis):
     candidate_stream_event_key("orphan-candidate")
   ) == result.event_id
   assert await real_redis.get(owner_key) == "orphan-candidate"
+
+
+@pytest.mark.asyncio
+async def test_real_lua_publish_writes_structured_candidate_record(real_redis):
+  result = await publish_candidate_atomic(
+    real_redis,
+    stream="test:lua:structured",
+    candidate_id="structured-candidate",
+    payload='{"candidate_id":"structured-candidate"}',
+    ttl=300,
+    maxlen=100,
+  )
+  assert result.published
+  record = parse_candidate_execution_record(
+    await real_redis.get(candidate_key("structured-candidate"))
+  )
+  assert record.state == STATE_PUBLISHED
+  assert record.candidate_id == "structured-candidate"
+  assert record.stream_event_id == result.event_id
+
+
+@pytest.mark.asyncio
+async def test_real_lua_reconcile_preserves_executor_progress(real_redis):
+  result = await publish_candidate_atomic(
+    real_redis,
+    stream="test:lua:progress",
+    candidate_id="progress-candidate",
+    payload='{"candidate_id":"progress-candidate"}',
+    ttl=300,
+    maxlen=100,
+  )
+  assert result.published
+  progressed = serialize_candidate_execution_record(
+    candidate_id="progress-candidate",
+    stream_event_id=result.event_id,
+    state=STATE_PROCESSING,
+    lease_token="lease-token",
+    lease_expires_at=9999999999,
+  )
+  await real_redis.set(candidate_key("progress-candidate"), progressed, ex=300)
+  await real_redis.delete(candidate_stream_event_key("progress-candidate"))
+
+  recovered = await reconcile_candidate_publication(
+    real_redis,
+    stream="test:lua:progress",
+    event_id=result.event_id,
+  )
+
+  assert recovered.published
+  preserved = parse_candidate_execution_record(
+    await real_redis.get(candidate_key("progress-candidate"))
+  )
+  assert preserved.state == STATE_PROCESSING
+  assert preserved.lease_token == "lease-token"
+  assert await real_redis.get(
+    candidate_stream_event_key("progress-candidate")
+  ) == result.event_id

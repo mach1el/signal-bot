@@ -151,6 +151,10 @@ The evaluation evidence is:
 - Both BUY and SELL range-side keys coexist.
 - `strategy_matches:XAU` contains distinct active theses.
 - Lifecycle history reaches `order_filled` and `managing` for BUY and SELL.
+- Telemetry (`warning`, `config_health`, `account_capability`) never creates
+  `lifecycle_state:service` or reopens terminal lifecycle as `managing`.
+- Candidate markers are structured JSON (`state`, `stream_event_id`, lease
+  fields) or legacy-compatible plain strings during rollout.
 - Executor metrics include Range Box execution with existing/opposite exposure.
 - Position snapshots retain distinct candidate and group IDs after restart.
 - Counter-bias candidates retain `bias` and `relationship_to_bias` metadata
@@ -168,3 +172,7 @@ docker compose up -d --build --no-deps bot ctrader-engine
 Switching to `AUTO_TRADE_PROFILE=conservative` restores the prior flat exposure
 policy defaults. Existing broker positions remain owned and reconciled; the
 profile change does not close them automatically.
+
+During the final-stop / lease rollout, roll back publisher first if structured
+candidate markers confuse an old executor, then the executor. Keep
+`AUTO_TRADE_REQUIRE_DEMO_ACCOUNT=true` for the observation window.

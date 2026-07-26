@@ -454,9 +454,13 @@ public sealed class AutoTradeEngineTests
     Assert.Contains(store.Events, item =>
       item.Type == "take_profit" && item.TargetPips == 68
     );
-    Assert.Null(await store.GetCandidateStatusAsync(
+    var flipStatus = await store.GetCandidateStatusAsync(
       "flip:XAU:xau-8000-8016", cts.Token
-    ));
+    );
+    Assert.True(
+      string.IsNullOrWhiteSpace(flipStatus)
+      || !flipStatus.StartsWith("flip_pending:", StringComparison.Ordinal)
+    );
 
     store.EnqueueCandidate(BoxCandidateJson(
       fullTpPips: 50,
@@ -484,6 +488,8 @@ public sealed class AutoTradeEngineTests
     ));
     await store.CompleteCandidateAsync(
       "flip:XAU:xau-8000-8016",
+      "",
+      "",
       "flip_pending:BUY:1030",
       cts.Token
     );
@@ -599,9 +605,10 @@ public sealed class AutoTradeEngineTests
       item.Type == "warning"
       && item.Message.Contains("opposite side not armed")
     );
-    Assert.Null(await store.GetCandidateStatusAsync(
-      "flip:XAU:xau-8000-8016", cts.Token
-    ));
+    Assert.Equal(
+      "rejected:flip_released",
+      await store.GetCandidateStatusAsync("flip:XAU:xau-8000-8016", cts.Token)
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -2003,7 +2010,7 @@ public sealed class AutoTradeEngineTests
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
-      targetsPips: [30, 60],
+      targetsPips: [30, 90],
       targetModel: "fill_relative"
     ));
     var client = new FakeTradingClient();
@@ -2018,7 +2025,7 @@ public sealed class AutoTradeEngineTests
 
     var state = Assert.Single(store.Positions.Values);
     Assert.Equal(4000.2m, state.EntryPrice);
-    Assert.Equal(new decimal[] { 4003.2m, 4006.2m }, state.TargetPrices);
+    Assert.Equal(new decimal[] { 4003.2m, 4009.2m }, state.TargetPrices);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -2031,7 +2038,9 @@ public sealed class AutoTradeEngineTests
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       targetsPips: [60],
       targetModel: "absolute",
-      absoluteTargetPrice: 4006.5m
+      absoluteTargetPrice: 4006.5m,
+      // ~40p structure stop so absolute 63p reward clears min RR.
+      structureSwing: 3996.5m
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
@@ -2059,7 +2068,9 @@ public sealed class AutoTradeEngineTests
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       targetsPips: [30, 60, 90],
       targetModel: "hybrid",
-      absoluteTargetPrice: 4004.0m
+      // Cap must still clear min RR against the 40p trend stop floor.
+      absoluteTargetPrice: 4004.8m,
+      structureSwing: 3996.5m
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
@@ -2072,7 +2083,7 @@ public sealed class AutoTradeEngineTests
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
     Assert.Equal(
-      new decimal[] { 4003.2m, 4004.0m, 4004.0m },
+      new decimal[] { 4003.2m, 4004.8m, 4004.8m },
       Assert.Single(store.Positions.Values).TargetPrices
     );
 
@@ -2439,7 +2450,8 @@ public sealed class AutoTradeEngineTests
 
     Assert.Empty(client.Orders);
     Assert.Contains(store.Events, item =>
-      item.Type == "rejected" && item.Message.Contains("opposing zone")
+      item.Type == "rejected"
+      && item.Message.Contains("stop_inside_opposing_zone")
     );
     Assert.Contains(("XAU", "stop_in_opposing_zone"), store.GateRejects);
 
@@ -2473,7 +2485,8 @@ public sealed class AutoTradeEngineTests
 
     Assert.Empty(client.Orders);
     Assert.Contains(store.Events, item =>
-      item.Type == "rejected" && item.Message.Contains("opposing zone")
+      item.Type == "rejected"
+      && item.Message.Contains("stop_inside_opposing_zone")
     );
 
     cts.Cancel();
@@ -4068,6 +4081,275 @@ public sealed class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Fact]
+  public async Task WarningDoesNotCreateOrChangeLifecycleState()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      Grants = [new(44669326, true), new(123, false)],
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "warning");
+
+    Assert.Contains(store.Events, item => item.Type == "warning");
+    Assert.All(
+      store.LifecycleEvents.Where(item => item.Type == "warning"),
+      item =>
+      {
+        Assert.False(item.MutatesLifecycle);
+        Assert.Null(item.State);
+      }
+    );
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key == "auto_trade:lifecycle_state:service"
+    );
+    Assert.Contains("lifecycle_telemetry_no_transition", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ConfigHealthDoesNotSetServiceManagingLifecycle()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    Assert.Contains(store.Events, item => item.Type == "config_health");
+    Assert.Contains(store.Events, item => item.Type == "account_capability");
+    Assert.DoesNotContain(
+      store.Values,
+      pair => pair.Key == "auto_trade:lifecycle_state:service"
+    );
+    Assert.Contains("lifecycle_telemetry_no_transition", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task UnknownEventRecordsHistoryWithoutLifecycleSnapshot()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var stateBeforeTelemetry = LifecycleStateFor(store, candidateId);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4003.2m, 4003.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    Assert.Contains(store.LifecycleEvents, item => item.Type == "stop_moved");
+    Assert.DoesNotContain(
+      store.LifecycleEvents.Where(item => item.Type == "stop_moved"),
+      item => item.MutatesLifecycle
+    );
+    // Telemetry must not reopen or invent a different owner state; mapped
+    // take-profit transitions may still advance the same candidate.
+    Assert.NotEqual("managing", LifecycleStateFor(store, candidateId));
+    Assert.NotNull(stateBeforeTelemetry);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MappedLifecycleTransitionsAdvanceCandidateState()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var states = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId && item.MutatesLifecycle)
+      .Select(item => item.State)
+      .Where(state => !string.IsNullOrWhiteSpace(state))
+      .Distinct()
+      .ToArray();
+    Assert.Contains("executor_received", states);
+    Assert.Contains("order_submitted", states);
+    Assert.Contains("order_filled", states);
+    var current = LifecycleStateFor(store, candidateId);
+    Assert.True(
+      current is "order_filled" or "managing",
+      $"expected order_filled or managing, got {current}"
+    );
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4003.2m, 4003.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Contains(
+      store.LifecycleEvents.Where(item => item.CandidateId == candidateId),
+      item => item.Type == "take_profit" && item.State == "partially_closed"
+    );
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4020.2m, 4020.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Equal("closed", LifecycleStateFor(store, candidateId));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RejectedCandidateIgnoresLaterTelemetryLifecycleMutation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('b', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(
+      candidate: 'b',
+      createdAt: 2_000,
+      barTs: 2_000
+    ));
+    store.SeedPublishedCandidate(new string('a', 64));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Equal("rejected", LifecycleStateFor(store, candidateId));
+    var rejectedEvents = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId)
+      .ToArray();
+    var postRejectIndex = Array.FindIndex(
+      rejectedEvents,
+      item => item.Type == "rejected"
+    );
+    Assert.All(
+      rejectedEvents.Skip(postRejectIndex + 1),
+      item => Assert.False(item.MutatesLifecycle)
+    );
+    Assert.Equal("rejected", LifecycleStateFor(store, candidateId));
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key == "auto_trade:lifecycle_state:service"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ClosedCandidateIgnoresLaterTelemetryLifecycleMutation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4020.2m, 4020.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    await WaitUntilAsync(() => LifecycleStateFor(store, candidateId) == "closed");
+
+    var closedIndex = Array.FindLastIndex(
+      store.LifecycleEvents
+        .Where(item => item.CandidateId == candidateId)
+        .ToArray(),
+      item => item.State == "closed"
+    );
+    Assert.True(closedIndex >= 0);
+    var laterMutations = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId)
+      .Skip(closedIndex + 1)
+      .Where(item => item.MutatesLifecycle)
+      .ToArray();
+    Assert.Empty(laterMutations);
+    Assert.Equal("closed", LifecycleStateFor(store, candidateId));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RangeSideUpdatesOnlyForMappedLifecycleTransitions()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(BoxCandidateJson(
+      fullTpPips: 50,
+      direction: "BUY",
+      candidate: 'r',
+      groupId: "range-buy",
+      strategyFamily: "range"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Contains(store.RangeSides, item => item.State == "ORDER_SUBMITTED");
+    Assert.Contains(store.RangeSides, item => item.State == "ORDER_FILLED");
+    Assert.DoesNotContain(store.RangeSides, item => item.State == "WARNING");
+    Assert.DoesNotContain(store.RangeSides, item => item.State == "STOP_MOVED");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  private static string? LifecycleStateFor(
+    FakeAutoTradeStore store,
+    string owner
+  )
+  {
+    if (!store.Values.TryGetValue(
+      $"auto_trade:lifecycle_state:{owner}",
+      out var raw
+    ))
+    {
+      return null;
+    }
+    return AutoTradeLifecycle.ParseState(raw);
+  }
+
   private static async Task WaitForEventAsync(FakeAutoTradeStore store, string type)
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -4323,7 +4605,8 @@ public sealed class AutoTradeEngineTests
     string? entryDistribution = null,
     decimal? riskMultiplier = 1.0m,
     string? targetModel = null,
-    decimal? absoluteTargetPrice = null
+    decimal? absoluteTargetPrice = null,
+    decimal? structureSwing = null
   ) => JsonSerializer.Serialize(new
   {
     version = 4,
@@ -4344,7 +4627,8 @@ public sealed class AutoTradeEngineTests
     reasons = new[] { "scanner detector matched structure" },
     bar_ts = 1_000,
     atr = 1.0,
-    structure_swing = direction == "BUY" ? 3993.5m : 4006.2m,
+    structure_swing = structureSwing
+      ?? (direction == "BUY" ? 3993.5m : 4006.2m),
     targets_pips = targetsPips ?? new[] { 30, 60, 90 },
     regime = "strategy_match",
     group_id = groupId,
@@ -4728,6 +5012,8 @@ public sealed class AutoTradeEngineTests
     private string _cursor = "0-0";
     private string _commandCursor = "0-0";
     private readonly Dictionary<string, string> _candidateStatus = [];
+    private readonly Dictionary<string, (string StreamEventId, string Token)> _candidateLeases =
+      [];
     private readonly List<string> _payloads = [payload];
     private readonly List<string> _commandPayloads = [];
     public Dictionary<long, AutoTradePositionState> Positions { get; } = [];
@@ -4735,6 +5021,7 @@ public sealed class AutoTradeEngineTests
     public List<AutoTradeEvent> LifecycleEvents { get; } = [];
     public Dictionary<string, string> Values { get; } = [];
     public Dictionary<string, TimeSpan> ValueTtls { get; } = [];
+    public List<string> Metrics { get; } = [];
     public List<(string RangeId, string Direction, string State)> RangeSides
       { get; } = [];
     public TaskCompletionSource<bool> Ordered { get; } = new(
@@ -4803,21 +5090,58 @@ public sealed class AutoTradeEngineTests
         new TradeStreamEntry($"{last + 1}-0", list[last]),
       ]);
     }
-    public Task<bool> TryClaimCandidateAsync(
+    public Task<CandidateExecutionLease?> TryClaimCandidateAsync(
       string candidateId,
+      string streamEventId,
+      TimeSpan leaseDuration,
       CancellationToken cancellationToken
     )
     {
       if (
         _candidateStatus.TryGetValue(candidateId, out var current)
         && !string.Equals(current, "published", StringComparison.Ordinal)
+        && !string.Equals(current, "processing", StringComparison.Ordinal)
+        && !(
+          candidateId.StartsWith("flip:", StringComparison.Ordinal)
+          && !current.StartsWith("flip_pending:", StringComparison.Ordinal)
+        )
       )
       {
-        return Task.FromResult(false);
+        return Task.FromResult<CandidateExecutionLease?>(null);
       }
+      var token = Guid.NewGuid().ToString("N");
       _candidateStatus[candidateId] = "processing";
-      return Task.FromResult(true);
+      _candidateLeases[candidateId] = (streamEventId, token);
+      return Task.FromResult<CandidateExecutionLease?>(new CandidateExecutionLease(
+        candidateId,
+        streamEventId,
+        token,
+        DateTimeOffset.UtcNow.Add(leaseDuration)
+      ));
     }
+    public Task<bool> RenewCandidateLeaseAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
+      TimeSpan leaseDuration,
+      CancellationToken cancellationToken
+    ) => Task.FromResult(
+      _candidateLeases.TryGetValue(candidateId, out var lease)
+      && lease.Token == leaseToken
+    );
+    public Task<bool> TransitionCandidateStateAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
+      string newState,
+      CancellationToken cancellationToken
+    ) => RenewCandidateLeaseAsync(
+      candidateId,
+      streamEventId,
+      leaseToken,
+      TimeSpan.FromMinutes(2),
+      cancellationToken
+    );
     public Task<string?> GetCandidateStatusAsync(
       string candidateId,
       CancellationToken cancellationToken
@@ -4826,11 +5150,24 @@ public sealed class AutoTradeEngineTests
     );
     public Task CompleteCandidateAsync(
       string candidateId,
+      string streamEventId,
+      string leaseToken,
       string outcome,
       CancellationToken cancellationToken
     )
     {
+      if (
+        !string.IsNullOrWhiteSpace(leaseToken)
+        && (
+          !_candidateLeases.TryGetValue(candidateId, out var lease)
+          || lease.Token != leaseToken
+        )
+      )
+      {
+        return Task.CompletedTask;
+      }
       _candidateStatus[candidateId] = outcome;
+      _candidateLeases.Remove(candidateId);
       Processed.TrySetResult(true);
       if (outcome.StartsWith("ordered:", StringComparison.Ordinal))
       {
@@ -4838,13 +5175,26 @@ public sealed class AutoTradeEngineTests
       }
       return Task.CompletedTask;
     }
-    public Task ReleaseCandidateAsync(
+    public Task<bool> ReleaseCandidateAsync(
       string candidateId,
+      string streamEventId,
+      string leaseToken,
       CancellationToken cancellationToken
     )
     {
-      _candidateStatus.Remove(candidateId);
-      return Task.CompletedTask;
+      if (
+        !string.IsNullOrWhiteSpace(leaseToken)
+        && (
+          !_candidateLeases.TryGetValue(candidateId, out var lease)
+          || lease.Token != leaseToken
+        )
+      )
+      {
+        return Task.FromResult(false);
+      }
+      _candidateStatus[candidateId] = "retryable_error";
+      _candidateLeases.Remove(candidateId);
+      return Task.FromResult(true);
     }
     public Task SavePositionAsync(
       AutoTradePositionState state,
@@ -4912,7 +5262,6 @@ public sealed class AutoTradeEngineTests
       return Task.CompletedTask;
     }
     public List<ZoneCooldownRecord> ZoneCooldowns { get; } = [];
-    public List<string> Metrics { get; } = [];
     public List<(string Symbol, string Direction)> ZoneCooldownDirections { get; } = [];
     public Task RecordZoneCooldownAsync(
       string symbol,
@@ -4980,12 +5329,27 @@ public sealed class AutoTradeEngineTests
     )
     {
       LifecycleEvents.Add(tradeEvent);
-      var owner = tradeEvent.CandidateId
-        ?? tradeEvent.GroupId
-        ?? tradeEvent.CorrelationId
-        ?? "service";
-      Values[$"auto_trade:lifecycle_state:{owner}"] =
-        tradeEvent.State ?? "managing";
+      var owner = tradeEvent.CandidateId ?? tradeEvent.GroupId;
+      if (
+        tradeEvent.MutatesLifecycle
+        && owner is not null
+        && !string.IsNullOrWhiteSpace(tradeEvent.State)
+      )
+      {
+        var transition = AutoTradeLifecycle.TransitionForEvent(
+          tradeEvent.Type,
+          tradeEvent.RemainingVolume
+        );
+        Values[$"auto_trade:lifecycle_state:{owner}"] =
+          JsonSerializer.Serialize(
+            AutoTradeLifecycle.BuildStateRecord(
+              tradeEvent,
+              owner,
+              transition?.Terminal ?? false
+            ),
+            RedisJsonContext.Default.AutoTradeLifecycleStateRecord
+          );
+      }
       return Task.CompletedTask;
     }
     public Task UpdateRangeSideStateAsync(

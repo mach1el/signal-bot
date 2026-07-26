@@ -1,3 +1,5 @@
+"""Tests for final protective stop planning and opposing-zone push."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -7,7 +9,10 @@ import pytest
 
 from app.autotrade.execution_policy import evaluate_execution_policy
 from app.autotrade.protective_stop import (
+  FinalProtectiveStopPlan,
+  OpposingZoneStopContext,
   ProtectiveStopError,
+  STOP_PLAN_VERSION,
   plan_protective_stop,
 )
 
@@ -58,11 +63,13 @@ def test_protective_stop_table_matches_executor_sequence(
     digits=2,
   )
 
-  assert plan.stop_price == Decimal(expected_stop)
-  assert plan.stop_pips == Decimal(expected_pips)
+  assert plan.final_stop_price == Decimal(expected_stop)
+  assert plan.final_stop_pips == Decimal(expected_pips)
   assert plan.raw_stop_price == Decimal(expected_raw)
   assert plan.clamped is clamped
   assert plan.source == source
+  assert plan.adjustment == "none"
+  assert plan.base_stop_price == plan.final_stop_price
 
 
 def test_wick_beyond_envelope_rejects():
@@ -82,6 +89,111 @@ def test_wick_beyond_envelope_rejects():
       pip_size="0.1",
       digits=2,
     )
+
+
+def test_stop_inside_opposing_zone_rejects_when_push_disabled():
+  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone"):
+    plan_protective_stop(
+      direction="BUY",
+      entry_price="4000",
+      structure_swing="3998",
+      atr="1",
+      structure_buffer_atr="0.3",
+      sweep_extreme=None,
+      wick_buffer_atr="0.15",
+      minimum_stop_pips=30,
+      maximum_stop_pips=65,
+      pip_size="0.1",
+      digits=2,
+      opposing_zone=OpposingZoneStopContext(
+        zone_id="demand-1",
+        low=Decimal("3997"),
+        high=Decimal("3998.5"),
+        execution_grade=True,
+        push_beyond_zone=False,
+        buffer_atr=Decimal("0.3"),
+      ),
+    )
+
+
+def test_stop_inside_execution_grade_zone_is_pushed_beyond_it():
+  plan = plan_protective_stop(
+    direction="BUY",
+    entry_price="4000.2",
+    structure_swing="3998",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=30,
+    maximum_stop_pips=65,
+    pip_size="0.1",
+    digits=2,
+    opposing_zone=OpposingZoneStopContext(
+      zone_id="demand-1",
+      low=Decimal("3997"),
+      high=Decimal("3998.5"),
+      execution_grade=True,
+      push_beyond_zone=True,
+      buffer_atr=Decimal("0.3"),
+    ),
+  )
+  assert plan.base_stop_price == Decimal("3997.20")
+  assert plan.final_stop_price == Decimal("3996.70")
+  assert plan.adjustment == "opposing_zone_push"
+  assert plan.adjustment_zone_low == Decimal("3997")
+  assert plan.adjustment_zone_high == Decimal("3998.5")
+
+
+def test_context_only_opposing_zone_leaves_base_stop():
+  plan = plan_protective_stop(
+    direction="BUY",
+    entry_price="4000",
+    structure_swing="3998",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=30,
+    maximum_stop_pips=65,
+    pip_size="0.1",
+    digits=2,
+    opposing_zone=OpposingZoneStopContext(
+      zone_id="demand-wide",
+      low=Decimal("3990"),
+      high=Decimal("4025"),
+      execution_grade=False,
+      push_beyond_zone=True,
+      buffer_atr=Decimal("0.3"),
+    ),
+  )
+  assert plan.final_stop_price == plan.base_stop_price
+  assert plan.adjustment == "none"
+
+
+def test_candidate_fields_emit_v2_contract():
+  plan = FinalProtectiveStopPlan(
+    entry_price=Decimal("4000.2"),
+    base_stop_price=Decimal("3997.70"),
+    base_stop_pips=Decimal("25"),
+    final_stop_price=Decimal("3996.70"),
+    final_stop_distance=Decimal("3.5"),
+    final_stop_pips=Decimal("35"),
+    raw_stop_price=Decimal("3997.7"),
+    clamped=False,
+    source="structure",
+    adjustment="opposing_zone_push",
+    adjustment_zone_id="demand-1",
+    adjustment_zone_low=Decimal("3997"),
+    adjustment_zone_high=Decimal("3998.5"),
+    version=STOP_PLAN_VERSION,
+  )
+  fields = plan.candidate_fields(entry_price=Decimal("4000.2"))
+  assert fields["stop_plan_version"] == 2
+  assert fields["planned_stop_price"] == "3996.70"
+  assert fields["planned_final_stop_price"] == "3996.70"
+  assert fields["planned_base_stop_price"] == "3997.70"
+  assert fields["stop_adjustment"] == "opposing_zone_push"
 
 
 def _policy_subject(**overrides):
@@ -113,6 +225,7 @@ def test_reward_risk_uses_clamped_stop_and_rejects_old_apparent_30r():
   assert not result.allowed
   assert result.reason_code == "policy_reward_risk_insufficient"
   assert result.measured["planned_stop_pips"] == "40.0"
+  assert result.measured["planned_final_stop_pips"] == "40.0"
   assert result.measured["reward_risk"] == 0.75
 
 

@@ -105,3 +105,11 @@ demo-account requirements still fail closed.
 enabled, only a Redis marker with `reason=stop_loss` and
 `confidence=confirmed` may block. `manual_close`, `external_close`,
 `reconciliation_unknown` and `take_profit` do not enforce a cooldown.
+
+## Final stop and fenced leases
+
+Shared stop planning uses `stop_plan_version=2` (base + final fields, including
+opposing-zone push). `AUTO_TRADE_STOP_PUSH_BEYOND_ZONE` and execution-zone width
+limits remain part of the shared contract. Candidate Redis markers are
+structured JSON with token-owned leases; readers must accept legacy plain
+strings during rolling deploy. See `docs/autotrade-execution-integrity.md`.
