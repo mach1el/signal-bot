@@ -4,7 +4,7 @@ using ApexVoid.CTraderFeed;
 
 namespace CTraderFeed.Tests;
 
-public sealed class AutoTradeEngineTests
+public sealed partial class AutoTradeEngineTests
 {
   private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(1_000);
   private static readonly SymbolInfo Symbol = new(
@@ -454,9 +454,13 @@ public sealed class AutoTradeEngineTests
     Assert.Contains(store.Events, item =>
       item.Type == "take_profit" && item.TargetPips == 68
     );
-    Assert.Null(await store.GetCandidateStatusAsync(
+    var flipStatus = await store.GetCandidateStatusAsync(
       "flip:XAU:xau-8000-8016", cts.Token
-    ));
+    );
+    Assert.True(
+      string.IsNullOrWhiteSpace(flipStatus)
+      || !flipStatus.StartsWith("flip_pending:", StringComparison.Ordinal)
+    );
 
     store.EnqueueCandidate(BoxCandidateJson(
       fullTpPips: 50,
@@ -482,10 +486,11 @@ public sealed class AutoTradeEngineTests
       direction: "SELL",
       structureSwing: 4009.5m
     ));
-    await store.CompleteCandidateAsync(
+    // Seeded directly: an unfenced completion with no lease token is rejected
+    // by the store, so the flip rendezvous marker is placed as fixture state.
+    store.SeedCandidateState(
       "flip:XAU:xau-8000-8016",
-      "flip_pending:BUY:1030",
-      cts.Token
+      "flip_pending:BUY:1030"
     );
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
@@ -599,9 +604,10 @@ public sealed class AutoTradeEngineTests
       item.Type == "warning"
       && item.Message.Contains("opposite side not armed")
     );
-    Assert.Null(await store.GetCandidateStatusAsync(
-      "flip:XAU:xau-8000-8016", cts.Token
-    ));
+    Assert.Equal(
+      "rejected:flip_released",
+      await store.GetCandidateStatusAsync("flip:XAU:xau-8000-8016", cts.Token)
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -1575,8 +1581,11 @@ public sealed class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task PartialZoneFillFailureRollsBackAndDeletesGroupPlan()
+  public async Task PartialZoneFillFailureKeepsGroupPlanUntilBrokerAbsenceIsConfirmed()
   {
+    // A failed leg does not prove the request never reached the broker, so the
+    // candidate becomes recovery-required and the group plan survives: it is
+    // the only map from deterministic client order IDs back to this candidate.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       orderTypePreference: "limit",
@@ -1596,12 +1605,27 @@ public sealed class AutoTradeEngineTests
     );
 
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
-    await WaitUntilAsync(() => client.CancelledOrders.Count == 1);
+    await WaitForEventAsync(store, "broker_outcome_unknown");
 
-    Assert.DoesNotContain(
+    // Rollback is evidence-based: only the leg the broker confirmed is
+    // cancelled, never the ambiguous one.
+    Assert.Single(client.CancelledOrders);
+    Assert.Contains(
       store.Values.Keys,
       key => key.StartsWith("auto_trade:group_plan:")
     );
+    Assert.Equal(
+      CandidateExecutionStates.BrokerOutcomeUnknown,
+      store.CandidateState(new string('s', 64))
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
+
+    // Recovery proves the broker holds nothing for the candidate, which is the
+    // only point at which the plan may be dropped and a retry becomes safe.
+    await WaitUntilAsync(() => client.LimitOrders.Count == 3);
+    Assert.Contains("broker_outcome_confirmed_absent", store.Metrics);
+    Assert.Contains("candidate_retry_reclaimed", store.Metrics);
+
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
@@ -2003,7 +2027,7 @@ public sealed class AutoTradeEngineTests
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
-      targetsPips: [30, 60],
+      targetsPips: [30, 90],
       targetModel: "fill_relative"
     ));
     var client = new FakeTradingClient();
@@ -2018,7 +2042,7 @@ public sealed class AutoTradeEngineTests
 
     var state = Assert.Single(store.Positions.Values);
     Assert.Equal(4000.2m, state.EntryPrice);
-    Assert.Equal(new decimal[] { 4003.2m, 4006.2m }, state.TargetPrices);
+    Assert.Equal(new decimal[] { 4003.2m, 4009.2m }, state.TargetPrices);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -2031,7 +2055,9 @@ public sealed class AutoTradeEngineTests
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       targetsPips: [60],
       targetModel: "absolute",
-      absoluteTargetPrice: 4006.5m
+      absoluteTargetPrice: 4006.5m,
+      // ~40p structure stop so absolute 63p reward clears min RR.
+      structureSwing: 3996.5m
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
@@ -2059,7 +2085,9 @@ public sealed class AutoTradeEngineTests
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       targetsPips: [30, 60, 90],
       targetModel: "hybrid",
-      absoluteTargetPrice: 4004.0m
+      // Cap must still clear min RR against the 40p trend stop floor.
+      absoluteTargetPrice: 4004.8m,
+      structureSwing: 3996.5m
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
@@ -2072,7 +2100,7 @@ public sealed class AutoTradeEngineTests
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
     Assert.Equal(
-      new decimal[] { 4003.2m, 4004.0m, 4004.0m },
+      new decimal[] { 4003.2m, 4004.8m, 4004.8m },
       Assert.Single(store.Positions.Values).TargetPrices
     );
 
@@ -2439,7 +2467,8 @@ public sealed class AutoTradeEngineTests
 
     Assert.Empty(client.Orders);
     Assert.Contains(store.Events, item =>
-      item.Type == "rejected" && item.Message.Contains("opposing zone")
+      item.Type == "rejected"
+      && item.Message.Contains("stop_inside_opposing_zone")
     );
     Assert.Contains(("XAU", "stop_in_opposing_zone"), store.GateRejects);
 
@@ -2473,7 +2502,8 @@ public sealed class AutoTradeEngineTests
 
     Assert.Empty(client.Orders);
     Assert.Contains(store.Events, item =>
-      item.Type == "rejected" && item.Message.Contains("opposing zone")
+      item.Type == "rejected"
+      && item.Message.Contains("stop_inside_opposing_zone")
     );
 
     cts.Cancel();
@@ -4068,6 +4098,275 @@ public sealed class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Fact]
+  public async Task WarningDoesNotCreateOrChangeLifecycleState()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      Grants = [new(44669326, true), new(123, false)],
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "warning");
+
+    Assert.Contains(store.Events, item => item.Type == "warning");
+    Assert.All(
+      store.LifecycleEvents.Where(item => item.Type == "warning"),
+      item =>
+      {
+        Assert.False(item.MutatesLifecycle);
+        Assert.Null(item.State);
+      }
+    );
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key == "auto_trade:lifecycle_state:service"
+    );
+    Assert.Contains("lifecycle_telemetry_no_transition", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ConfigHealthDoesNotSetServiceManagingLifecycle()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    Assert.Contains(store.Events, item => item.Type == "config_health");
+    Assert.Contains(store.Events, item => item.Type == "account_capability");
+    Assert.DoesNotContain(
+      store.Values,
+      pair => pair.Key == "auto_trade:lifecycle_state:service"
+    );
+    Assert.Contains("lifecycle_telemetry_no_transition", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task UnknownEventRecordsHistoryWithoutLifecycleSnapshot()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var stateBeforeTelemetry = LifecycleStateFor(store, candidateId);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4003.2m, 4003.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    Assert.Contains(store.LifecycleEvents, item => item.Type == "stop_moved");
+    Assert.DoesNotContain(
+      store.LifecycleEvents.Where(item => item.Type == "stop_moved"),
+      item => item.MutatesLifecycle
+    );
+    // Telemetry must not reopen or invent a different owner state; mapped
+    // take-profit transitions may still advance the same candidate.
+    Assert.NotEqual("managing", LifecycleStateFor(store, candidateId));
+    Assert.NotNull(stateBeforeTelemetry);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MappedLifecycleTransitionsAdvanceCandidateState()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var states = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId && item.MutatesLifecycle)
+      .Select(item => item.State)
+      .Where(state => !string.IsNullOrWhiteSpace(state))
+      .Distinct()
+      .ToArray();
+    Assert.Contains("executor_received", states);
+    Assert.Contains("order_submitted", states);
+    Assert.Contains("order_filled", states);
+    var current = LifecycleStateFor(store, candidateId);
+    Assert.True(
+      current is "order_filled" or "managing",
+      $"expected order_filled or managing, got {current}"
+    );
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4003.2m, 4003.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Contains(
+      store.LifecycleEvents.Where(item => item.CandidateId == candidateId),
+      item => item.Type == "take_profit" && item.State == "partially_closed"
+    );
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4020.2m, 4020.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Equal("closed", LifecycleStateFor(store, candidateId));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RejectedCandidateIgnoresLaterTelemetryLifecycleMutation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('b', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(
+      candidate: 'b',
+      createdAt: 2_000,
+      barTs: 2_000
+    ));
+    store.SeedPublishedCandidate(new string('a', 64));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Equal("rejected", LifecycleStateFor(store, candidateId));
+    var rejectedEvents = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId)
+      .ToArray();
+    var postRejectIndex = Array.FindIndex(
+      rejectedEvents,
+      item => item.Type == "rejected"
+    );
+    Assert.All(
+      rejectedEvents.Skip(postRejectIndex + 1),
+      item => Assert.False(item.MutatesLifecycle)
+    );
+    Assert.Equal("rejected", LifecycleStateFor(store, candidateId));
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key == "auto_trade:lifecycle_state:service"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ClosedCandidateIgnoresLaterTelemetryLifecycleMutation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var candidateId = new string('a', 64);
+    var store = new FakeAutoTradeStore(CandidateJson(candidate: 'a'));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4020.2m, 4020.4m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    await WaitUntilAsync(() => LifecycleStateFor(store, candidateId) == "closed");
+
+    var closedIndex = Array.FindLastIndex(
+      store.LifecycleEvents
+        .Where(item => item.CandidateId == candidateId)
+        .ToArray(),
+      item => item.State == "closed"
+    );
+    Assert.True(closedIndex >= 0);
+    var laterMutations = store.LifecycleEvents
+      .Where(item => item.CandidateId == candidateId)
+      .Skip(closedIndex + 1)
+      .Where(item => item.MutatesLifecycle)
+      .ToArray();
+    Assert.Empty(laterMutations);
+    Assert.Equal("closed", LifecycleStateFor(store, candidateId));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RangeSideUpdatesOnlyForMappedLifecycleTransitions()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(BoxCandidateJson(
+      fullTpPips: 50,
+      direction: "BUY",
+      candidate: 'r',
+      groupId: "range-buy",
+      strategyFamily: "range"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Contains(store.RangeSides, item => item.State == "ORDER_SUBMITTED");
+    Assert.Contains(store.RangeSides, item => item.State == "ORDER_FILLED");
+    Assert.DoesNotContain(store.RangeSides, item => item.State == "WARNING");
+    Assert.DoesNotContain(store.RangeSides, item => item.State == "STOP_MOVED");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  private static string? LifecycleStateFor(
+    FakeAutoTradeStore store,
+    string owner
+  )
+  {
+    if (!store.Values.TryGetValue(
+      $"auto_trade:lifecycle_state:{owner}",
+      out var raw
+    ))
+    {
+      return null;
+    }
+    return AutoTradeLifecycle.ParseState(raw);
+  }
+
   private static async Task WaitForEventAsync(FakeAutoTradeStore store, string type)
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -4323,7 +4622,8 @@ public sealed class AutoTradeEngineTests
     string? entryDistribution = null,
     decimal? riskMultiplier = 1.0m,
     string? targetModel = null,
-    decimal? absoluteTargetPrice = null
+    decimal? absoluteTargetPrice = null,
+    decimal? structureSwing = null
   ) => JsonSerializer.Serialize(new
   {
     version = 4,
@@ -4344,7 +4644,8 @@ public sealed class AutoTradeEngineTests
     reasons = new[] { "scanner detector matched structure" },
     bar_ts = 1_000,
     atr = 1.0,
-    structure_swing = direction == "BUY" ? 3993.5m : 4006.2m,
+    structure_swing = structureSwing
+      ?? (direction == "BUY" ? 3993.5m : 4006.2m),
     targets_pips = targetsPips ?? new[] { 30, 60, 90 },
     regime = "strategy_match",
     group_id = groupId,
@@ -4493,7 +4794,30 @@ public sealed class AutoTradeEngineTests
     public int? FailAmendmentCall { get; init; }
     public int? FailReconcileCall { get; init; }
     public int? FailLimitOrderCall { get; init; }
+    public int? FailMarketOrderCall { get; init; }
+    public int? FailCancelCall { get; init; }
+    // "Broker accepted, response never arrived": the order exists at the broker
+    // but the caller only sees a transport failure.
+    public int? LoseMarketResponseCall { get; init; }
+    public int? LoseLimitResponseCall { get; init; }
     public bool BlockClose { get; init; }
+    // Broker-call gates: the test releases them once it has rearranged lease
+    // ownership, which is how a long broker operation is modelled without
+    // wall-clock waits.
+    public int? PauseMarketOrderCall { get; init; }
+    public int? PauseLimitOrderCall { get; init; }
+    public TaskCompletionSource<bool> MarketOrderEntered { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> ReleaseMarketOrder { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> LimitOrderEntered { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    public TaskCompletionSource<bool> ReleaseLimitOrder { get; } = new(
+      TaskCreationOptions.RunContinuationsAsynchronously
+    );
     public TaskCompletionSource<bool> ReconcileFaultEntered { get; } = new(
       TaskCreationOptions.RunContinuationsAsynchronously
     );
@@ -4505,6 +4829,8 @@ public sealed class AutoTradeEngineTests
     private int _amendmentCalls;
     private int _reconcileCalls;
     private int _limitOrderCalls;
+    private int _marketOrderCalls;
+    private int _cancelCalls;
     private long _nextPositionId = 91;
     private long _nextOrderId = 81;
 
@@ -4539,9 +4865,22 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     ) => Task.FromResult(Grants);
 
+    // Pre-submit fault injection: this is read after the candidate is claimed
+    // but before any broker mutation, so a failure here is a safe retry.
+    public Func<int, bool>? FailAccountCall { get; init; }
+    public int AccountCalls { get; private set; }
+
     public Task<TradingAccountSnapshot> GetTradingAccountAsync(
       CancellationToken cancellationToken
-    ) => Task.FromResult(Account);
+    )
+    {
+      AccountCalls += 1;
+      if (FailAccountCall?.Invoke(AccountCalls) == true)
+      {
+        throw new IOException("simulated account snapshot failure");
+      }
+      return Task.FromResult(Account);
+    }
 
     public Task<IReadOnlyList<TradingPosition>> ReconcilePositionsAsync(
       CancellationToken cancellationToken
@@ -4570,11 +4909,21 @@ public sealed class AutoTradeEngineTests
       );
     }
 
-    public Task<TradeExecution> PlaceMarketOrderAsync(
+    public async Task<TradeExecution> PlaceMarketOrderAsync(
       MarketOrderRequest order,
       CancellationToken cancellationToken
     )
     {
+      _marketOrderCalls++;
+      if (_marketOrderCalls == PauseMarketOrderCall)
+      {
+        MarketOrderEntered.TrySetResult(true);
+        await ReleaseMarketOrder.Task.WaitAsync(cancellationToken);
+      }
+      if (_marketOrderCalls == FailMarketOrderCall)
+      {
+        throw new IOException("simulated market placement response loss");
+      }
       Orders.Add(order);
       var fill = _marketExecutionPrices.TryDequeue(out var queued)
         ? queued
@@ -4595,20 +4944,29 @@ public sealed class AutoTradeEngineTests
         order.Label,
         order.Comment
       ));
-      return Task.FromResult(new TradeExecution(
+      if (_marketOrderCalls == LoseMarketResponseCall)
+      {
+        throw new IOException("simulated market response loss after acceptance");
+      }
+      return new TradeExecution(
         positionId,
         orderId,
         fill,
         order.Volume
-      ));
+      );
     }
 
-    public Task<long> PlaceLimitOrderAsync(
+    public async Task<long> PlaceLimitOrderAsync(
       LimitOrderRequest order,
       CancellationToken cancellationToken
     )
     {
       _limitOrderCalls++;
+      if (_limitOrderCalls == PauseLimitOrderCall)
+      {
+        LimitOrderEntered.TrySetResult(true);
+        await ReleaseLimitOrder.Task.WaitAsync(cancellationToken);
+      }
       if (_limitOrderCalls == FailLimitOrderCall)
       {
         throw new IOException("simulated limit placement failure");
@@ -4624,7 +4982,11 @@ public sealed class AutoTradeEngineTests
         order.Label,
         order.Comment
       ));
-      return Task.FromResult(orderId);
+      if (_limitOrderCalls == LoseLimitResponseCall)
+      {
+        throw new IOException("simulated limit response loss after acceptance");
+      }
+      return orderId;
     }
 
     public Task CancelPendingOrderAsync(
@@ -4632,6 +4994,11 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     )
     {
+      _cancelCalls++;
+      if (_cancelCalls == FailCancelCall)
+      {
+        throw new IOException("simulated cancellation response loss");
+      }
       CancelledOrders.Add(orderId);
       PendingOrders.RemoveAll(order => order.OrderId == orderId);
       return Task.CompletedTask;
@@ -4728,6 +5095,10 @@ public sealed class AutoTradeEngineTests
     private string _cursor = "0-0";
     private string _commandCursor = "0-0";
     private readonly Dictionary<string, string> _candidateStatus = [];
+    private readonly Dictionary<string, (string StreamEventId, string Token)> _candidateLeases =
+      [];
+    private readonly Dictionary<string, int> _candidateAttempts = [];
+    private readonly HashSet<string> _expiredLeases = [];
     private readonly List<string> _payloads = [payload];
     private readonly List<string> _commandPayloads = [];
     public Dictionary<long, AutoTradePositionState> Positions { get; } = [];
@@ -4735,6 +5106,7 @@ public sealed class AutoTradeEngineTests
     public List<AutoTradeEvent> LifecycleEvents { get; } = [];
     public Dictionary<string, string> Values { get; } = [];
     public Dictionary<string, TimeSpan> ValueTtls { get; } = [];
+    public List<string> Metrics { get; } = [];
     public List<(string RangeId, string Direction, string State)> RangeSides
       { get; } = [];
     public TaskCompletionSource<bool> Ordered { get; } = new(
@@ -4803,49 +5175,278 @@ public sealed class AutoTradeEngineTests
         new TradeStreamEntry($"{last + 1}-0", list[last]),
       ]);
     }
-    public Task<bool> TryClaimCandidateAsync(
+    // Mirrors the fenced Redis state machine: exact-token ownership, terminal
+    // immutability, reclaimable retry states and typed claim dispositions.
+    public Task<CandidateClaimResult> TryClaimCandidateAsync(
       string candidateId,
-      CancellationToken cancellationToken
+      string streamEventId,
+      TimeSpan leaseDuration,
+      CancellationToken cancellationToken,
+      CandidateClaimPolicy? policy = null
     )
     {
-      if (
-        _candidateStatus.TryGetValue(candidateId, out var current)
-        && !string.Equals(current, "published", StringComparison.Ordinal)
-      )
+      var effective = policy ?? CandidateClaimPolicy.Default;
+      var attempt = 0;
+      if (_candidateStatus.TryGetValue(candidateId, out var current))
+      {
+        var state = StateOf(current);
+        var record = CandidateExecutionRecordParser.TryParse(current)
+          ?? (state is null
+            ? null
+            : new CandidateExecutionRecord(
+              candidateId,
+              streamEventId,
+              state,
+              null,
+              null,
+              null,
+              0,
+              1
+            ));
+        // A record that already exists in a non-published state was written by
+        // an earlier attempt, so a reclaim is at least the second one.
+        attempt = _candidateAttempts.TryGetValue(candidateId, out var previous)
+          ? previous
+          : state == CandidateExecutionStates.Published ? 0 : 1;
+        if (state is null || !CandidateExecutionStates.IsKnown(state))
+        {
+          return Task.FromResult(CandidateClaimResult.Conflict(record));
+        }
+        if (CandidateExecutionStates.IsTerminal(state))
+        {
+          if (
+            !(effective.AllowRejectedReclaim
+              && state == CandidateExecutionStates.Rejected)
+          )
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.Terminal,
+              null,
+              record
+            ));
+          }
+        }
+        else if (CandidateExecutionStates.IsRecoveryRequired(state))
+        {
+          if (!effective.AllowRecoveryAdoption)
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.RecoveryRequired,
+              null,
+              record
+            ));
+          }
+        }
+        else if (
+          CandidateExecutionStates.IsActiveLeaseOwned(state)
+          && !_expiredLeases.Contains(candidateId)
+        )
+        {
+          return Task.FromResult(new CandidateClaimResult(
+            CandidateClaimDisposition.ActiveElsewhere,
+            null,
+            record
+          ));
+        }
+      }
+      _expiredLeases.Remove(candidateId);
+      attempt += 1;
+      var token = Guid.NewGuid().ToString("N");
+      _candidateAttempts[candidateId] = attempt;
+      _candidateStatus[candidateId] = CandidateExecutionStates.Processing;
+      _candidateLeases[candidateId] = (streamEventId, token);
+      Claims.Add(candidateId);
+      return Task.FromResult(new CandidateClaimResult(
+        CandidateClaimDisposition.Claimed,
+        new CandidateExecutionLease(
+          candidateId,
+          streamEventId,
+          token,
+          DateTimeOffset.UtcNow.Add(leaseDuration)
+        ),
+        new CandidateExecutionRecord(
+          candidateId,
+          streamEventId,
+          CandidateExecutionStates.Processing,
+          token,
+          DateTimeOffset.UtcNow.Add(leaseDuration).ToUnixTimeSeconds(),
+          null,
+          0,
+          1,
+          attempt
+        )
+      ));
+    }
+
+    // Simulates lease expiry so a successor can reclaim without waiting.
+    public void ExpireLease(string candidateId) => _expiredLeases.Add(candidateId);
+
+    public void SeedCandidateState(string candidateId, string state) =>
+      _candidateStatus[candidateId] = state;
+
+    // The fake keeps either a bare state name (written by a transition) or a
+    // legacy marker string, exactly like a rolling Redis deployment does.
+    private static string? StateOf(string? raw) =>
+      raw is null
+        ? null
+        : CandidateExecutionStates.IsKnown(raw)
+          ? raw
+          : CandidateExecutionRecordParser.TryParse(raw)?.State;
+
+    public string? CandidateState(string candidateId) =>
+      _candidateStatus.TryGetValue(candidateId, out var value)
+        ? StateOf(value) ?? value
+        : null;
+
+    private bool OwnsLease(string candidateId, string leaseToken) =>
+      !string.IsNullOrWhiteSpace(leaseToken)
+      && _candidateLeases.TryGetValue(candidateId, out var lease)
+      && lease.Token == leaseToken;
+
+    public Task<bool> RenewCandidateLeaseAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
+      TimeSpan leaseDuration,
+      CancellationToken cancellationToken
+    ) => Task.FromResult(
+      OwnsLease(candidateId, leaseToken)
+      && !_expiredLeases.Contains(candidateId)
+      && !LeaseRenewalBlocked
+    );
+
+    // Set to model a heartbeat that can no longer prove ownership.
+    public bool LeaseRenewalBlocked { get; set; }
+    public List<string> Claims { get; } = [];
+    public List<string> Transitions { get; } = [];
+
+    public Task<bool> TransitionCandidateStateAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
+      string newState,
+      CancellationToken cancellationToken,
+      string? lastError = null
+    )
+    {
+      if (!OwnsLease(candidateId, leaseToken))
       {
         return Task.FromResult(false);
       }
-      _candidateStatus[candidateId] = "processing";
+      var current = CandidateState(candidateId);
+      if (CandidateExecutionStates.IsTerminal(current))
+      {
+        return Task.FromResult(false);
+      }
+      if (!CandidateExecutionStates.CanTransition(current, newState))
+      {
+        return Task.FromResult(false);
+      }
+      _candidateStatus[candidateId] = newState;
+      Transitions.Add($"{current}->{newState}");
+      if (newState == CandidateExecutionStates.RetryableError)
+      {
+        _candidateLeases.Remove(candidateId);
+      }
       return Task.FromResult(true);
     }
+
     public Task<string?> GetCandidateStatusAsync(
       string candidateId,
       CancellationToken cancellationToken
     ) => Task.FromResult(
-      _candidateStatus.TryGetValue(candidateId, out var value) ? value : null
+      _candidateStatus.TryGetValue(candidateId, out var value)
+        ? CandidateExecutionRecordParser.LegacyStatus(value)
+        : null
     );
-    public Task CompleteCandidateAsync(
+
+    public Task<CandidateExecutionRecord?> GetCandidateRecordAsync(
       string candidateId,
+      CancellationToken cancellationToken
+    )
+    {
+      if (!_candidateStatus.TryGetValue(candidateId, out var value))
+      {
+        return Task.FromResult<CandidateExecutionRecord?>(null);
+      }
+      var state = StateOf(value) ?? value;
+      _candidateLeases.TryGetValue(candidateId, out var lease);
+      return Task.FromResult<CandidateExecutionRecord?>(new CandidateExecutionRecord(
+        candidateId,
+        lease.StreamEventId ?? "",
+        state,
+        lease.Token,
+        null,
+        null,
+        0,
+        1
+      ));
+    }
+
+    public Task<bool> CompleteCandidateAsync(
+      string candidateId,
+      string streamEventId,
+      string leaseToken,
       string outcome,
       CancellationToken cancellationToken
     )
     {
+      if (!OwnsLease(candidateId, leaseToken))
+      {
+        StaleCompletionsBlocked += 1;
+        return Task.FromResult(false);
+      }
+      if (CandidateExecutionStates.IsTerminal(CandidateState(candidateId)))
+      {
+        StaleCompletionsBlocked += 1;
+        return Task.FromResult(false);
+      }
       _candidateStatus[candidateId] = outcome;
+      _candidateLeases.Remove(candidateId);
       Processed.TrySetResult(true);
       if (outcome.StartsWith("ordered:", StringComparison.Ordinal))
       {
         Ordered.TrySetResult(true);
       }
-      return Task.CompletedTask;
+      return Task.FromResult(true);
     }
-    public Task ReleaseCandidateAsync(
+
+    public int StaleCompletionsBlocked { get; private set; }
+
+    public Task<bool> ReleaseCandidateAsync(
       string candidateId,
+      string streamEventId,
+      string leaseToken,
+      CancellationToken cancellationToken,
+      string? lastError = null
+    ) => TransitionCandidateStateAsync(
+      candidateId,
+      streamEventId,
+      leaseToken,
+      CandidateExecutionStates.RetryableError,
+      cancellationToken,
+      lastError
+    );
+
+    public Task<bool> OverrideFlipClaimAsync(
+      string claimId,
+      string outcome,
       CancellationToken cancellationToken
     )
     {
-      _candidateStatus.Remove(candidateId);
-      return Task.CompletedTask;
+      if (
+        !_candidateStatus.TryGetValue(claimId, out var current)
+        || !CandidateExecutionRecordParser.LegacyStatus(current)
+          .StartsWith("flip_pending:", StringComparison.Ordinal)
+      )
+      {
+        return Task.FromResult(false);
+      }
+      _candidateStatus[claimId] = outcome;
+      _candidateLeases.Remove(claimId);
+      return Task.FromResult(true);
     }
+
     public Task SavePositionAsync(
       AutoTradePositionState state,
       CancellationToken cancellationToken
@@ -4912,7 +5513,6 @@ public sealed class AutoTradeEngineTests
       return Task.CompletedTask;
     }
     public List<ZoneCooldownRecord> ZoneCooldowns { get; } = [];
-    public List<string> Metrics { get; } = [];
     public List<(string Symbol, string Direction)> ZoneCooldownDirections { get; } = [];
     public Task RecordZoneCooldownAsync(
       string symbol,
@@ -4932,8 +5532,21 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     )
     {
-      Metrics.Add(metric);
+      // The lease heartbeat records metrics from its own loop, so writes are
+      // serialised and readers take a snapshot.
+      lock (Metrics)
+      {
+        Metrics.Add(metric);
+      }
       return Task.CompletedTask;
+    }
+
+    public string[] MetricsSnapshot()
+    {
+      lock (Metrics)
+      {
+        return [.. Metrics];
+      }
     }
     public Task SetValueAsync(
       string key,
@@ -4980,12 +5593,27 @@ public sealed class AutoTradeEngineTests
     )
     {
       LifecycleEvents.Add(tradeEvent);
-      var owner = tradeEvent.CandidateId
-        ?? tradeEvent.GroupId
-        ?? tradeEvent.CorrelationId
-        ?? "service";
-      Values[$"auto_trade:lifecycle_state:{owner}"] =
-        tradeEvent.State ?? "managing";
+      var owner = tradeEvent.CandidateId ?? tradeEvent.GroupId;
+      if (
+        tradeEvent.MutatesLifecycle
+        && owner is not null
+        && !string.IsNullOrWhiteSpace(tradeEvent.State)
+      )
+      {
+        var transition = AutoTradeLifecycle.TransitionForEvent(
+          tradeEvent.Type,
+          tradeEvent.RemainingVolume
+        );
+        Values[$"auto_trade:lifecycle_state:{owner}"] =
+          JsonSerializer.Serialize(
+            AutoTradeLifecycle.BuildStateRecord(
+              tradeEvent,
+              owner,
+              transition?.Terminal ?? false
+            ),
+            RedisJsonContext.Default.AutoTradeLifecycleStateRecord
+          );
+      }
       return Task.CompletedTask;
     }
     public Task UpdateRangeSideStateAsync(

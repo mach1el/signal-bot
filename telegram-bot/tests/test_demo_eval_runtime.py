@@ -11,6 +11,7 @@ from app.autotrade.config_health import python_manifest
 from app.autotrade.config_health import publish_python_manifest
 from app.autotrade.gate import AutoScalpDecision
 from app.autotrade.lifecycle import emit_lifecycle
+from app.autotrade.lifecycle import parse_lifecycle_state
 from app.autotrade.range_context import (
   RangeBarrier,
   RangeContext,
@@ -218,6 +219,14 @@ async def test_lifecycle_keeps_history_not_only_latest(monkeypatch):
   assert [json.loads(item)["state"] for item in history] == [
     "detected", "auto_ready",
   ]
+
+
+def test_parse_lifecycle_state_supports_plain_and_structured_records():
+  assert parse_lifecycle_state("managing") == "managing"
+  assert parse_lifecycle_state(
+    json.dumps({"owner_id": "abc", "state": "order_filled", "version": 1})
+  ) == "order_filled"
+  assert parse_lifecycle_state(None) is None
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,8 @@ AUTO_TRADE_RANGE_BOX_SCALE_OUT_THRESHOLD_PIPS
 AUTO_TRADE_RANGE_BOX_SCALE_OUT_TRIGGER_PIPS
 AUTO_TRADE_RANGE_BOX_SCALE_OUT_FRACTION
 AUTO_TRADE_RANGE_BOX_MOVE_SL_TO_BE_AFTER_SCALE_OUT
+AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS
+AUTO_TRADE_STOP_PUSH_BEYOND_ZONE
 ```
 
 Canonical manifest representation:
@@ -105,3 +107,21 @@ demo-account requirements still fail closed.
 enabled, only a Redis marker with `reason=stop_loss` and
 `confidence=confirmed` may block. `manual_close`, `external_close`,
 `reconciliation_unknown` and `take_profit` do not enforce a cooldown.
+
+## Final stop and fenced leases
+
+Shared stop planning uses `stop_plan_version=2` (base + final fields, including
+opposing-zone push). `AUTO_TRADE_STOP_PUSH_BEYOND_ZONE` and execution-zone width
+limits remain part of the shared contract.
+
+`AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS` (default `3`) is the maximum
+allowed gap between Python's planned entry and the executor's resolved
+planned entry, and — for market routes only — between that planned entry and
+the executable quote. It is never smaller than one symbol tick. Drift beyond
+tolerance rejects the candidate before any broker call
+(`final_stop_entry_drift_rejected`); it never silently widens the stop.
+
+Candidate Redis markers are structured JSON with token-owned renewable
+leases, reclaimable `retryable_error`, and recovery-required
+`broker_outcome_unknown`. Readers must accept legacy plain strings during
+rolling deploy. See `docs/autotrade-execution-integrity.md`.
