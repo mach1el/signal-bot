@@ -115,7 +115,9 @@ public sealed class ReconnectTests
     );
 
     Assert.Contains(sink.Writes, item => item.Bar.Timestamp == 1_500);
-    var error = Assert.Single(store.Events, item => item.Type == "error");
+    // Session-level faults are telemetry only: they publish `service_error` and
+    // never create candidate lifecycle state.
+    var error = Assert.Single(store.Events, item => item.Type == "service_error");
     Assert.Equal("Auto trade disabled: incident replay", error.Message);
   }
 
@@ -152,7 +154,7 @@ public sealed class ReconnectTests
 
     Assert.Equal(1, first.TradingAccountRequests);
     Assert.Equal(0, second.TradingAccountRequests);
-    Assert.Single(store.Events, item => item.Type == "error");
+    Assert.Single(store.Events, item => item.Type == "service_error");
     Assert.Equal(0, store.CandidateReads);
   }
 
@@ -187,7 +189,7 @@ public sealed class ReconnectTests
 
     Assert.Equal(1, first.TradingAccountRequests);
     Assert.Equal(1, second.TradingAccountRequests);
-    Assert.Single(store.Events, item => item.Type == "error");
+    Assert.Single(store.Events, item => item.Type == "service_error");
     Assert.Single(store.Events, item => item.Type == "ready");
   }
 
@@ -309,7 +311,8 @@ public sealed class ReconnectTests
     );
     Assert.Contains(
       store.Events,
-      item => item.Type == "error" && item.Message.Contains("demo-only token")
+      item => item.Type == "service_error"
+        && item.Message.Contains("demo-only token")
     );
     Assert.Equal(0, client.TradingAccountRequests);
     Assert.Equal(0, store.CandidateReads);
@@ -554,12 +557,13 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
     return Task.FromResult<IReadOnlyList<TradeStreamEntry>>([]);
   }
 
-  public Task<CandidateExecutionLease?> TryClaimCandidateAsync(
+  public Task<CandidateClaimResult> TryClaimCandidateAsync(
     string candidateId,
     string streamEventId,
     TimeSpan leaseDuration,
-    CancellationToken cancellationToken
-  ) => Task.FromResult<CandidateExecutionLease?>(null);
+    CancellationToken cancellationToken,
+    CandidateClaimPolicy? policy = null
+  ) => Task.FromResult(CandidateClaimResult.Conflict());
 
   public Task<bool> RenewCandidateLeaseAsync(
     string candidateId,
@@ -574,7 +578,8 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
     string streamEventId,
     string leaseToken,
     string newState,
-    CancellationToken cancellationToken
+    CancellationToken cancellationToken,
+    string? lastError = null
   ) => Task.FromResult(false);
 
   public Task<string?> GetCandidateStatusAsync(
@@ -582,19 +587,20 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
     CancellationToken cancellationToken
   ) => Task.FromResult<string?>(null);
 
-  public Task CompleteCandidateAsync(
+  public Task<bool> CompleteCandidateAsync(
     string candidateId,
     string streamEventId,
     string leaseToken,
     string outcome,
     CancellationToken cancellationToken
-  ) => Task.CompletedTask;
+  ) => Task.FromResult(false);
 
   public Task<bool> ReleaseCandidateAsync(
     string candidateId,
     string streamEventId,
     string leaseToken,
-    CancellationToken cancellationToken
+    CancellationToken cancellationToken,
+    string? lastError = null
   ) => Task.FromResult(false);
 
   public Task SavePositionAsync(

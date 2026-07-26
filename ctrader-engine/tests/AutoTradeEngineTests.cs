@@ -486,12 +486,11 @@ public sealed class AutoTradeEngineTests
       direction: "SELL",
       structureSwing: 4009.5m
     ));
-    await store.CompleteCandidateAsync(
+    // Seeded directly: an unfenced completion with no lease token is rejected
+    // by the store, so the flip rendezvous marker is placed as fixture state.
+    store.SeedCandidateState(
       "flip:XAU:xau-8000-8016",
-      "",
-      "",
-      "flip_pending:BUY:1030",
-      cts.Token
+      "flip_pending:BUY:1030"
     );
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
@@ -1582,8 +1581,11 @@ public sealed class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task PartialZoneFillFailureRollsBackAndDeletesGroupPlan()
+  public async Task PartialZoneFillFailureKeepsGroupPlanUntilBrokerAbsenceIsConfirmed()
   {
+    // A failed leg does not prove the request never reached the broker, so the
+    // candidate becomes recovery-required and the group plan survives: it is
+    // the only map from deterministic client order IDs back to this candidate.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(StrategyMatchCandidateJson(
       orderTypePreference: "limit",
@@ -1603,12 +1605,27 @@ public sealed class AutoTradeEngineTests
     );
 
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
-    await WaitUntilAsync(() => client.CancelledOrders.Count == 1);
+    await WaitForEventAsync(store, "broker_outcome_unknown");
 
-    Assert.DoesNotContain(
+    // Rollback is evidence-based: only the leg the broker confirmed is
+    // cancelled, never the ambiguous one.
+    Assert.Single(client.CancelledOrders);
+    Assert.Contains(
       store.Values.Keys,
       key => key.StartsWith("auto_trade:group_plan:")
     );
+    Assert.Equal(
+      CandidateExecutionStates.BrokerOutcomeUnknown,
+      store.CandidateState(new string('s', 64))
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
+
+    // Recovery proves the broker holds nothing for the candidate, which is the
+    // only point at which the plan may be dropped and a retry becomes safe.
+    await WaitUntilAsync(() => client.LimitOrders.Count == 3);
+    Assert.Contains("broker_outcome_confirmed_absent", store.Metrics);
+    Assert.Contains("candidate_retry_reclaimed", store.Metrics);
+
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
@@ -5014,6 +5031,8 @@ public sealed class AutoTradeEngineTests
     private readonly Dictionary<string, string> _candidateStatus = [];
     private readonly Dictionary<string, (string StreamEventId, string Token)> _candidateLeases =
       [];
+    private readonly Dictionary<string, int> _candidateAttempts = [];
+    private readonly HashSet<string> _expiredLeases = [];
     private readonly List<string> _payloads = [payload];
     private readonly List<string> _commandPayloads = [];
     public Dictionary<long, AutoTradePositionState> Positions { get; } = [];
@@ -5090,35 +5109,132 @@ public sealed class AutoTradeEngineTests
         new TradeStreamEntry($"{last + 1}-0", list[last]),
       ]);
     }
-    public Task<CandidateExecutionLease?> TryClaimCandidateAsync(
+    // Mirrors the fenced Redis state machine: exact-token ownership, terminal
+    // immutability, reclaimable retry states and typed claim dispositions.
+    public Task<CandidateClaimResult> TryClaimCandidateAsync(
       string candidateId,
       string streamEventId,
       TimeSpan leaseDuration,
-      CancellationToken cancellationToken
+      CancellationToken cancellationToken,
+      CandidateClaimPolicy? policy = null
     )
     {
-      if (
-        _candidateStatus.TryGetValue(candidateId, out var current)
-        && !string.Equals(current, "published", StringComparison.Ordinal)
-        && !string.Equals(current, "processing", StringComparison.Ordinal)
-        && !(
-          candidateId.StartsWith("flip:", StringComparison.Ordinal)
-          && !current.StartsWith("flip_pending:", StringComparison.Ordinal)
-        )
-      )
+      var effective = policy ?? CandidateClaimPolicy.Default;
+      var attempt = 0;
+      if (_candidateStatus.TryGetValue(candidateId, out var current))
       {
-        return Task.FromResult<CandidateExecutionLease?>(null);
+        var state = StateOf(current);
+        var record = CandidateExecutionRecordParser.TryParse(current)
+          ?? (state is null
+            ? null
+            : new CandidateExecutionRecord(
+              candidateId,
+              streamEventId,
+              state,
+              null,
+              null,
+              null,
+              0,
+              1
+            ));
+        attempt = _candidateAttempts.TryGetValue(candidateId, out var previous)
+          ? previous
+          : 0;
+        if (state is null || !CandidateExecutionStates.IsKnown(state))
+        {
+          return Task.FromResult(CandidateClaimResult.Conflict(record));
+        }
+        if (CandidateExecutionStates.IsTerminal(state))
+        {
+          if (
+            !(effective.AllowRejectedReclaim
+              && state == CandidateExecutionStates.Rejected)
+          )
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.Terminal,
+              null,
+              record
+            ));
+          }
+        }
+        else if (CandidateExecutionStates.IsRecoveryRequired(state))
+        {
+          if (!effective.AllowRecoveryAdoption)
+          {
+            return Task.FromResult(new CandidateClaimResult(
+              CandidateClaimDisposition.RecoveryRequired,
+              null,
+              record
+            ));
+          }
+        }
+        else if (
+          CandidateExecutionStates.IsActiveLeaseOwned(state)
+          && !_expiredLeases.Contains(candidateId)
+        )
+        {
+          return Task.FromResult(new CandidateClaimResult(
+            CandidateClaimDisposition.ActiveElsewhere,
+            null,
+            record
+          ));
+        }
       }
+      _expiredLeases.Remove(candidateId);
+      attempt += 1;
       var token = Guid.NewGuid().ToString("N");
-      _candidateStatus[candidateId] = "processing";
+      _candidateAttempts[candidateId] = attempt;
+      _candidateStatus[candidateId] = CandidateExecutionStates.Processing;
       _candidateLeases[candidateId] = (streamEventId, token);
-      return Task.FromResult<CandidateExecutionLease?>(new CandidateExecutionLease(
-        candidateId,
-        streamEventId,
-        token,
-        DateTimeOffset.UtcNow.Add(leaseDuration)
+      Claims.Add(candidateId);
+      return Task.FromResult(new CandidateClaimResult(
+        CandidateClaimDisposition.Claimed,
+        new CandidateExecutionLease(
+          candidateId,
+          streamEventId,
+          token,
+          DateTimeOffset.UtcNow.Add(leaseDuration)
+        ),
+        new CandidateExecutionRecord(
+          candidateId,
+          streamEventId,
+          CandidateExecutionStates.Processing,
+          token,
+          DateTimeOffset.UtcNow.Add(leaseDuration).ToUnixTimeSeconds(),
+          null,
+          0,
+          1,
+          attempt
+        )
       ));
     }
+
+    // Simulates lease expiry so a successor can reclaim without waiting.
+    public void ExpireLease(string candidateId) => _expiredLeases.Add(candidateId);
+
+    public void SeedCandidateState(string candidateId, string state) =>
+      _candidateStatus[candidateId] = state;
+
+    // The fake keeps either a bare state name (written by a transition) or a
+    // legacy marker string, exactly like a rolling Redis deployment does.
+    private static string? StateOf(string? raw) =>
+      raw is null
+        ? null
+        : CandidateExecutionStates.IsKnown(raw)
+          ? raw
+          : CandidateExecutionRecordParser.TryParse(raw)?.State;
+
+    public string? CandidateState(string candidateId) =>
+      _candidateStatus.TryGetValue(candidateId, out var value)
+        ? StateOf(value) ?? value
+        : null;
+
+    private bool OwnsLease(string candidateId, string leaseToken) =>
+      !string.IsNullOrWhiteSpace(leaseToken)
+      && _candidateLeases.TryGetValue(candidateId, out var lease)
+      && lease.Token == leaseToken;
+
     public Task<bool> RenewCandidateLeaseAsync(
       string candidateId,
       string streamEventId,
@@ -5126,29 +5242,80 @@ public sealed class AutoTradeEngineTests
       TimeSpan leaseDuration,
       CancellationToken cancellationToken
     ) => Task.FromResult(
-      _candidateLeases.TryGetValue(candidateId, out var lease)
-      && lease.Token == leaseToken
+      OwnsLease(candidateId, leaseToken)
+      && !_expiredLeases.Contains(candidateId)
+      && !LeaseRenewalBlocked
     );
+
+    // Set to model a heartbeat that can no longer prove ownership.
+    public bool LeaseRenewalBlocked { get; set; }
+    public List<string> Claims { get; } = [];
+    public List<string> Transitions { get; } = [];
+
     public Task<bool> TransitionCandidateStateAsync(
       string candidateId,
       string streamEventId,
       string leaseToken,
       string newState,
-      CancellationToken cancellationToken
-    ) => RenewCandidateLeaseAsync(
-      candidateId,
-      streamEventId,
-      leaseToken,
-      TimeSpan.FromMinutes(2),
-      cancellationToken
-    );
+      CancellationToken cancellationToken,
+      string? lastError = null
+    )
+    {
+      if (!OwnsLease(candidateId, leaseToken))
+      {
+        return Task.FromResult(false);
+      }
+      var current = CandidateState(candidateId);
+      if (CandidateExecutionStates.IsTerminal(current))
+      {
+        return Task.FromResult(false);
+      }
+      if (!CandidateExecutionStates.CanTransition(current, newState))
+      {
+        return Task.FromResult(false);
+      }
+      _candidateStatus[candidateId] = newState;
+      Transitions.Add($"{current}->{newState}");
+      if (newState == CandidateExecutionStates.RetryableError)
+      {
+        _candidateLeases.Remove(candidateId);
+      }
+      return Task.FromResult(true);
+    }
+
     public Task<string?> GetCandidateStatusAsync(
       string candidateId,
       CancellationToken cancellationToken
     ) => Task.FromResult(
-      _candidateStatus.TryGetValue(candidateId, out var value) ? value : null
+      _candidateStatus.TryGetValue(candidateId, out var value)
+        ? CandidateExecutionRecordParser.LegacyStatus(value)
+        : null
     );
-    public Task CompleteCandidateAsync(
+
+    public Task<CandidateExecutionRecord?> GetCandidateRecordAsync(
+      string candidateId,
+      CancellationToken cancellationToken
+    )
+    {
+      if (!_candidateStatus.TryGetValue(candidateId, out var value))
+      {
+        return Task.FromResult<CandidateExecutionRecord?>(null);
+      }
+      var state = StateOf(value) ?? value;
+      _candidateLeases.TryGetValue(candidateId, out var lease);
+      return Task.FromResult<CandidateExecutionRecord?>(new CandidateExecutionRecord(
+        candidateId,
+        lease.StreamEventId ?? "",
+        state,
+        lease.Token,
+        null,
+        null,
+        0,
+        1
+      ));
+    }
+
+    public Task<bool> CompleteCandidateAsync(
       string candidateId,
       string streamEventId,
       string leaseToken,
@@ -5156,15 +5323,15 @@ public sealed class AutoTradeEngineTests
       CancellationToken cancellationToken
     )
     {
-      if (
-        !string.IsNullOrWhiteSpace(leaseToken)
-        && (
-          !_candidateLeases.TryGetValue(candidateId, out var lease)
-          || lease.Token != leaseToken
-        )
-      )
+      if (!OwnsLease(candidateId, leaseToken))
       {
-        return Task.CompletedTask;
+        StaleCompletionsBlocked += 1;
+        return Task.FromResult(false);
+      }
+      if (CandidateExecutionStates.IsTerminal(CandidateState(candidateId)))
+      {
+        StaleCompletionsBlocked += 1;
+        return Task.FromResult(false);
       }
       _candidateStatus[candidateId] = outcome;
       _candidateLeases.Remove(candidateId);
@@ -5173,29 +5340,45 @@ public sealed class AutoTradeEngineTests
       {
         Ordered.TrySetResult(true);
       }
-      return Task.CompletedTask;
+      return Task.FromResult(true);
     }
+
+    public int StaleCompletionsBlocked { get; private set; }
+
     public Task<bool> ReleaseCandidateAsync(
       string candidateId,
       string streamEventId,
       string leaseToken,
+      CancellationToken cancellationToken,
+      string? lastError = null
+    ) => TransitionCandidateStateAsync(
+      candidateId,
+      streamEventId,
+      leaseToken,
+      CandidateExecutionStates.RetryableError,
+      cancellationToken,
+      lastError
+    );
+
+    public Task<bool> OverrideFlipClaimAsync(
+      string claimId,
+      string outcome,
       CancellationToken cancellationToken
     )
     {
       if (
-        !string.IsNullOrWhiteSpace(leaseToken)
-        && (
-          !_candidateLeases.TryGetValue(candidateId, out var lease)
-          || lease.Token != leaseToken
-        )
+        !_candidateStatus.TryGetValue(claimId, out var current)
+        || !CandidateExecutionRecordParser.LegacyStatus(current)
+          .StartsWith("flip_pending:", StringComparison.Ordinal)
       )
       {
         return Task.FromResult(false);
       }
-      _candidateStatus[candidateId] = "retryable_error";
-      _candidateLeases.Remove(candidateId);
+      _candidateStatus[claimId] = outcome;
+      _candidateLeases.Remove(claimId);
       return Task.FromResult(true);
     }
+
     public Task SavePositionAsync(
       AutoTradePositionState state,
       CancellationToken cancellationToken
