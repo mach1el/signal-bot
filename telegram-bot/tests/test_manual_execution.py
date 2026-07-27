@@ -582,18 +582,38 @@ async def test_handle_event_manual_expired_releases_watcher_ownership(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_handle_event_stop_moved_never_mutates_manual_signals(monkeypatch):
+async def test_handle_event_stop_moved_fans_out_manual_algo_be_move(monkeypatch):
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
   client = redis_state.get_client()
   positions = {555: sid}
 
-  event = {"type": "stop_moved", "position_id": 555, "price": 4108.0}
+  event = {
+    "type": "stop_moved",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "price": 4103.06,
+    "message": "🛡 ApexVoid Algo stop → 4,103.06 (BE+6 ticks)",
+  }
   await manual_execution._handle_event(client, event, positions)
 
   row = await store.get_manual_signal(sid)
-  assert row["sl"] == pytest.approx(4110.0)
+  assert row["sl"] == pytest.approx(4103.06)
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "move SL to" in text
+  assert "(BE)" in text
+
+
+@pytest.mark.asyncio
+async def test_handle_event_stop_moved_ignores_autonomous_positions(monkeypatch):
+  send = _mock_send(monkeypatch)
+  client = redis_state.get_client()
+
+  event = {"type": "stop_moved", "position_id": 999, "price": 4108.0}
+  await manual_execution._handle_event(client, event, {})
+
   send.assert_not_awaited()
 
 
