@@ -3512,6 +3512,98 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Theory]
+  [InlineData("SELL")]
+  [InlineData("BUY")]
+  public async Task RejectsIndependentInitialGroupOnNonHedgedAccountBeforeSubmission(
+    string incomingDirection
+  )
+  {
+    // Incident regression: a non-hedged (netting) broker cannot hold two
+    // independent SL/TP plans as separate positions - a second autonomous
+    // initial group, same direction or opposite, would collapse into the
+    // existing net position. Covers both directions since the existing
+    // opposite-direction guard (TryRejectOppositeInitialGroupAsync) could
+    // otherwise mask a same-direction gap in this one.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { AccountType = "Netted" },
+    };
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    store.EnqueueCandidate(CandidateJson(direction: incomingDirection, candidate: 'b'));
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Single(client.Orders);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "independent_strategy_requires_hedged_account"
+    );
+    Assert.Contains("independent_group_rejected_non_hedged", store.Metrics);
+    // Group A's own tracked state must be untouched by the rejected intake.
+    var groupA = Assert.Single(store.Positions.Values);
+    Assert.Equal(TradeDirection.Sell, groupA.Direction);
+    Assert.Equal(new string('a', 64), groupA.CandidateId);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task LegacyScaleInWithParentGroupIdIsUnaffectedByNonHedgedIndependentGroupGuard()
+  {
+    // A ParentGroupId-linked add must keep working on a non-hedged account -
+    // it already shares the parent's broker position by design, so it is
+    // not "independent" in the sense the new guard is protecting against.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { AccountType = "Netted" },
+    };
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var groupId = Assert.Single(
+      store.Positions.Values.Select(item => item.GroupId).Distinct()
+    );
+    store.EnqueueCandidate(CandidateJson(
+      direction: "SELL", candidate: 'b', parentGroupId: groupId
+    ));
+    await Task.Delay(200, cts.Token);
+
+    Assert.DoesNotContain(store.Events, item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "independent_strategy_requires_hedged_account"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
   [InlineData("Trend Pullback", "trend")]
   [InlineData("Mapped Zone Reaction", "mapped_zone")]
   [InlineData("Demand Zone Reaction", "supply_demand")]
