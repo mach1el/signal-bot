@@ -187,21 +187,24 @@ def test_partial_tp_without_volume_percent_uses_closed_volume_fallback():
 def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
   stop = delivery.render_auto_trade_event({
     "type": "stop_moved",
-    "message": "🛡 ApexVoid Algo stop → 4,100.06 (BE+6) · position 39016393",
+    "message": "🛡 ApexVoid Algo stop → 4,087.72 (BE+6 ticks) · position 39016393",
     "direction": "BUY",
-    "entry_price": 4094.0,
-    "previous_stop": 4088.0,
-    "price": 4100.06,
-    "mode": "BE+6",
+    "entry_price": 4087.66,
+    "previous_stop": 4081.66,
+    "price": 4087.72,
+    "mode": "BE+6 ticks",
+    "buffer_price": 0.06,
     "trigger_tp1_broker_confirmed": True,
   })
 
   assert "Direction: <b>BUY</b>" in stop
-  assert "Entry: <b>4,094.00</b>" in stop
-  assert "Previous SL: <b>4,088.00</b>" in stop
-  assert "New SL: <b>4,100.06</b>" in stop
-  assert "Mode: <b>BE+6</b>" in stop
+  assert "Entry: <b>4,087.66</b>" in stop
+  assert "Previous SL: <b>4,081.66</b>" in stop
+  assert "New SL: <b>4,087.72</b>" in stop
+  assert "Mode: <b>BE+6 ticks</b>" in stop
+  assert "Buffer: <b>0.06</b>" in stop
   assert "Trigger TP1 broker-confirmed: <b>yes</b>" in stop
+  assert "0.60" not in stop
 
 
 @pytest.mark.no_database
@@ -363,7 +366,7 @@ def test_render_auto_trade_stop_and_warning_events():
   assert "ApexVoid Algo" in stop
   assert "Risk protected" in stop
   assert "4,029.49" in stop
-  assert "BE+3" in stop
+  assert "BE+3 ticks" in stop
   assert "39016393" not in stop
   assert "Warning" in warning
   assert "live account 44669326" in warning

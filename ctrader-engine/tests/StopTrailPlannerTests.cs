@@ -70,7 +70,7 @@ public sealed class StopTrailPlannerTests
       entry.GetProperty("name").GetString() == name
     );
     var pipSize = Number(root, "pip_size");
-    var bufferPips = root.GetProperty("break_even_buffer_pips").GetInt32();
+    var bufferTicks = root.GetProperty("break_even_buffer_ticks").GetInt32();
     var direction = item.GetProperty("direction").GetString() == "BUY"
       ? TradeDirection.Buy
       : TradeDirection.Sell;
@@ -87,17 +87,22 @@ public sealed class StopTrailPlannerTests
         completedTargetIndex,
         Symbol,
         pipSize,
-        bufferPips
+        bufferTicks
       )
     );
 
     Assert.Equal(Number(item, "expected_stop"), move.StopLoss);
     Assert.Equal(item.GetProperty("expected_label").GetString(), move.Label);
+    Assert.Equal(Number(item, "expected_offset"), move.BufferPrice);
+    Assert.Equal(
+      Number(item, "expected_offset"),
+      Math.Abs(move.StopLoss - entry)
+    );
   }
 
   [Theory]
-  [InlineData(TradeDirection.Buy, 4000.8, 4003.2, 4006.2)]
-  [InlineData(TradeDirection.Sell, 3999.6, 3997.2, 3994.2)]
+  [InlineData(TradeDirection.Buy, 4000.26, 4003.2, 4006.2)]
+  [InlineData(TradeDirection.Sell, 4000.14, 3997.2, 3994.2)]
   public void HoldsAfterTp2ThenTrailsTwoTargetsBehind(
     TradeDirection direction,
     double afterTp1,
@@ -110,7 +115,8 @@ public sealed class StopTrailPlannerTests
       StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6)
     );
     Assert.Equal(Convert.ToDecimal(afterTp1), tp1.StopLoss);
-    Assert.Equal("BE+6", tp1.Label);
+    Assert.Equal("BE+6 ticks", tp1.Label);
+    Assert.Equal(0.06m, Math.Abs(tp1.StopLoss - state.EntryPrice));
     state = state with { CurrentStopLoss = tp1.StopLoss };
 
     Assert.Null(StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 6));

@@ -93,7 +93,7 @@ public sealed class AutoTradeConfigHealthTests
     StopLossDistance: 6.5m,
     TargetsPips: [30, 60, 90, 120, 200],
     TargetWeights: [20, 20, 20, 20, 20],
-    BreakEvenBufferPips: 6,
+    BreakEvenBufferTicks: 6,
     CandidateMaxAgeSeconds: 420,
     SpotMaxAgeSeconds: 5,
     MaxSpreadPips: 5,
@@ -167,6 +167,10 @@ public sealed class AutoTradeConfigHealthTests
       ["min_confluence"] = 2,
       ["non_hedged_opposite_policy"] = "broker_netting",
       ["git_sha"] = "test",
+      ["break_even_buffer_ticks"] = numericDecimals ? 6.0m : 6,
+      ["symbol_tick_size"] = numericDecimals ? 0.01m : 0.01m,
+      ["price_digits"] = numericDecimals ? 2.0m : 2,
+      ["stop_plan_version"] = numericDecimals ? 3.0m : 3,
     };
     return JsonSerializer.Serialize(payload);
   }
