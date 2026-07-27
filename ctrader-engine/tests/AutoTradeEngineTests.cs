@@ -70,7 +70,7 @@ public sealed partial class AutoTradeEngineTests
         .Select(item => Assert.IsType<int>(item.TargetPips))
     );
     Assert.Equal(
-      new decimal[] { 3993.7m, 4000.14m, 4003.2m, 4006.2m },
+      new decimal[] { 3993.7m, 4000.26m, 4003.2m, 4006.2m },
       client.StopAmendments.Select(item => item.StopLoss)
     );
     Assert.Equal(3, store.Events.Count(item => item.Type == "stop_moved"));
@@ -3417,7 +3417,12 @@ public sealed partial class AutoTradeEngineTests
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
-    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    // This test is about the price a confirmed closure carries, not about
+    // the missing-snapshot confirmation gate itself (covered separately) -
+    // one confirmation keeps its original single-reconcile-pass shape.
+    var engine = new AutoTradeEngine(
+      Options() with { PositionMissingConfirmations = 1 }, store, () => now, _ => { }
+    );
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
       cts.Token
@@ -3443,12 +3448,15 @@ public sealed partial class AutoTradeEngineTests
   public async Task ReconcileDetectedCloseRecordsWarningOnlyCooldownMarker()
   {
     // The engine cannot tell an SL hit from a manual close apart here, so it
-    // records evidence but must not claim a confirmed stop loss.
+    // records evidence but must not claim a confirmed stop loss. Not about
+    // the missing-snapshot confirmation gate itself (covered separately).
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
-    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    var engine = new AutoTradeEngine(
+      Options() with { PositionMissingConfirmations = 1 }, store, () => now, _ => { }
+    );
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
       cts.Token
@@ -3467,6 +3475,109 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal("reconciliation_unknown", cooldown.Reason);
     Assert.Equal("unconfirmed", cooldown.Confidence);
     Assert.Equal(("XAU", "BUY"), Assert.Single(store.ZoneCooldownDirections));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingPositionSnapshotRequiresTwoConfirmationsBeforeTerminalising()
+  {
+    // Incident hardening: a single reconcile pass that does not see a
+    // tracked position must only "suspect" it missing, not delete its
+    // tracking - only a second, time-separated confirmation may terminalise.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+
+    // First missing snapshot: still tracked, not yet closed.
+    Assert.Contains(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.DoesNotContain(
+      "position_missing_snapshot_confirmed",
+      store.MetricsSnapshot()
+    );
+
+    // Second independent snapshot, separated by the recheck interval,
+    // confirms the absence. A short real-time settle lets the loop finish
+    // recomputing nextReconcile off the *current* now before it is advanced
+    // again - otherwise this assignment can race ahead of that bookkeeping
+    // and get folded into the same nextReconcile computation, pushing the
+    // next eligible reconcile pass out by another 15s for nothing.
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    Assert.DoesNotContain(positionId, store.Positions.Keys);
+    Assert.Contains("position_missing_snapshot_confirmed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingPositionSnapshotClearsWhenPositionReappearsBeforeConfirmation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var tracked = store.Positions[positionId];
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+
+    // The position reappears at the broker before the second confirmation.
+    // The short settle delay avoids racing the loop's post-reconcile
+    // nextReconcile bookkeeping the same way the confirmation test does.
+    client.SeedPosition(new TradingPosition(
+      tracked.PositionId,
+      Symbol.SymbolId,
+      tracked.Direction,
+      tracked.RemainingVolume,
+      tracked.EntryPrice,
+      tracked.CurrentStopLoss ?? tracked.EntryPrice,
+      "apexvoid-auto",
+      ""
+    ));
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_recovered")
+    );
+
+    Assert.Contains(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.DoesNotContain(
+      "position_missing_snapshot_confirmed",
+      store.MetricsSnapshot()
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -3506,6 +3617,171 @@ public sealed partial class AutoTradeEngineTests
     Assert.Empty(store.Positions);
     Assert.Empty(store.ZoneCooldowns);
     Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
+  [InlineData("SELL")]
+  [InlineData("BUY")]
+  public async Task RejectsIndependentInitialGroupOnNonHedgedAccountBeforeSubmission(
+    string incomingDirection
+  )
+  {
+    // Incident regression: a non-hedged (netting) broker cannot hold two
+    // independent SL/TP plans as separate positions - a second autonomous
+    // initial group, same direction or opposite, would collapse into the
+    // existing net position. Covers both directions since the existing
+    // opposite-direction guard (TryRejectOppositeInitialGroupAsync) could
+    // otherwise mask a same-direction gap in this one.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { AccountType = "Netted" },
+    };
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    store.EnqueueCandidate(CandidateJson(direction: incomingDirection, candidate: 'b'));
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Single(client.Orders);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "independent_strategy_requires_hedged_account"
+    );
+    Assert.Contains("independent_group_rejected_non_hedged", store.Metrics);
+    // Group A's own tracked state must be untouched by the rejected intake.
+    var groupA = Assert.Single(store.Positions.Values);
+    Assert.Equal(TradeDirection.Sell, groupA.Direction);
+    Assert.Equal(new string('a', 64), groupA.CandidateId);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task LegacyScaleInWithParentGroupIdIsUnaffectedByNonHedgedIndependentGroupGuard()
+  {
+    // A ParentGroupId-linked add must keep working on a non-hedged account -
+    // it already shares the parent's broker position by design, so it is
+    // not "independent" in the sense the new guard is protecting against.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { AccountType = "Netted" },
+    };
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var groupId = Assert.Single(
+      store.Positions.Values.Select(item => item.GroupId).Distinct()
+    );
+    store.EnqueueCandidate(CandidateJson(
+      direction: "SELL", candidate: 'b', parentGroupId: groupId
+    ));
+    await Task.Delay(200, cts.Token);
+
+    Assert.DoesNotContain(store.Events, item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "independent_strategy_requires_hedged_account"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task UnexpectedSharedPositionIdDoesNotOverwriteTheExistingGroup()
+  {
+    // Even on a hedged account (where independent groups are otherwise
+    // expected to work), the executor must protect against the broker
+    // unexpectedly returning an already-tracked PositionId for a second,
+    // genuinely distinct independent group - it must never silently become
+    // a scale-in of the first, and no new autonomous group may be admitted
+    // until a human resolves the conflict.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient();
+    // A genuinely hedged account with concurrent strategies allowed - this
+    // is exactly the case the task calls out: "even on an account reported
+    // as hedged", the executor still must not silently corrupt tracking if
+    // the broker reuses a PositionId.
+    var options = Options() with
+    {
+      AllowConcurrentStrategies = true,
+      AllowHedgedXau = true,
+    };
+    var engine = new AutoTradeEngine(options, store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var groupAEntry = store.Positions[positionId].EntryPrice;
+    var groupAId = store.Positions[positionId].GroupId;
+
+    // Simulate the broker recycling the ticket number: it no longer reports
+    // Group A's position (so the fake client's own fill bookkeeping stays
+    // internally consistent), but the executor's own state/store was never
+    // told Group A closed - exactly the "unexpected" half of this scenario.
+    client.RemovePosition(positionId);
+    client.NextPositionId = positionId;
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    store.EnqueueCandidate(CandidateJson(direction: "SELL", candidate: 'b'));
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_state_conflict")
+    );
+
+    // Group A's own tracked state must survive completely unchanged.
+    Assert.Equal(groupAEntry, store.Positions[positionId].EntryPrice);
+    Assert.Equal(groupAId, store.Positions[positionId].GroupId);
+    Assert.Contains(store.Events, item =>
+      item.Type == "error"
+      && item.ReasonCode == "broker_position_identity_group_conflict"
+    );
+    // No "opened" event may claim the second fill is safely managed.
+    Assert.DoesNotContain(store.Events, item =>
+      item.Type == "opened" && item.CandidateId == new string('b', 64)
+    );
+
+    // A third, otherwise-unrelated autonomous candidate must be rejected
+    // outright while the conflict is unresolved.
+    store.EnqueueCandidate(CandidateJson(direction: "BUY", candidate: 'c'));
+    await WaitUntilAsync(() => store.Events.Any(item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "broker_position_identity_group_conflict"
+      && item.CandidateId == new string('c', 64)
+    ));
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -4857,6 +5133,12 @@ public sealed partial class AutoTradeEngineTests
     private long _nextPositionId = 91;
     private long _nextOrderId = 81;
 
+    // Test-only hook to force the broker's *next* fill to reuse a specific
+    // PositionId, simulating the unexpected-identity-reuse scenario tests
+    // exercise (a real cTrader account should never do this, but the
+    // executor must not silently corrupt tracking if it ever does).
+    public long NextPositionId { set => _nextPositionId = value; }
+
     public void SeedPosition(TradingPosition position) => _positions.Add(position);
     public void EnqueueMarketExecutionPrice(decimal price) =>
       _marketExecutionPrices.Enqueue(price);
@@ -5647,6 +5929,30 @@ public sealed partial class AutoTradeEngineTests
     )
     {
       Positions.Remove(positionId);
+      return Task.CompletedTask;
+    }
+    public Dictionary<long, PositionMissingRecord> PositionMissing { get; } = [];
+    public Task<PositionMissingRecord?> GetPositionMissingAsync(
+      long positionId,
+      CancellationToken cancellationToken
+    ) => Task.FromResult(
+      PositionMissing.TryGetValue(positionId, out var record) ? record : null
+    );
+    public Task SavePositionMissingAsync(
+      long positionId,
+      PositionMissingRecord record,
+      CancellationToken cancellationToken
+    )
+    {
+      PositionMissing[positionId] = record;
+      return Task.CompletedTask;
+    }
+    public Task ClearPositionMissingAsync(
+      long positionId,
+      CancellationToken cancellationToken
+    )
+    {
+      PositionMissing.Remove(positionId);
       return Task.CompletedTask;
     }
     public Task<long> GetDailyTradeCountAsync(
