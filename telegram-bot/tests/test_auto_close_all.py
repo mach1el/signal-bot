@@ -22,6 +22,49 @@ def _owner_msg(text: str = "/auto_close_all"):
 
 
 @pytest.mark.asyncio
+async def test_algo_status_reports_failure_instead_of_silence(monkeypatch):
+  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(
+    dm,
+    "auto_trade_status_text",
+    AsyncMock(side_effect=RuntimeError("redis down")),
+  )
+  msg = SimpleNamespace(
+    chat=SimpleNamespace(type="private"),
+    from_user=SimpleNamespace(id=42),
+    text="/algo_status",
+    answer=AsyncMock(),
+  )
+
+  await dm.handle_auto_status(msg)
+
+  text = msg.answer.await_args.args[0]
+  assert "Algo bot status unavailable" in text
+
+
+@pytest.mark.asyncio
+async def test_algo_status_clips_oversized_card(monkeypatch):
+  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(
+    dm,
+    "auto_trade_status_text",
+    AsyncMock(return_value="x" * 5000),
+  )
+  msg = SimpleNamespace(
+    chat=SimpleNamespace(type="private"),
+    from_user=SimpleNamespace(id=42),
+    text="/algo_status",
+    answer=AsyncMock(),
+  )
+
+  await dm.handle_auto_status(msg)
+
+  text = msg.answer.await_args.args[0]
+  assert len(text) <= 4010
+  assert text.endswith("… (truncated)")
+
+
+@pytest.mark.asyncio
 async def test_auto_close_all_requires_confirm(monkeypatch):
   monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
   monkeypatch.setattr(

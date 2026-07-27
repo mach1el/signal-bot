@@ -1008,7 +1008,7 @@ async def test_pause_resume_and_status(monkeypatch):
   assert "paused" in text
   assert "Trades today: <b>0</b> · <b>unlimited</b>" in text
   assert "Measured groups" in text
-  assert "ApexVoid Algo" in text
+  assert "Algo bot" in text
   assert "Selected strategy: <b>Range Box Scalp · BUY · M1</b>" in text
   assert "Source: <b>private OHLC matcher</b>" in text
   assert "Execution: <b>waiting rejection</b>" in text
