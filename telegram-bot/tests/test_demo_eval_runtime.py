@@ -77,6 +77,11 @@ def test_demo_profile_resolves_execution_defaults(monkeypatch):
   assert cfg.auto_trade_map_hard_entry_drift_pips == 20
   assert cfg.auto_trade_trend_hard_entry_drift_pips == 30
   assert cfg.scanner_top_n == 0
+  assert cfg.scanner_card_top_n == 2
+  assert not cfg.scanner_gate_require_structural_anchor
+  assert cfg.scanner_gate_max_source_touches == 0
+  assert not cfg.scanner_gate_suppress_counter_bias_in_range
+  assert cfg.scanner_gate_counter_bias_min_confluence == 3
   assert cfg.auto_trade_max_tracked_candidates == 0
 
 
@@ -88,12 +93,22 @@ def test_demo_profile_does_not_override_explicit_environment(monkeypatch):
     AUTO_TRADE_CANDIDATE_MAX_AGE_SECONDS="123",
     AUTO_TRADE_CANDIDATE_STORAGE_TTL_SECONDS="456",
     SCANNER_TOP_N="7",
+    SCANNER_CARD_TOP_N="4",
+    SCANNER_GATE_REQUIRE_STRUCTURAL_ANCHOR="true",
+    SCANNER_GATE_MAX_SOURCE_TOUCHES="6",
+    SCANNER_GATE_SUPPRESS_COUNTER_BIAS_IN_RANGE="true",
+    SCANNER_GATE_COUNTER_BIAS_MIN_CONFLUENCE="5",
   )
   assert not cfg.auto_trade_range_flip_enabled
   assert not cfg.auto_trade_allow_hedged_xau
   assert cfg.auto_trade_candidate_max_age_seconds == 123
   assert cfg.auto_trade_candidate_ttl == 456
   assert cfg.scanner_top_n == 7
+  assert cfg.scanner_card_top_n == 4
+  assert cfg.scanner_gate_require_structural_anchor
+  assert cfg.scanner_gate_max_source_touches == 6
+  assert cfg.scanner_gate_suppress_counter_bias_in_range
+  assert cfg.scanner_gate_counter_bias_min_confluence == 5
 
 
 def test_market_map_guard_follows_execution_flag_unless_explicit(monkeypatch):
