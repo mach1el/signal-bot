@@ -1149,12 +1149,12 @@ public sealed partial class AutoTradeEngineTests
 
     Assert.Equal(2, client.Orders.Count);
     Assert.StartsWith("av3|bbbbbbbbbb|aaaaaaaaaa|2|", client.Orders[1].Comment);
-    Assert.Equal(500, client.Orders[1].Volume);
+    Assert.Equal(300, client.Orders[1].Volume);
     Assert.Equal((92, 3999.4m), client.StopAmendments.Last());
     var add = Assert.Single(store.Events, item => item.Type == "add");
     Assert.Equal(2, add.TrancheIndex);
     Assert.Equal("aaaaaaaaaa", add.GroupId);
-    Assert.Contains("add-cap-bound", add.Message);
+    Assert.Contains("size-ratio-bound", add.Message);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
