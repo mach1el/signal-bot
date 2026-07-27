@@ -1725,7 +1725,16 @@ async def test_setup_invalidation_fires_when_zone_is_violated(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
-  key = scanner._active_setup_key("XAU", "M5", "Range Edge Scalp", "SELL")
+  result = scanner.DetectionResult(
+    "Range Edge Scalp",
+    "SELL",
+    4124.0,
+    Zone(4122.24, 4124.73, "supply"),
+    4123.0,
+    2,
+    [],
+  )
+  key = scanner._active_setup_band_key("XAU", "M5", result)
   await client.set(key, json.dumps({
     "setup": "Range Edge Scalp",
     "direction": "SELL",
@@ -1751,7 +1760,16 @@ async def test_setup_invalidation_fires_when_zone_is_violated(monkeypatch):
 async def test_setup_invalidation_does_not_fire_while_zone_holds():
   client = redis_state.get_client()
   notify = AsyncMock()
-  key = scanner._active_setup_key("XAU", "M5", "Range Edge Scalp", "SELL")
+  result = scanner.DetectionResult(
+    "Range Edge Scalp",
+    "SELL",
+    4123.0,
+    Zone(4122.24, 4124.73, "supply"),
+    4123.0,
+    2,
+    [],
+  )
+  key = scanner._active_setup_band_key("XAU", "M5", result)
   await client.set(key, json.dumps({
     "setup": "Range Edge Scalp",
     "direction": "SELL",
@@ -1768,6 +1786,90 @@ async def test_setup_invalidation_does_not_fire_while_zone_holds():
 
   notify.assert_not_awaited()
   assert await client.get(key) is not None
+
+
+@pytest.mark.asyncio
+async def test_setup_invalidation_suppressed_after_autonomous_entry(monkeypatch):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  await client.delete("auto_trade:positions")
+  result = scanner.DetectionResult(
+    "Key Level Reaction",
+    "BUY",
+    4095.0,
+    Zone(4093.88, 4097.2, "demand"),
+    4095.0,
+    2,
+    [],
+  )
+  key = scanner._active_setup_band_key("XAU", "M5", result)
+  await client.set(key, json.dumps({
+    "setup": "Key Level Reaction",
+    "direction": "BUY",
+    "zone_low": 4093.88,
+    "zone_high": 4097.2,
+    "confluence": 2,
+  }))
+  await client.sadd("auto_trade:positions", "39000344")
+  await client.set(
+    "auto_trade:position:39000344",
+    json.dumps({
+      "position_id": 39000344,
+      "symbol": "XAU",
+      "direction": 0,
+      "remaining_volume": 400,
+      "parent_group_id": None,
+    }),
+    ex=60,
+  )
+  df = pd.DataFrame(
+    {"close": [4092.0]},
+    index=pd.date_range("2026-07-27", periods=1, freq="5min", tz="UTC"),
+  )
+
+  await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, 0.0)
+
+  notify.assert_not_awaited()
+  assert await client.get(key) is None
+
+
+@pytest.mark.asyncio
+async def test_overlapping_setups_invalidate_once_per_band(monkeypatch):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
+  key_level = scanner.DetectionResult(
+    "Key Level Reaction",
+    "BUY",
+    4095.0,
+    Zone(4093.88, 4097.2, "demand"),
+    4095.0,
+    2,
+    [],
+  )
+  break_retest = scanner.DetectionResult(
+    "Break & Retest",
+    "BUY",
+    4094.5,
+    Zone(4093.44, 4095.43, "demand"),
+    4094.5,
+    2,
+    [],
+  )
+  await scanner._track_active_setups(client, "XAU", "M5", [key_level, break_retest])
+  df = pd.DataFrame(
+    {"close": [4092.0]},
+    index=pd.date_range("2026-07-27", periods=1, freq="5min", tz="UTC"),
+  )
+
+  await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, 0.0)
+
+  notify.assert_awaited_once()
+  assert await client.get(
+    scanner._active_setup_band_key("XAU", "M5", key_level),
+  ) is None
 
 
 # --- B5: per-detector reporting ---------------------------------------------
