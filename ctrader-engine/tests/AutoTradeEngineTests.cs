@@ -2229,8 +2229,8 @@ public sealed partial class AutoTradeEngineTests
 
     // Price runs through the initial BUY's TP1 (entry 4000.2 + 30p),
     // banking a partial (FakeTradingClient.ClosePositionAsync always fills
-    // at 4013.2) and moving the stop to breakeven, satisfying the shared
-    // "initial reached TP1/breakeven" and "group profitable" invariants.
+    // at 4013.2) and moving the stop to protected breakeven, satisfying the
+    // shared "initial reached TP1/breakeven" and "group profitable" invariants.
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4003.2m, 4003.4m, Now.ToUnixTimeSeconds()),
       cts.Token
@@ -4369,11 +4369,23 @@ public sealed partial class AutoTradeEngineTests
 
   private static async Task WaitForEventAsync(FakeAutoTradeStore store, string type)
   {
-    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-    while (!store.Events.Any(item => item.Type == type))
+    for (var attempt = 0; attempt < 200; attempt += 1)
     {
-      await Task.Delay(10, cts.Token);
+      if (store.Events.Any(item => item.Type == type))
+      {
+        return;
+      }
+      await Task.Delay(10);
     }
+    var outcomes = string.Join(
+      " | ",
+      store.Events
+        .Where(item => item.Type is "rejected" or "error" or "add")
+        .Select(item => $"{item.Type}: {item.Message}")
+    );
+    throw new Xunit.Sdk.XunitException(
+      $"Timed out waiting for '{type}'. Outcomes: {outcomes}"
+    );
   }
 
   private static async Task WaitUntilAsync(Func<bool> predicate)

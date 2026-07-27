@@ -136,6 +136,36 @@ public sealed class StopTrailPlannerTests
     Assert.Null(StopTrailPlanner.Plan(state, 4, Symbol, 0.1m, 6));
   }
 
+  [Theory]
+  [InlineData(TradeDirection.Buy, 4000.14, 4000.13)]
+  [InlineData(TradeDirection.Sell, 4000.26, 4000.27)]
+  public void ProtectedBreakevenUsesTheAdverseSideBufferSymmetrically(
+    TradeDirection direction,
+    double expectedThreshold,
+    double worseStop
+  )
+  {
+    const decimal entry = 4000.2m;
+    var threshold = Convert.ToDecimal(expectedThreshold);
+    var betterStop = direction == TradeDirection.Buy
+      ? threshold + 0.01m
+      : threshold - 0.01m;
+
+    Assert.Equal(
+      threshold,
+      StopTrailPlanner.ProtectedBreakevenStop(direction, entry, Symbol, 6)
+    );
+    Assert.True(StopTrailPlanner.IsAtLeastProtectedBreakeven(
+      direction, entry, threshold, Symbol, 6
+    ));
+    Assert.True(StopTrailPlanner.IsAtLeastProtectedBreakeven(
+      direction, entry, betterStop, Symbol, 6
+    ));
+    Assert.False(StopTrailPlanner.IsAtLeastProtectedBreakeven(
+      direction, entry, Convert.ToDecimal(worseStop), Symbol, 6
+    ));
+  }
+
   [Fact]
   public void UsesOriginalOrdinalsForAdaptiveTargetPlans()
   {
