@@ -1,0 +1,193 @@
+"""Setup lifecycle state machine (Phase 2 of the TradePlan V7 migration).
+
+Covers: idempotent discovery, the full valid transition path, repeated
+detector cycles not re-emitting a transition, illegal transitions being
+rejected (including re-confirming an already-planned setup), rearm requiring
+an explicit condition, and one-active-TradePlan-per-thesis claiming.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.autotrade.setup_lifecycle import (
+  ARMED,
+  CONFIRMED,
+  CONSUMED,
+  DISCOVERED,
+  FORMING,
+  INVALIDATED,
+  PLAN_BUILT,
+  PLAN_PUBLISHED,
+  TOUCHED,
+  WATCHING,
+  SetupLifecycleError,
+  claim_active_thesis,
+  create_setup,
+  load_setup,
+  rearm_setup,
+  release_active_thesis,
+  transition_setup,
+)
+from app.persistence import redis_state
+
+
+@pytest.mark.asyncio
+async def test_create_setup_is_idempotent():
+  client = redis_state.get_client()
+
+  first, created_first = await create_setup(
+    client, setup_id="setup-1", thesis_id="thesis-1", symbol="XAU",
+  )
+  second, created_second = await create_setup(
+    client, setup_id="setup-1", thesis_id="thesis-1", symbol="XAU",
+  )
+
+  assert created_first is True
+  assert created_second is False
+  assert first.state == DISCOVERED
+  assert second.setup_id == first.setup_id
+
+
+@pytest.mark.asyncio
+async def test_full_valid_transition_path_reaches_consumed():
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-2", thesis_id="thesis-2", symbol="XAU")
+
+  path = [
+    WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT, PLAN_PUBLISHED, ARMED, CONSUMED,
+  ]
+  for state in path:
+    record, changed = await transition_setup(client, "setup-2", state)
+    assert changed is True
+    assert record.state == state
+
+  final = await load_setup(client, "setup-2")
+  assert final.state == CONSUMED
+
+
+@pytest.mark.asyncio
+async def test_repeated_same_state_transition_does_not_change():
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-3", thesis_id="thesis-3", symbol="XAU")
+  await transition_setup(client, "setup-3", WATCHING)
+  await transition_setup(client, "setup-3", TOUCHED)
+  await transition_setup(client, "setup-3", FORMING)
+
+  # A repeated detector cycle re-reporting FORMING must not be treated as a
+  # new transition - this is what stops a new Telegram card being emitted
+  # every scanner cycle for the same setup.
+  record, changed = await transition_setup(client, "setup-3", FORMING)
+
+  assert changed is False
+  assert record.state == FORMING
+
+
+@pytest.mark.asyncio
+async def test_illegal_transition_is_rejected():
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-4", thesis_id="thesis-4", symbol="XAU")
+
+  with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
+    await transition_setup(client, "setup-4", CONFIRMED)
+
+
+@pytest.mark.asyncio
+async def test_cannot_re_confirm_an_already_planned_setup():
+  # This is the "old confirmations must not create new plans repeatedly"
+  # requirement: once a setup has moved past CONFIRMED, the graph has no
+  # edge back into it.
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-5", thesis_id="thesis-5", symbol="XAU")
+  await transition_setup(client, "setup-5", WATCHING)
+  await transition_setup(client, "setup-5", TOUCHED)
+  await transition_setup(client, "setup-5", FORMING)
+  await transition_setup(client, "setup-5", CONFIRMED)
+  await transition_setup(client, "setup-5", PLAN_BUILT)
+
+  with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
+    await transition_setup(client, "setup-5", CONFIRMED)
+
+
+@pytest.mark.asyncio
+async def test_transition_on_unknown_setup_id_raises():
+  client = redis_state.get_client()
+
+  with pytest.raises(SetupLifecycleError, match="unknown setup_id"):
+    await transition_setup(client, "does-not-exist", WATCHING)
+
+
+@pytest.mark.asyncio
+async def test_rearm_requires_condition_and_terminal_state():
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-6", thesis_id="thesis-6", symbol="XAU")
+
+  with pytest.raises(SetupLifecycleError, match="rearm_condition"):
+    await rearm_setup(client, "setup-6", rearm_condition="")
+
+  with pytest.raises(SetupLifecycleError, match="not invalidated/expired"):
+    await rearm_setup(client, "setup-6", rearm_condition="new structure formed")
+
+  await transition_setup(client, "setup-6", WATCHING)
+  await transition_setup(client, "setup-6", INVALIDATED)
+
+  rearmed = await rearm_setup(
+    client, "setup-6", rearm_condition="liquidity swept, fresh demand formed",
+  )
+  assert rearmed.state == DISCOVERED
+  assert rearmed.invalidation_condition is None
+
+
+@pytest.mark.asyncio
+async def test_claim_active_thesis_blocks_a_second_distinct_setup():
+  client = redis_state.get_client()
+
+  first = await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-7", setup_id="setup-7a",
+  )
+  second = await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-7", setup_id="setup-7b",
+  )
+  same_owner_again = await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-7", setup_id="setup-7a",
+  )
+
+  assert first is True
+  assert second is False
+  assert same_owner_again is True
+
+
+@pytest.mark.asyncio
+async def test_release_active_thesis_allows_a_new_claim():
+  client = redis_state.get_client()
+  await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-8", setup_id="setup-8a",
+  )
+
+  await release_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-8", setup_id="setup-8a",
+  )
+  reclaimed = await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-8", setup_id="setup-8b",
+  )
+
+  assert reclaimed is True
+
+
+@pytest.mark.asyncio
+async def test_release_active_thesis_is_a_no_op_for_a_non_owner():
+  client = redis_state.get_client()
+  await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-9", setup_id="setup-9a",
+  )
+
+  # A stale setup trying to release a thesis it lost the claim race for
+  # must not evict the real owner.
+  await release_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-9", setup_id="setup-9-not-the-owner",
+  )
+  still_owned_by_a = await claim_active_thesis(
+    client, symbol="XAU", thesis_id="thesis-9", setup_id="setup-9a",
+  )
+
+  assert still_owned_by_a is True

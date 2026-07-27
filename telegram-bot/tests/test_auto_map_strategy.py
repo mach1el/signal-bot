@@ -31,7 +31,16 @@ def _map(
   eq: float = 4149.0,
   box_low: float = 4144.0,
   box_high: float = 4153.0,
+  actionable_entries: tuple[MapEntry, ...] | None = None,
 ) -> MarketMap:
+  # In production (app/analysis/market_map.py build_market_map),
+  # actionable_entries is the uncapped structural pool and entries is the
+  # display-capped/round-fallback-padded list Telegram renders - the two
+  # are not always equal. Test callers that only care about one entry set
+  # (the overwhelming majority of these tests) get both fields populated
+  # identically by default so they don't have to think about the split;
+  # tests that specifically exercise the display/strategy divergence pass
+  # actionable_entries explicitly.
   return MarketMap(
     entries=list(entries),
     price=price,
@@ -40,6 +49,9 @@ def _map(
     box_high=box_high,
     bias=bias,
     bias_tf="M30",
+    actionable_entries=(
+      list(entries) if actionable_entries is None else list(actionable_entries)
+    ),
   )
 
 
@@ -135,6 +147,76 @@ def test_round_number_fallback_is_never_executable():
   assert selected is None
   assert state == "waiting_for_zone"
   assert "no structural mapped SELL zone" in reasons[0]
+
+
+def test_display_capped_zone_is_still_executable_from_actionable_pool(monkeypatch):
+  # Reproduces the display/strategy zone bug from
+  # docs/adr-trade-plan-v7-boundary.md: the supply zone was ranked out of
+  # the Telegram-capped `entries` list, but it is still in the uncapped
+  # `actionable_entries` structural pool. Selection must use the pool, not
+  # the display list, so a zone Telegram doesn't show can still be traded.
+  m1 = _m1_bar()
+  frames = {tf: m1 for tf in ("M1", "M5", "M15", "M30")}
+  round_level = MapEntry("sell", 4150.0, 4150.0, 4150, 4151, "level", ["round"], 1.0)
+  supply = _supply()
+  market_map = _map(
+    round_level,
+    actionable_entries=(round_level, supply),
+  )
+  monkeypatch.setattr(
+    map_strategy, "atr_indicator", lambda *args: pd.Series([1.8]),
+  )
+  cfg = _cfg(
+    auto_trade_tp_pips="30,60,90",
+    auto_trade_map_zone_min_width_abs=0.3,
+  )
+
+  decision = map_strategy.evaluate_market_map_strategy(
+    frames,
+    symbol="XAU",
+    event_ts="1784731500",
+    spot_price=4151.79,
+    cfg=cfg,
+    market_map=market_map,
+    now=1784731560,
+  )
+
+  assert decision.state == "candidate"
+  assert decision.mapped_zone == (4152.97, 4153.37)
+
+
+def test_zone_only_in_display_list_is_not_executable(monkeypatch):
+  # Converse of the above: a zone present only in the display-capped
+  # `entries` list (e.g. it lost genuine structural status since the map
+  # was built) must not be executable just because Telegram still shows it.
+  m1 = _m1_bar()
+  frames = {tf: m1 for tf in ("M1", "M5", "M15", "M30")}
+  round_level = MapEntry("sell", 4150.0, 4150.0, 4150, 4151, "level", ["round"], 1.0)
+  supply = _supply()
+  market_map = _map(
+    supply,
+    actionable_entries=(round_level,),
+  )
+  monkeypatch.setattr(
+    map_strategy, "atr_indicator", lambda *args: pd.Series([1.8]),
+  )
+  cfg = _cfg(
+    auto_trade_tp_pips="30,60,90",
+    auto_trade_map_zone_min_width_abs=0.3,
+  )
+
+  decision = map_strategy.evaluate_market_map_strategy(
+    frames,
+    symbol="XAU",
+    event_ts="1784731500",
+    spot_price=4151.79,
+    cfg=cfg,
+    market_map=market_map,
+    now=1784731560,
+  )
+
+  assert decision.state != "candidate"
+  assert decision.mapped_zone is None
 
 
 def test_touch_without_m1_rejection_waits():
