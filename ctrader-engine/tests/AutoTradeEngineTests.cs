@@ -70,7 +70,7 @@ public sealed partial class AutoTradeEngineTests
         .Select(item => Assert.IsType<int>(item.TargetPips))
     );
     Assert.Equal(
-      new decimal[] { 3993.7m, 4000.14m, 4003.2m, 4006.2m },
+      new decimal[] { 3993.7m, 4000.26m, 4003.2m, 4006.2m },
       client.StopAmendments.Select(item => item.StopLoss)
     );
     Assert.Equal(3, store.Events.Count(item => item.Type == "stop_moved"));

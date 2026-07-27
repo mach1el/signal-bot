@@ -101,8 +101,8 @@ public sealed class StopTrailPlannerTests
   }
 
   [Theory]
-  [InlineData(TradeDirection.Buy, 4000.14, 4003.2, 4006.2)]
-  [InlineData(TradeDirection.Sell, 4000.26, 3997.2, 3994.2)]
+  [InlineData(TradeDirection.Buy, 4000.26, 4003.2, 4006.2)]
+  [InlineData(TradeDirection.Sell, 4000.14, 3997.2, 3994.2)]
   public void HoldsAfterTp2ThenTrailsTwoTargetsBehind(
     TradeDirection direction,
     double afterTp1,
@@ -137,9 +137,9 @@ public sealed class StopTrailPlannerTests
   }
 
   [Theory]
-  [InlineData(TradeDirection.Buy, 4000.14, 4000.13)]
-  [InlineData(TradeDirection.Sell, 4000.26, 4000.27)]
-  public void ProtectedBreakevenUsesTheAdverseSideBufferSymmetrically(
+  [InlineData(TradeDirection.Buy, 4000.26, 4000.25)]
+  [InlineData(TradeDirection.Sell, 4000.14, 4000.15)]
+  public void ProtectedBreakevenUsesTheProfitSideBufferSymmetrically(
     TradeDirection direction,
     double expectedThreshold,
     double worseStop
@@ -182,6 +182,27 @@ public sealed class StopTrailPlannerTests
 
     Assert.Equal(4003.2m, move.StopLoss);
     Assert.Equal("TP1", move.Label);
+  }
+
+  [Fact]
+  public void BuyBeStopDoesNotMoveBackwardBehindAnAlreadyBetterStop()
+  {
+    // Incident regression: entry 4087.66, existing SL 4088.00 is already
+    // more protective than the BE+6 target of 4087.72 for a BUY - the
+    // never-worsen rule must keep 4088.00, not overwrite it with 4087.72.
+    var state = State(TradeDirection.Buy, 4087.66m, 4088.00m);
+
+    Assert.Null(StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6));
+  }
+
+  [Fact]
+  public void SellBeStopDoesNotMoveBackwardBehindAnAlreadyBetterStop()
+  {
+    // Incident regression: entry 4100.74, existing SL 4100.50 is already
+    // more protective than the BE+6 target of 4100.68 for a SELL.
+    var state = State(TradeDirection.Sell, 4100.74m, 4100.50m);
+
+    Assert.Null(StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6));
   }
 
   [Theory]

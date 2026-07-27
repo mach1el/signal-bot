@@ -51,10 +51,14 @@ def test_stop_trail_be_plus_six_ticks_parity(case):
   buffer_ticks = Decimal(str(fixture["break_even_buffer_ticks"]))
   entry = Decimal(case["entry_price"])
   offset = buffer_ticks * tick
+  # Profit-side protection: BUY moves the stop above entry, SELL moves it
+  # below entry - not an adverse-side spread cushion. See
+  # docs/adr-trade-plan-v7-boundary.md is unrelated; this mirrors
+  # ctrader-engine/src/StopTrailPlanner.cs ProtectedBreakevenStop.
   if case["direction"] == "BUY":
-    desired = entry - offset
-  else:
     desired = entry + offset
+  else:
+    desired = entry - offset
   assert desired == Decimal(case["expected_stop"])
   assert offset == Decimal(case["expected_offset"])
   assert offset == Decimal("0.06")
@@ -62,6 +66,6 @@ def test_stop_trail_be_plus_six_ticks_parity(case):
   assert case["expected_label"] == f"BE+{fixture['break_even_buffer_ticks']} ticks"
   assert abs(desired - entry) == Decimal("0.06")
   if case["direction"] == "BUY":
-    assert desired < entry
-  else:
     assert desired > entry
+  else:
+    assert desired < entry
