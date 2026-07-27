@@ -184,7 +184,7 @@ def test_partial_tp_without_volume_percent_uses_closed_volume_fallback():
 
 
 @pytest.mark.no_database
-def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
+def test_stop_moved_renders_compact_move_sl_line():
   stop = delivery.render_auto_trade_event({
     "type": "stop_moved",
     "message": "🛡 ApexVoid Algo stop → 4,087.60 (BE+6 ticks) · position 39016393",
@@ -197,14 +197,10 @@ def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
     "trigger_tp1_broker_confirmed": True,
   })
 
-  assert "Direction: <b>BUY</b>" in stop
-  assert "Entry: <b>4,087.66</b>" in stop
-  assert "Previous SL: <b>4,081.66</b>" in stop
-  assert "New SL: <b>4,087.60</b>" in stop
-  assert "Mode: <b>BE+6 ticks</b>" in stop
-  assert "Buffer: <b>0.06</b>" in stop
-  assert "Trigger TP1 broker-confirmed: <b>yes</b>" in stop
-  assert "0.60" not in stop
+  assert stop == (
+    "🤖 <b>ApexVoid Algo</b>\n"
+    "🛡 move SL to <b>4,087.60</b>"
+  )
 
 
 @pytest.mark.no_database
@@ -292,7 +288,7 @@ def test_essential_trade_lifecycle_still_renders():
   assert "Leg: <b>+30.4 pips</b>" in partial
   assert "Remaining" not in partial
   assert "lot" not in partial.lower()
-  assert "Risk protected" in protected or "SL moved" in protected
+  assert "move SL to" in protected
   assert "POSITION CLOSED" in closed
   assert "Total net: <b>+7.2 pips</b>" in closed
   assert "POSITION CLOSED" in closed_without_net
@@ -364,9 +360,8 @@ def test_render_auto_trade_stop_and_warning_events():
   })
 
   assert "ApexVoid Algo" in stop
-  assert "Risk protected" in stop
+  assert "move SL to" in stop
   assert "4,029.49" in stop
-  assert "BE+3 ticks" in stop
   assert "39016393" not in stop
   assert "Warning" in warning
   assert "live account 44669326" in warning
