@@ -488,6 +488,105 @@ async def test_opened_event_stores_message_id_with_ttl():
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_opened_event_replies_to_stored_forming_message():
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    "7001",
+    ex=60,
+  )
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8123)
+
+  event = _opened_event()
+  event["match_id"] = match_id
+  await delivery._deliver_auto_trade_event(
+    client,
+    event,
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_rejected_event_replies_to_stored_forming_message():
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    "7001",
+    ex=60,
+  )
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8124)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "rejected",
+      "match_id": match_id,
+      "message": "executor veto",
+      "reason_code": "entry_drift_exceeded",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_strategy_route_replies_to_stored_forming_message():
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    "7001",
+    ex=60,
+  )
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8125)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "strategy_route",
+      "match_id": match_id,
+      "status": "blocked",
+      "strategy": "Supply Zone Reaction",
+      "direction": "SELL",
+      "message": "opposing barrier veto",
+      "reason_code": "opposing_barrier",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+
+
+@pytest.mark.asyncio
 async def test_take_profit_replies_to_stored_order_message():
   client = redis_state.get_client()
   await client.set("auto_trade:msg:39000344", "8123", ex=60)
