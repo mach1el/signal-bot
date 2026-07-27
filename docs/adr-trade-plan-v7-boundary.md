@@ -7,7 +7,7 @@ No broker execution behavior changes in this phase.
 
 ## Context
 
-`telegram-bot` (Python) and `ctrader-engine` (C#) both currently make
+`algo-bot` (Python) and `ctrader-engine` (C#) both currently make
 trade-planning decisions, then cross-validate their independently derived
 outputs. This produces contradictory contracts and rejects trades whose
 underlying setup was sound. Confirmed by direct code inspection on this

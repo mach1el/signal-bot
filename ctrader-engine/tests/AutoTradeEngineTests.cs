@@ -5018,7 +5018,7 @@ public sealed partial class AutoTradeEngineTests
   });
   }
 
-  // Mirrors telegram-bot's manual_execution._intent_to_candidate_payload:
+  // Mirrors algo-bot's manual_execution._intent_to_candidate_payload:
   // no atr/structure_swing at all (the manual-algo path must never need
   // them), manual_stop_loss/manual_expires_at/targets_pips instead.
   private static string ManualCandidateJson(
