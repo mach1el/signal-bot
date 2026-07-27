@@ -204,7 +204,7 @@ def test_stop_moved_renders_compact_move_sl_line():
 
 
 @pytest.mark.no_database
-def test_strategy_route_auto_ready_shows_executor_fields():
+def test_strategy_route_plan_published_shows_executor_fields():
   text = delivery.render_auto_trade_event({
     "type": "strategy_route",
     "status": "candidate_published",
@@ -220,7 +220,8 @@ def test_strategy_route_auto_ready_shows_executor_fields():
     },
   })
 
-  assert "Algo bot READY" in text
+  assert "Algo bot PLAN PUBLISHED" in text
+  assert "Algo bot READY" not in text
   assert "Route: <b>market</b>" in text
   assert "Planned entry: <b>4,100.50</b>" in text
   assert "Executor distance: <b>2.5p</b>" in text
