@@ -654,7 +654,8 @@ public sealed partial class AutoTradeEngineTests
       orderTypePreference: "limit",
       entryDistribution: "single",
       entryLow: 3998.5m,
-      entryHigh: 3999.5m
+      entryHigh: 3999.5m,
+      stopPlanVersion: 2
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
@@ -682,13 +683,52 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task QuotePricedContractIsRejectedOnALimitRoute()
+  public async Task RestingStopContractStillRejectsPublishEntryDrift()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    // The same candidate, but Python priced its stop at the executable quote.
-    // Under quote-first validation this passed; route-first it cannot.
+    // The entry contract names the exact resting limit, but Python priced the
+    // stop at a different entry. The resting stop contract remains strict.
     var store = new FakeAutoTradeStore(PlannedCandidateJson(
-      PlannedStopContract(4000.2m),
+      PlannedStopContract(4000.2m, structureSwing: 3995.5m),
+      plannedRoute: "single_limit",
+      plannedEntryPrice: 3999.5m,
+      legEntryPrices: [3999.5m],
+      orderTypePreference: "limit",
+      entryDistribution: "single",
+      entryLow: 3998.5m,
+      entryHigh: 3999.5m,
+      structureSwing: 3995.5m,
+      stopPlanVersion: 2
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.LimitOrders);
+    Assert.Empty(client.Orders);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("final_protective_stop_contract_mismatch")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task RestingEntryContractStillRejectsPublishEntryDrift()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(3999.5m),
       plannedRoute: "single_limit",
       plannedEntryPrice: 4000.2m,
       legEntryPrices: [4000.2m],
@@ -805,25 +845,111 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task PlannedEntryDriftBeyondToleranceRejectsBeforeSubmission()
+  public async Task MarketEntryAndStopContractsAcceptLiveDriftInsideTheZone()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    // Contract entry and stop are self-consistent, but the market has moved
-    // 8 pips away from the planned entry - beyond the 3-pip tolerance.
+    const decimal structureSwing = 3995.5m;
     var store = new FakeAutoTradeStore(PlannedCandidateJson(
-      PlannedStopContract(4000.2m),
+      PlannedStopContract(4000.2m, structureSwing: structureSwing),
       plannedRoute: "market",
       plannedEntryPrice: 4000.2m,
       legEntryPrices: [4000.2m],
       orderTypePreference: "market",
-      entryDistribution: "single"
+      entryDistribution: "single",
+      entryHigh: 4001.2m,
+      structureSwing: structureSwing,
+      stopPlanVersion: 2
     ));
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
       DemoEvalOptions(), store, () => Now, _ => { }
     );
     await engine.ObserveSpotAsync(
-      new SpotPrice("XAU", 4000.8m, 4001.0m, Now.ToUnixTimeSeconds()),
+      new SpotPrice("XAU", 4000.7m, 4000.9m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Single(client.Orders);
+    var recomputed = PlannedStopContract(
+      4000.9m,
+      structureSwing: structureSwing
+    ).Plan;
+    Assert.Equal(
+      recomputed.StopLoss,
+      Assert.Single(client.StopAmendments).StopLoss
+    );
+    Assert.Contains("entry_contract_market_drift_observed", store.Metrics);
+    Assert.Contains("stop_contract_market_entry_recomputed", store.Metrics);
+    Assert.DoesNotContain("final_stop_entry_drift_rejected", store.Metrics);
+    Assert.DoesNotContain(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("final_protective_stop_contract_mismatch")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MarketV1StopContractAlsoAcceptsEntryRelativeDrift()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const decimal structureSwing = 3995.5m;
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(4000.2m, structureSwing: structureSwing),
+      plannedRoute: "market",
+      plannedEntryPrice: 4000.2m,
+      legEntryPrices: [4000.2m],
+      orderTypePreference: "market",
+      entryDistribution: "single",
+      entryHigh: 4001.2m,
+      structureSwing: structureSwing
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.7m, 4000.9m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Single(client.Orders);
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MarketStructuralStopIdentityMismatchStillRejects()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const decimal structureSwing = 3995.5m;
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(4000.2m, structureSwing: structureSwing),
+      plannedRoute: "market",
+      plannedEntryPrice: 4000.2m,
+      legEntryPrices: [4000.2m],
+      orderTypePreference: "market",
+      entryDistribution: "single",
+      entryHigh: 4001.2m,
+      structureSwing: structureSwing,
+      stopPlanVersion: 2,
+      stopSourceOverride: "wick"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.7m, 4000.9m, Now.ToUnixTimeSeconds()),
       cts.Token
     );
 
@@ -831,7 +957,99 @@ public sealed partial class AutoTradeEngineTests
     await WaitForEventAsync(store, "rejected");
 
     Assert.Empty(client.Orders);
-    Assert.Contains("final_stop_entry_drift_rejected", store.Metrics);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("final_protective_stop_contract_mismatch")
+    );
+    Assert.DoesNotContain("stop_contract_market_entry_recomputed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MarketOutsideZoneStillRejectsAtTheEntryDistanceGuard()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const decimal structureSwing = 3995.5m;
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      PlannedStopContract(4000.2m, structureSwing: structureSwing),
+      plannedRoute: "market",
+      plannedEntryPrice: 4000.2m,
+      legEntryPrices: [4000.2m],
+      orderTypePreference: "market",
+      entryDistribution: "single",
+      entryHigh: 4001.2m,
+      structureSwing: structureSwing,
+      stopPlanVersion: 2
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions(), store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4002.1m, 4002.3m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    Assert.Contains(store.Events, item =>
+      item.Type == "rejected"
+      && item.Message.Contains("entry distance rejected")
+    );
+    Assert.DoesNotContain("entry_contract_market_drift_observed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ZoneSplitSizingFallbackRevalidatesAsMarketWithLiveDrift()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const decimal structureSwing = 3995.5m;
+    var contract = PlannedStopContract(
+      4000.5m,
+      structureSwing: structureSwing
+    );
+    var store = new FakeAutoTradeStore(PlannedCandidateJson(
+      contract,
+      plannedRoute: "zone_split",
+      plannedEntryPrice: 4000.5m,
+      legEntryPrices: [4000.5m, 3999.75m],
+      orderTypePreference: "limit",
+      entryDistribution: "zone_split",
+      entryLow: 3999m,
+      entryHigh: 4000.5m,
+      structureSwing: structureSwing,
+      stopPlanVersion: 2
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      DemoEvalOptions() with
+      {
+        ZoneFillEnabled = true,
+        ZoneFillMinLots = 10m,
+        SizingMode = "table",
+      },
+      store,
+      () => Now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.4m, 4000.6m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Single(client.Orders);
+    Assert.Empty(client.LimitOrders);
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -867,6 +1085,32 @@ public sealed partial class AutoTradeEngineTests
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
+  [InlineData(TradeDirection.Buy, 4000.0, 4000.0)]
+  [InlineData(TradeDirection.Sell, 4000.0, 4000.0)]
+  [InlineData(TradeDirection.Buy, 4000.1, 4000.0)]
+  [InlineData(TradeDirection.Sell, 3999.9, 4000.0)]
+  public void StopOnWrongSideUsesTheDedicatedMetric(
+    TradeDirection direction,
+    double stopLoss,
+    double executableEntry
+  )
+  {
+    var rejection = AutoTradeEngine.FinalStopSideRejection(
+      direction,
+      (decimal)stopLoss,
+      (decimal)executableEntry
+    );
+
+    Assert.NotNull(rejection);
+    Assert.Equal("final_stop_not_on_losing_side", rejection.Value.Metric);
+    Assert.Equal(
+      "final_stop_not_on_losing_side_of_executable_entry",
+      rejection.Value.Reason
+    );
+    Assert.NotEqual("final_stop_entry_drift_rejected", rejection.Value.Metric);
   }
 
   // -------------------------------------------------------- zone identity
@@ -1215,7 +1459,9 @@ public sealed partial class AutoTradeEngineTests
     decimal entryLow = 3999.5m,
     decimal entryHigh = 4000.5m,
     decimal structureSwing = 3993.5m,
-    decimal atr = 1.0m
+    decimal atr = 1.0m,
+    int stopPlanVersion = 1,
+    string? stopSourceOverride = null
   ) => JsonSerializer.Serialize(new
   {
     version = 5,
@@ -1252,8 +1498,19 @@ public sealed partial class AutoTradeEngineTests
     planned_stop_pips = contract.Plan.StopPips,
     planned_stop_raw_price = contract.Plan.RawStopLoss,
     planned_stop_clamped = contract.Plan.Clamped,
-    stop_source = contract.Plan.Source,
-    stop_plan_version = 1,
+    stop_source = stopSourceOverride ?? contract.Plan.Source,
+    stop_plan_version = stopPlanVersion,
+    planned_base_stop_price = contract.Plan.BaseStopLoss
+      ?? contract.Plan.StopLoss,
+    planned_base_stop_pips = contract.Plan.BaseStopPips
+      ?? contract.Plan.StopPips,
+    planned_final_stop_price = contract.Plan.StopLoss,
+    planned_final_stop_distance = contract.Plan.Distance,
+    planned_final_stop_pips = contract.Plan.StopPips,
+    stop_adjustment = contract.Plan.Adjustment,
+    stop_adjustment_zone_id = contract.Plan.AdjustmentZoneId,
+    stop_adjustment_zone_low = contract.Plan.AdjustmentZoneLow,
+    stop_adjustment_zone_high = contract.Plan.AdjustmentZoneHigh,
     planned_execution_route = plannedRoute,
     planned_entry_price = plannedEntryPrice,
     planned_leg_entry_prices = legEntryPrices,
