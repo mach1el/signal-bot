@@ -92,6 +92,34 @@ def test_execution_lifecycle_cards_suppress_noise_keep_essentials():
   assert "EXECUTOR REJECTED" in rejected
 
 
+def test_position_closed_labels_broker_stop_loss_or_take_profit():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "stop_loss_or_take_profit",
+  })
+  assert "Closed by broker SL/TP" in closed
+  assert "Closed manually" not in closed
+
+
+def test_position_closed_labels_manual_or_external_close():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "manual_or_external_close",
+  })
+  assert "Closed manually on platform" in closed
+
+
+def test_position_closed_omits_label_when_reason_unconfirmed():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+  })
+  assert "Closed by broker SL/TP" not in closed
+  assert "Closed manually" not in closed
+
+
 def test_render_box_open_and_full_tp_as_shareable_cards():
   opened = delivery.render_auto_trade_event({
     "type": "opened",
@@ -121,8 +149,8 @@ def test_render_box_open_and_full_tp_as_shareable_cards():
   assert "Full TP: <b>4,061.78</b> · +50 pips" in opened
   assert "Box: <b>4,062.00–4,069.00</b>" in opened
   assert "39025496" not in opened
-  assert "✅ closed" in take_profit
-  assert "Total net: <b>+51.3 pips</b>" in take_profit
+  assert "✅ FULL TP closed" in take_profit
+  assert "Leg: <b>+51.3 pips</b>" in take_profit
   assert "Initial volume" not in take_profit
   assert "lot" not in take_profit.lower()
   assert "$" not in take_profit
@@ -155,13 +183,14 @@ def test_partial_and_final_tp_use_volume_weighted_pips_not_money():
     "lot_size": 10_000,
   })
 
-  assert "✅ #1 closed" in final or "closed" in final
-  assert "Total net: <b>+16.7 pips</b>" in final
+  assert "✅ #1 TP2 closed" in final
+  assert "Leg: <b>+0.9 pips</b>" in final
+  assert "Net so far" not in final
+  assert "Total net" not in final
   assert partial == (
     "🤖 <b>ApexVoid Algo</b>\n"
     "🎯 #1 TP1 booked 33.3%\n"
-    "Leg: <b>+48.4 pips</b>\n"
-    "Net so far: <b>+16.1 pips</b>"
+    "Leg: <b>+48.4 pips</b>"
   )
   assert "Initial volume" not in final
   assert "lot" not in final.lower()
@@ -291,7 +320,7 @@ def test_essential_trade_lifecycle_still_renders():
   assert "lot" not in partial.lower()
   assert "move SL to" in protected
   assert "POSITION CLOSED" in closed
-  assert "Total net: <b>+7.2 pips</b>" in closed
+  assert "Total net" not in closed
   assert "POSITION CLOSED" in closed_without_net
   assert "EXECUTOR REJECTED" in rejected
 
@@ -386,10 +415,10 @@ def test_render_scale_in_zone_and_group_events():
 
   assert "Scale-in filled" in scale_in
   assert "WAITING FOR PRICE" in zone
-  assert "Trade result" in result
-  assert "Total net: <b>+42.0 pips</b>" in result
-  assert "$" not in result
-  assert "ApexVoid Algo" in scale_in + zone + result
+  # group_result no longer renders a card - its only content used to be a
+  # net-pip summary, which each TP/close event already reports per leg.
+  assert result is None
+  assert "ApexVoid Algo" in scale_in + zone
 
 
 def test_internal_profile_hides_broker_position_id():
@@ -439,16 +468,14 @@ def test_public_take_profit_computes_r_from_event_stop_distance():
   assert "lot" not in text.lower()
 
 
-def test_group_result_telegram_is_pips_only():
+def test_group_result_no_longer_renders_a_card():
   text = delivery.render_auto_trade_event({
     "type": "group_result",
     "message": "group abc realised $42.00 · 16.7 pips",
     "group_realized_pips": 16.7,
     "group_realized_pnl": 42.0,
   })
-  assert "Total net: <b>+16.7 pips</b>" in text
-  assert "$" not in text
-  assert "42" not in text
+  assert text is None
 
 
 
@@ -722,7 +749,7 @@ async def test_full_tp_merges_result_and_suppresses_duplicate_group_reply():
   assert delivered_group is False
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 8123
-  assert "Total net: <b>+51.3 pips</b>" in calls[0][0]
+  assert "Leg: <b>+51.3 pips</b>" in calls[0][0]
   assert "$" not in calls[0][0]
   assert "71.82" not in calls[0][0]
   assert "39000344" not in calls[0][0]

@@ -69,14 +69,15 @@ def test_partial_scale_out_card_stays_minimal():
   assert partial is not None
   assert "TP1 booked" in partial
   assert "Leg: <b>+30.0 pips</b>" in partial
-  assert "Net so far" in partial
+  assert "Net so far" not in partial
   assert "Remaining" not in partial
   assert "lot" not in partial.lower()
   assert "$" not in partial
 
 
-def test_weighted_net_from_half_at_30_and_half_at_110():
-  # 50% @ +30 and 50% @ +110 → volume-weighted +70.
+def test_full_tp_close_reports_its_own_leg_not_the_weighted_net():
+  # 50% @ +30 and 50% @ +110 -> the closing leg itself is +110; the
+  # volume-weighted +70 group total is no longer shown anywhere.
   final = delivery.render_auto_trade_event({
     "type": "take_profit",
     "message": "FULL TP +110.0 pips closed volume 500",
@@ -90,6 +91,7 @@ def test_weighted_net_from_half_at_30_and_half_at_110():
     "setup": "Range Box Scalp",
   })
   assert final is not None
-  assert "Total net: <b>+70.0 pips</b>" in final
+  assert "Leg: <b>+110.0 pips</b>" in final
+  assert "Total net" not in final
   assert "Remaining" not in final
   assert "$" not in final

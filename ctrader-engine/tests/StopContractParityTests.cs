@@ -7,7 +7,7 @@ namespace CTraderFeed.Tests;
 
 /// <summary>
 /// Executor half of the shared final-stop and entry-route parity fixture. The
-/// same file drives `telegram-bot/tests/test_protective_stop_parity.py`, so the
+/// same file drives `algo-bot/tests/test_protective_stop_parity.py`, so the
 /// publisher and the executor cannot drift apart unnoticed.
 /// </summary>
 public sealed class StopContractParityTests

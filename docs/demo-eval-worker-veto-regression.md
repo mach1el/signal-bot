@@ -93,7 +93,7 @@ are therefore required before judging live frequency.
 
 ## Replay and non-regression coverage
 
-`telegram-bot/tests/test_worker_veto_regression_replay.py` covers:
+`algo-bot/tests/test_worker_veto_regression_replay.py` covers:
 
 - primary key-level, supply and demand sources;
 - unrelated opposing structures in observe and strict modes;
