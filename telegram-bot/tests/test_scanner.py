@@ -753,7 +753,7 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
     notify=notify,
   )
 
-  assert [item.setup for item in sent] == ["Snap-Back", "Fade Scalp"]
+  assert sent == [results[0]]
   text = notify.await_args.args[0]
   assert text.count("SETUP FORMING") == 1
   assert "Snap-Back" in text
@@ -781,6 +781,415 @@ def test_scanner_digest_zero_top_n_keeps_all_distinct_results(monkeypatch):
 
   assert len(digest) == 3
   assert conflicts == []
+
+
+@pytest.mark.asyncio
+async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  sync_strategy_match = AsyncMock(return_value=None)
+  monkeypatch.setattr(scanner, "_sync_strategy_match", sync_strategy_match)
+  monkeypatch.setattr(scanner.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", "M5")
+  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(scanner.settings, "scanner_window", 500)
+  monkeypatch.setattr(scanner.settings, "scanner_alert_ttl", 7200)
+  monkeypatch.setattr(scanner.settings, "zone_alert_ttl", 14400)
+  monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_top_n", 0)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  monkeypatch.setattr(
+    scanner.settings, "auto_trade_track_all_structural_matches", True,
+  )
+  monkeypatch.setattr(scanner.settings, "auto_trade_allow_counter_bias", True)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_require_structural_anchor", False,
+  )
+  monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 0)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_suppress_counter_bias_in_range", False,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"M30": SimpleNamespace(bias="up")},
+    frames={"M5": _frame()},
+    regime=None,
+  )
+  monkeypatch.setattr(
+    scanner,
+    "build_context",
+    lambda symbol, tf, frames, settings, htf_order: ctx,
+  )
+  results = [
+    scanner.DetectionResult(
+      "Demand Zone Reaction",
+      "BUY",
+      4000.0 + index * 10,
+      Zone(
+        3999.0 + index * 10,
+        4001.0 + index * 10,
+        "demand",
+        score=float(10 - index),
+      ),
+      4002.0 + index * 10,
+      8 - index,
+      ["demand zone", "wick rejection"],
+      structural_source="supply_demand",
+      structural_id=f"zone-{index}",
+      structural_kind="demand",
+    )
+    for index in range(6)
+  ]
+
+  sent = await scanner._handle_event(
+    "XAU:M5:card-cap",
+    source=StaticSource(),
+    client=client,
+    detectors=tuple(
+      (lambda item: lambda received_ctx: item)(result)
+      for result in reversed(results)
+    ),
+    notify=notify,
+  )
+
+  assert sent == results[:2]
+  assert notify.await_count == 2
+  sync_strategy_match.assert_awaited_once()
+  execution_digest = sync_strategy_match.await_args.args[5]
+  assert execution_digest == results
+  assert all([
+    await client.get(scanner._dedup_key("XAU", "M5", result)) == "1"
+    for result in results
+  ])
+
+
+@pytest.mark.asyncio
+async def test_forming_cards_force_opposing_suppression_without_trimming_digest(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
+  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
+  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
+  monkeypatch.setattr(
+    scanner.settings, "auto_trade_track_all_structural_matches", True,
+  )
+  monkeypatch.setattr(scanner.settings, "auto_trade_allow_counter_bias", True)
+  buy = scanner.DetectionResult(
+    "Demand Zone Reaction",
+    "BUY",
+    4100.0,
+    Zone(4099.0, 4101.0, "demand", score=12),
+    4100.5,
+    4,
+    ["demand zone"],
+    structural_source="supply_demand",
+    structural_id="buy-zone",
+    structural_kind="demand",
+  )
+  sell = scanner.DetectionResult(
+    "Supply Zone Reaction",
+    "SELL",
+    4100.0,
+    Zone(4099.2, 4100.8, "supply", score=10),
+    4100.5,
+    2,
+    ["supply zone"],
+    structural_source="supply_demand",
+    structural_id="sell-zone",
+    structural_kind="supply",
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"M30": SimpleNamespace(bias="up")},
+    frames={"M5": _frame()},
+    regime=None,
+    spot_price=None,
+    trigger_ts="2026-07-10T00:00:00Z",
+  )
+
+  execution_digest, conflicts = scanner._digest_results([buy, sell])
+  sent = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    ctx,
+    execution_digest,
+    notify,
+    ["M30"],
+  )
+
+  assert execution_digest == [buy, sell]
+  assert conflicts == []
+  assert sent == [buy]
+  assert notify.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
+  monkeypatch.setattr(scanner.settings, "scanner_alert_ttl", 7200)
+  monkeypatch.setattr(scanner.settings, "zone_alert_ttl", 14400)
+  first = scanner.DetectionResult(
+    "Demand Zone Reaction",
+    "BUY",
+    4100.0,
+    Zone(4099.50, 4100.50, "demand"),
+    4101.0,
+    3,
+    ["demand zone"],
+    structural_source="supply_demand",
+    structural_id="zone-before-jitter",
+    structural_kind="demand",
+  )
+  jittered = scanner.DetectionResult(
+    "Demand Zone Reaction",
+    "BUY",
+    4100.005,
+    Zone(4099.505, 4100.505, "demand"),
+    4101.0,
+    3,
+    ["demand zone"],
+    structural_source="supply_demand",
+    structural_id="zone-after-jitter",
+    structural_kind="demand",
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"M30": SimpleNamespace(bias="up")},
+    frames={"M5": _frame()},
+    regime=None,
+    spot_price=None,
+    trigger_ts="2026-07-10T00:00:00Z",
+  )
+
+  first_sent = await scanner._notify_digest_once(
+    client, "XAU", "M5", ctx, [first], notify, ["M30"],
+  )
+  second_sent = await scanner._notify_digest_once(
+    client, "XAU", "M5", ctx, [jittered], notify, ["M30"],
+  )
+
+  assert scanner._band_dedup_key("XAU", first) == scanner._band_dedup_key(
+    "XAU", jittered,
+  )
+  assert scanner._dedup_key("XAU", "M5", first) != scanner._dedup_key(
+    "XAU", "M5", jittered,
+  )
+  assert first_sent == [first]
+  assert second_sent == []
+  assert notify.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_structural_anchor_gate_filters_card_and_execution_with_telemetry(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  sync_strategy_match = AsyncMock(return_value=None)
+  monkeypatch.setattr(scanner, "_sync_strategy_match", sync_strategy_match)
+  monkeypatch.setattr(scanner.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", "M5")
+  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(scanner.settings, "scanner_window", 500)
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_require_structural_anchor", True,
+  )
+  monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 0)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_suppress_counter_bias_in_range", False,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"M30": SimpleNamespace(bias="up")},
+    frames={"M5": _frame()},
+    regime=None,
+  )
+  monkeypatch.setattr(
+    scanner,
+    "build_context",
+    lambda symbol, tf, frames, settings, htf_order: ctx,
+  )
+  round_only = scanner.DetectionResult(
+    "Key Level Reaction",
+    "BUY",
+    4100.0,
+    Zone(4099.5, 4100.5, "demand"),
+    4100.5,
+    3,
+    ["key round 4100 x4", "wick rejection"],
+    structural_source="key_level",
+    structural_id="round-only",
+    structural_kind="round",
+    source_touches=4,
+  )
+  anchored = scanner.DetectionResult(
+    **{
+      **round_only.__dict__,
+      "structural_id": "round-with-ob",
+      "reasons": ["key round 4100 x4", "OB", "wick rejection"],
+    },
+  )
+
+  sent = await scanner._handle_event(
+    "XAU:M5:structure-gate",
+    source=StaticSource(),
+    client=client,
+    detectors=(lambda received_ctx: round_only,),
+    notify=notify,
+  )
+
+  assert sent == []
+  notify.assert_not_awaited()
+  assert sync_strategy_match.await_args.args[5] == []
+  assert scanner._structure_card_gate(anchored, ctx) is None
+  status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
+  assert status["detected"] == []
+  assert status["structure_gated"] == [{
+    "setup": "Key Level Reaction",
+    "direction": "BUY",
+    "reason": "round_without_structural_anchor",
+  }]
+  detect_log = json.loads((
+    await client.lrange(scanner._detect_log_key("XAU", "M5"), 0, 0)
+  )[0])
+  assert detect_log["entries"][0]["outcome"] == "structure_gated"
+  assert (
+    detect_log["entries"][0]["reason"]
+    == "round_without_structural_anchor"
+  )
+
+
+def test_structure_gate_defaults_are_a_noop(monkeypatch):
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_require_structural_anchor", False,
+  )
+  monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 0)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_suppress_counter_bias_in_range", False,
+  )
+  monkeypatch.setattr(
+    scanner.settings, "auto_trade_track_all_structural_matches", True,
+  )
+  result = scanner.DetectionResult(
+    "Key Level Reaction",
+    "SELL",
+    4100.0,
+    Zone(4099.5, 4100.5, "supply"),
+    4100.0,
+    1,
+    ["key round 4100 x99"],
+    mode="counter_bias",
+    structural_source="key_level",
+    structural_id="default-noop",
+    structural_kind="round",
+    source_touches=99,
+    bias_relationship="counter_bias",
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    structures={
+      "M5": SimpleNamespace(
+        scalp_range=SimpleNamespace(state="provisional_range"),
+      ),
+    },
+    regime=Regime("chop", 4105, 4095, 2.0, ["fixture chop"]),
+  )
+
+  assert scanner._structure_card_gate(result, ctx) is None
+  digest, conflicts = scanner._digest_results([result])
+  assert digest == [result]
+  assert digest[0] is result
+  assert conflicts == []
+
+
+def test_structure_gate_rejects_exhausted_levels_and_weak_range_counter_bias(
+  monkeypatch,
+):
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_require_structural_anchor", False,
+  )
+  monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 6)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_suppress_counter_bias_in_range", True,
+  )
+  monkeypatch.setattr(
+    scanner.settings, "scanner_gate_counter_bias_min_confluence", 3,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    structures={
+      "M5": SimpleNamespace(
+        scalp_range=SimpleNamespace(state="post_impulse_range"),
+      ),
+    },
+    regime=None,
+  )
+
+  def result(
+    *,
+    touches: int,
+    confluence: int,
+    mode: str = "with_bias",
+    relationship: str | None = None,
+  ):
+    return scanner.DetectionResult(
+      "Demand Zone Reaction",
+      "BUY",
+      4100.0,
+      Zone(4099.5, 4100.5, "demand"),
+      4100.0,
+      confluence,
+      ["demand zone"],
+      mode=mode,
+      structural_source="supply_demand",
+      structural_id=f"{touches}-{confluence}-{mode}-{relationship}",
+      structural_kind="demand",
+      source_touches=touches,
+      bias_relationship=relationship,
+    )
+
+  assert (
+    scanner._structure_card_gate(result(touches=7, confluence=4), ctx)
+    == "source_level_exhausted"
+  )
+  assert scanner._structure_card_gate(result(touches=5, confluence=4), ctx) is None
+  assert (
+    scanner._structure_card_gate(
+      result(touches=5, confluence=2, mode="counter_bias"),
+      ctx,
+    )
+    == "low_confluence_counter_bias_in_range"
+  )
+  assert (
+    scanner._structure_card_gate(
+      result(
+        touches=5,
+        confluence=2,
+        relationship="counter_bias",
+      ),
+      ctx,
+    )
+    == "low_confluence_counter_bias_in_range"
+  )
+  assert scanner._structure_card_gate(
+    result(touches=5, confluence=3, mode="counter_bias"),
+    ctx,
+  ) is None
 
 
 @pytest.mark.asyncio

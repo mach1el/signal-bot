@@ -423,7 +423,6 @@ async def test_auto_status_reports_breakout_retest_instead_of_no_detection(
   text = await delivery.auto_trade_status_text()
   assert "breakout-retest" in text
   assert "no_detection_result" not in text
-  assert "retired" in text
 
 
 def _pad_atr(m1: pd.DataFrame) -> pd.DataFrame:

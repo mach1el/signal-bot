@@ -966,62 +966,14 @@ async def test_pause_resume_and_status(monkeypatch):
     '"selected_timeframe":"M1","direction":"BUY",'
     '"box":{"low":4016.5,"high":4024.5},"full_tp_pips":70}',
   )
-  await client.set(
-    "auto_trade:last_guard:XAU",
-    json.dumps({
-      "strategy": "Demand Zone Reaction",
-      "direction": "BUY",
-      "guard": "counter_bias",
-      "outcome": "adjust_target",
-      "reason": "target_capped_by_structure",
-      "hard_block": False,
-      "source_structure": "market_map_zone",
-      "opposing_structure": {
-        "side": "resistance",
-        "low": 4058.8,
-        "high": 4059.2,
-      },
-      "measured": {
-        "available_room_pips": 23,
-        "effective_pips": 10,
-        "original_target": 4060,
-        "adjusted_target": 4058.5,
-        "barrier_price": 4058.8,
-      },
-      "updated_at": 1784900000,
-    }),
-  )
-  await client.hset(
-    "auto_trade:zone_reconcile:XAU",
-    mapping={
-      "mode": "shadow",
-      "zones_input": 6,
-      "zones_shadow_output": 4,
-      "zones_trimmed": 1,
-      "zones_dropped": 1,
-      "candidate_difference_count": 2,
-    },
-  )
   assert await client.get("auto_trade:paused") == "1"
   text = await delivery.auto_trade_status_text()
   assert "demo trading" in text
   assert "paused" in text
-  assert "Trades today: <b>0</b> · <b>unlimited</b>" in text
-  assert "Measured groups" in text
   assert "Algo bot" in text
-  assert "Selected strategy: <b>Range Box Scalp · BUY · M1</b>" in text
-  assert "Source: <b>private OHLC matcher</b>" in text
-  assert "Execution: <b>waiting rejection</b>" in text
-  assert "box 4,016.50–4,024.50" in text
-  assert "full TP 70p" in text
-  assert "Demand Zone Reaction · BUY · counter_bias · adjust_target" in text
-  assert "target_capped_by_structure" in text
-  assert "hard block=False" in text
-  assert "source=market_map_zone" in text
-  assert "opposing resistance 4058.8-4059.2" in text
-  assert "target 4060→4058.5" in text
-  assert "mode=shadow" in text
-  assert "candidate_difference_count=2" in text
+  assert "Open <b>0</b> · today <b>0</b>" in text
+  assert "Range Box Scalp · BUY · M1 · waiting rejection" in text
+  assert len(text) < 500
   assert "auto trader" not in text.lower()
   await delivery.set_auto_trade_paused(False)
   assert await client.get("auto_trade:paused") is None
@@ -1060,16 +1012,12 @@ async def test_status_attributes_the_exact_published_secondary_strategy(
 
   text = await delivery.auto_trade_status_text()
 
-  assert "Selected strategy: <b>Supply Zone Reaction · SELL · M5</b>" in text
-  assert "Source: <b>scanner detector</b>" in text
+  assert "Supply Zone Reaction · SELL · M5 · candidate" in text
   assert "Liquidity Sweep · BUY" not in text
 
 
 @pytest.mark.asyncio
 async def test_status_surfaces_match_build_rejection_reason(monkeypatch):
-  # 23 Jul incident: Telegram showed a Range Edge Scalp card with ~40-49
-  # pips of room but no autonomous order ever opened, and nothing recorded
-  # why - /auto_status must now answer that without reading source code.
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
   client = redis_state.get_client()
@@ -1084,9 +1032,7 @@ async def test_status_surfaces_match_build_rejection_reason(monkeypatch):
 
   text = await delivery.auto_trade_status_text()
 
-  assert "StrategyMatch bridge: <b>blocked</b>" in text
-  assert "insufficient_target_room" in text
-  assert "room 45.2 pips" in text
+  assert "Why: insufficient_target_room" in text
 
 
 @pytest.mark.asyncio
@@ -1106,9 +1052,7 @@ async def test_status_surfaces_match_build_ready(monkeypatch):
 
   text = await delivery.auto_trade_status_text()
 
-  assert "StrategyMatch bridge: <b>ready</b>" in text
-  assert "Range Edge Scalp BUY" in text
-  assert "TP 40p" in text
+  assert "Why: ready · Range Edge Scalp BUY" in text
 
 
 @pytest.mark.asyncio
@@ -1137,10 +1081,7 @@ async def test_status_identifies_scanner_strategy_match(monkeypatch):
 
   text = await delivery.auto_trade_status_text()
 
-  assert "Selected strategy: <b>Liquidity Sweep · SELL · M5</b>" in text
-  assert "Source: <b>scanner detector</b>" in text
-  assert "Execution: <b>strategy match waiting</b>" in text
-  assert "Why: sell-side liquidity swept" in text
+  assert "Liquidity Sweep · SELL · M5 · strategy match waiting" in text
 
 
 @pytest.mark.asyncio
@@ -1156,26 +1097,15 @@ async def test_status_explains_when_no_strategy_matches(monkeypatch):
     "regime": "chop",
     "reasons": ["no valid M1 consolidation box in the lookback window"],
   }))
-  await client.set("scanner:last_tick:XAU:M5", json.dumps({
-    "detected": [],
-    "scalp": {"state": "waiting_edge"},
-  }))
 
   text = await delivery.auto_trade_status_text()
 
-  assert "Selected strategy: <b>none</b>" in text
-  assert "Source: <b>none</b>" in text
-  assert "Scanner M5: <b>no setup matched · range waiting edge</b>" in text
-  assert "Range Box <b>waiting for box</b> · Trend <b>no setup</b>" in text
-  assert "Regime: <b>chop</b>" in text
-  assert "Range execution gate:" in text
-  assert "Gate:" not in text
+  assert "none · waiting for box" in text
+  assert "Why: no valid M1 consolidation box in the lookback window" in text
 
 
 @pytest.mark.asyncio
-async def test_status_shows_market_map_working_set_and_filter_counts(
-  monkeypatch,
-):
+async def test_status_shows_market_map_reason_when_idle(monkeypatch):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   client = redis_state.get_client()
   await client.set("auto_trade:last_gate:XAU", json.dumps({
@@ -1189,47 +1119,10 @@ async def test_status_shows_market_map_working_set_and_filter_counts(
       "nearest mapped SELL zone 4087.00-4095.00 "
       "(14.1 away · tracked, execute within 4.5)",
     ],
-    "market_map_entries_seen": 7,
-    "market_map_entries_actionable": 2,
-    "market_map_track_limit": 24.0,
-    "market_map_execute_limit": 4.5,
-    "market_map_top": [
-      {
-        "side": "buy",
-        "lo": 4066.0,
-        "hi": 4073.0,
-        "tier": "zone",
-        "score": 6.5,
-        "contains_price": True,
-        "distance": 0.0,
-      },
-      {
-        "side": "sell",
-        "lo": 4087.0,
-        "hi": 4095.0,
-        "tier": "zone",
-        "score": 9.0,
-        "contains_price": False,
-        "distance": 14.12,
-      },
-    ],
-    "market_map_filter_counts": {
-      "side": 3,
-      "actionable": 1,
-      "degenerate_width": 1,
-      "distance": 1,
-    },
   }))
 
   text = await delivery.auto_trade_status_text()
 
-  assert "Map entries: <b>7</b> seen · <b>2</b> actionable" in text
-  assert "BUY 4,066.00–4,073.00 (inside)" in text
-  assert (
-    "SELL 4,087.00–4,095.00 "
-    "(14.1 away · tracked, execute within 4.5)"
-  ) in text
-  assert (
-    "Map filters: side <b>3</b> · actionable <b>1</b> · "
-    "width <b>1</b> · distance <b>1</b>"
-  ) in text
+  assert "none · waiting for touch" in text
+  assert "Why: nearest mapped SELL zone 4087.00-4095.00" in text
+  assert len(text) < 500
