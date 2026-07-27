@@ -3626,6 +3626,11 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal(expectedReasonCode, closed.ReasonCode);
     Assert.Contains(expectedMessageFragment, closed.Message);
     Assert.Contains(positionId, client.PositionCloseReasonLookups);
+    // The lookup must anchor its search to when the position actually
+    // opened, not just a fixed window before confirmation - otherwise a
+    // missed reconcile gap (eg. a redeploy) can leave the true close outside
+    // the search window entirely.
+    Assert.NotEqual(0, client.PositionCloseOpenedAtTimestamps.Single());
     // No execution price was configured on the lookup for this case, so the
     // reported price must still fall back to the last known stop.
     Assert.Equal(client.StopAmendments.Single().StopLoss, closed.Price);
@@ -5218,13 +5223,16 @@ public sealed partial class AutoTradeEngineTests
       PositionCloseReason.Unknown;
     public decimal? PositionCloseExecutionPriceToReturn { get; init; }
     public List<long> PositionCloseReasonLookups { get; } = [];
+    public List<long> PositionCloseOpenedAtTimestamps { get; } = [];
     public Task<PositionCloseLookup> DeterminePositionCloseReasonAsync(
       long positionId,
+      long openedAtTimestamp,
       long approximateCloseTimestamp,
       CancellationToken cancellationToken
     )
     {
       PositionCloseReasonLookups.Add(positionId);
+      PositionCloseOpenedAtTimestamps.Add(openedAtTimestamp);
       return Task.FromResult(
         new PositionCloseLookup(
           PositionCloseReasonToReturn,
