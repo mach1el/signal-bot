@@ -3714,6 +3714,79 @@ public sealed partial class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Fact]
+  public async Task UnexpectedSharedPositionIdDoesNotOverwriteTheExistingGroup()
+  {
+    // Even on a hedged account (where independent groups are otherwise
+    // expected to work), the executor must protect against the broker
+    // unexpectedly returning an already-tracked PositionId for a second,
+    // genuinely distinct independent group - it must never silently become
+    // a scale-in of the first, and no new autonomous group may be admitted
+    // until a human resolves the conflict.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = CandidateJson(direction: "SELL", candidate: 'a');
+    var store = new FakeAutoTradeStore(first);
+    var client = new FakeTradingClient();
+    // A genuinely hedged account with concurrent strategies allowed - this
+    // is exactly the case the task calls out: "even on an account reported
+    // as hedged", the executor still must not silently corrupt tracking if
+    // the broker reuses a PositionId.
+    var options = Options() with
+    {
+      AllowConcurrentStrategies = true,
+      AllowHedgedXau = true,
+    };
+    var engine = new AutoTradeEngine(options, store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var groupAEntry = store.Positions[positionId].EntryPrice;
+    var groupAId = store.Positions[positionId].GroupId;
+
+    // Simulate the broker recycling the ticket number: it no longer reports
+    // Group A's position (so the fake client's own fill bookkeeping stays
+    // internally consistent), but the executor's own state/store was never
+    // told Group A closed - exactly the "unexpected" half of this scenario.
+    client.RemovePosition(positionId);
+    client.NextPositionId = positionId;
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    store.EnqueueCandidate(CandidateJson(direction: "SELL", candidate: 'b'));
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_state_conflict")
+    );
+
+    // Group A's own tracked state must survive completely unchanged.
+    Assert.Equal(groupAEntry, store.Positions[positionId].EntryPrice);
+    Assert.Equal(groupAId, store.Positions[positionId].GroupId);
+    Assert.Contains(store.Events, item =>
+      item.Type == "error"
+      && item.ReasonCode == "broker_position_identity_group_conflict"
+    );
+    // No "opened" event may claim the second fill is safely managed.
+    Assert.DoesNotContain(store.Events, item =>
+      item.Type == "opened" && item.CandidateId == new string('b', 64)
+    );
+
+    // A third, otherwise-unrelated autonomous candidate must be rejected
+    // outright while the conflict is unresolved.
+    store.EnqueueCandidate(CandidateJson(direction: "BUY", candidate: 'c'));
+    await WaitUntilAsync(() => store.Events.Any(item =>
+      item.Type == "rejected"
+      && item.ReasonCode == "broker_position_identity_group_conflict"
+      && item.CandidateId == new string('c', 64)
+    ));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
   [Theory]
   [InlineData("Trend Pullback", "trend")]
   [InlineData("Mapped Zone Reaction", "mapped_zone")]
@@ -5059,6 +5132,12 @@ public sealed partial class AutoTradeEngineTests
     private int _hiddenRemainingReconciles;
     private long _nextPositionId = 91;
     private long _nextOrderId = 81;
+
+    // Test-only hook to force the broker's *next* fill to reuse a specific
+    // PositionId, simulating the unexpected-identity-reuse scenario tests
+    // exercise (a real cTrader account should never do this, but the
+    // executor must not silently corrupt tracking if it ever does).
+    public long NextPositionId { set => _nextPositionId = value; }
 
     public void SeedPosition(TradingPosition position) => _positions.Add(position);
     public void EnqueueMarketExecutionPrice(decimal price) =>
