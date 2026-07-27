@@ -58,6 +58,67 @@ public sealed class AutoTradeConfigHealthTests
   }
 
   [Fact]
+  public void MatchingContractModeAndTradePlanVersionStayHealthy()
+  {
+    var health = AutoTradeConfigHealth.Compare(Manifest(), PythonManifest());
+
+    Assert.Equal("healthy", health.State);
+    Assert.Empty(health.Fatal);
+  }
+
+  [Fact]
+  public void ContractModeMismatchIsFatal()
+  {
+    var health = AutoTradeConfigHealth.Compare(
+      Manifest(),
+      PythonManifest(contractMode: "v7_only")
+    );
+
+    Assert.Equal("fatal", health.State);
+    Assert.Contains("contract_mode", health.Fatal);
+  }
+
+  [Fact]
+  public void TradePlanVersionMismatchIsFatal()
+  {
+    var health = AutoTradeConfigHealth.Compare(
+      Manifest(),
+      PythonManifest(tradePlanVersion: 6)
+    );
+
+    Assert.Equal("fatal", health.State);
+    Assert.Contains("trade_plan_version", health.Fatal);
+  }
+
+  [Fact]
+  public void TradePlanStreamMismatchIsFatal()
+  {
+    var health = AutoTradeConfigHealth.Compare(
+      Manifest(),
+      PythonManifest(tradePlanStream: "execution:trade_plans_v2")
+    );
+
+    Assert.Equal("fatal", health.State);
+    Assert.Contains("trade_plan_stream", health.Fatal);
+  }
+
+  [Fact]
+  public void MissingContractModeFieldFromOlderPythonManifestIsNotFatal()
+  {
+    // Backward compatibility: a Python manifest published before this
+    // change simply omits the field, which must not fail closed on its
+    // own - the TryGetProperty guard in AutoTradeConfigHealth.Compare
+    // is what makes this safe.
+    var health = AutoTradeConfigHealth.Compare(
+      Manifest(),
+      PythonManifest(omitTradePlanFields: true)
+    );
+
+    Assert.Equal("healthy", health.State);
+    Assert.Empty(health.Fatal);
+  }
+
+  [Fact]
   public void NonHedgedDemoCapabilityIsWarningOnly()
   {
     var health = AutoTradeConfigHealth.Compare(
@@ -124,7 +185,11 @@ public sealed class AutoTradeConfigHealthTests
     string accountMode = "demo",
     bool numericDecimals = false,
     int storageTtl = 604800,
-    int candidateMaxAge = 420
+    int candidateMaxAge = 420,
+    string contractMode = "legacy_v6",
+    int tradePlanVersion = 7,
+    string tradePlanStream = "execution:trade_plans",
+    bool omitTradePlanFields = false
   )
   {
     var current = Manifest();
@@ -172,6 +237,12 @@ public sealed class AutoTradeConfigHealthTests
       ["price_digits"] = numericDecimals ? 2.0m : 2,
       ["stop_plan_version"] = numericDecimals ? 3.0m : 3,
     };
+    if (!omitTradePlanFields)
+    {
+      payload["contract_mode"] = contractMode;
+      payload["trade_plan_version"] = tradePlanVersion;
+      payload["trade_plan_stream"] = tradePlanStream;
+    }
     return JsonSerializer.Serialize(payload);
   }
 }

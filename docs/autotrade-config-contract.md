@@ -4,6 +4,26 @@ The Python publisher and C# executor share config manifest version 2 and
 candidate contract version 6. Cross-service values use these canonical
 environment variables:
 
+## TradePlan V7 migration mode
+
+`AUTO_TRADE_CONTRACT_MODE` selects which planning/execution path is active.
+Both services must resolve the same value; config-health treats
+`contract_mode`, `trade_plan_version`, and `trade_plan_stream` as fatal
+fields (see `compare_manifests` in `app/autotrade/config_health.py` and
+`AutoTradeConfigHealth.Compare` in `ctrader-engine/src/AutoTradeConfigHealth.cs`),
+so a mismatch fails closed rather than silently running two different paths.
+See `docs/adr-trade-plan-v7-boundary.md` for the full rationale.
+
+| Mode | Behavior |
+|---|---|
+| `legacy_v6` (default) | V6 `TradeCandidate` path only; V7 disabled. |
+| `shadow_v7` | Python also publishes V7 plans; C# parses and validates them but places no orders from V7. |
+| `v7_primary` | V7 places orders; V6 remains a controlled fallback. |
+| `v7_only` | V6 candidates are rejected outright. |
+
+Do not flip this value without a corresponding, deliberate deployment step —
+it is not a per-request toggle.
+
 ```text
 AUTO_TRADE_PROFILE
 AUTO_TRADE_ENABLED
@@ -11,6 +31,8 @@ AUTO_TRADE_DRY_RUN
 AUTO_TRADE_CANDIDATE_STREAM
 AUTO_TRADE_EVENT_STREAM
 AUTO_TRADE_CANDIDATE_CONTRACT_VERSION
+AUTO_TRADE_CONTRACT_MODE
+AUTO_TRADE_TRADE_PLAN_STREAM
 AUTO_TRADE_SYMBOLS
 AUTO_TRADE_CANONICAL_SYMBOL
 AUTO_TRADE_XAU_PIP_SIZE
