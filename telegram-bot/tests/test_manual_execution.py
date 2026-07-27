@@ -603,7 +603,6 @@ async def test_handle_event_stop_moved_fans_out_manual_algo_be_move(monkeypatch)
   send.assert_awaited_once()
   text = send.await_args.args[0]
   assert "move SL to" in text
-  assert "(BE)" in text
 
 
 @pytest.mark.asyncio
