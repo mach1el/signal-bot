@@ -106,21 +106,44 @@ resolves the route **before** it plans or validates any stop:
 Python publishes the route it resolved and the entry it priced:
 
 ```text
-planned_execution_route     # market | single_limit | zone_split | either
+planned_execution_route     # market | single_limit | zone_split
 planned_entry_price
-planned_leg_entry_prices    # committed legs only (single limit)
+planned_leg_entry_prices    # committed legs only (single limit / zone split)
 entry_plan_version          # 1
 ```
 
-`either` means Python did not commit to a route, so the executor is free to
-choose and only the stop contract gates the trade. Any other value must match
-the route the executor resolves, or the candidate is rejected with
-`final_stop_entry_route_mismatch` before any broker call. A committed planned
-entry must match the executor's planned entry within
+For strict autonomous candidates (`entry_plan_version >= 1` and
+`stop_plan_version >= 2`), Python resolves a concrete route before stop
+planning. Unresolved `either` is not permitted with an exact final-stop
+contract; the executor rejects legacy strict+`either` payloads with
+`final_stop_entry_route_invalid`. Legacy candidates without those plan
+versions may still declare `either`.
+
+A committed planned entry must match the executor's planned entry within
 `AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS` (never less than one tick), and a
 market route must additionally still be within tolerance of the executable
 quote; otherwise the candidate is rejected with
 `final_stop_entry_drift_rejected`.
+
+### Executor entry-distance hard cap
+
+Adaptive strategy drift (observation tolerance) and the executor hard cap are
+separate. Only `AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS` may authorise AUTO READY
+and candidate publication. Distance uses the executable broker quote
+(BUY=`ask`, SELL=`bid`) versus the entry zone. Python emits AUTO WAIT when
+outside the cap and retains the setup; C# re-checks before broker mutation.
+
+### Break-even after confirmed TP1
+
+After a broker-confirmed partial close at TP1, the stop moves to BE+6
+profitable pips anchored to the actual fill:
+
+- BUY: `entry + AUTO_TRADE_BE_BUFFER_PIPS × pip_size`
+- SELL: `entry - AUTO_TRADE_BE_BUFFER_PIPS × pip_size`
+
+Example: SELL `4112.04` with pip `0.1` → `4111.44`. Target evaluation requires
+a quote newer than the fill (`spot.Timestamp > OpenedAt`). One trade group
+produces one canonical terminal Telegram result.
 
 ### Executor validation and entry tolerance
 
