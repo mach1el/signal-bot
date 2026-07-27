@@ -128,9 +128,9 @@ quote; otherwise the candidate is rejected with
 ### Executor entry-distance hard cap
 
 Adaptive strategy drift (observation tolerance) and the executor hard cap are
-separate. Only `AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS` may authorise AUTO READY
+separate. Only `AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS` may authorise Algo bot READY
 and candidate publication. Distance uses the executable broker quote
-(BUY=`ask`, SELL=`bid`) versus the entry zone. Python emits AUTO WAIT when
+(BUY=`ask`, SELL=`bid`) versus the entry zone. Python emits Algo bot WAIT when
 outside the cap and retains the setup; C# re-checks before broker mutation.
 
 ### Break-even after confirmed TP1
