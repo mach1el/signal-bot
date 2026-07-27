@@ -100,7 +100,8 @@ async def test_auto_close_all_confirm_pauses_and_requests_flatten(monkeypatch):
   close_all.assert_awaited_once()
   text = msg.answer.await_args.args[0]
   assert "Flatten requested" in text
-  assert "Total net" in text
+  assert "POSITION CLOSED" in text
+  assert "Total net" not in text
 
 
 @pytest.mark.asyncio
@@ -127,7 +128,7 @@ async def test_request_close_all_xadds_close_all_command(monkeypatch):
   assert '"type":"close_all"' in payload.replace(" ", "")
 
 
-def test_owner_flatten_and_closed_cards_show_total_net_from_fill():
+def test_owner_flatten_and_closed_cards_render_without_net_pips():
   flatten = delivery.render_auto_trade_event({
     "type": "owner_flatten",
     "message": "owner flatten: closing 2 position(s), cancelling 0 pending",
@@ -143,5 +144,5 @@ def test_owner_flatten_and_closed_cards_show_total_net_from_fill():
   })
   assert closed is not None
   assert "POSITION CLOSED" in closed
-  assert "Total net: <b>-12.5 pips</b>" in closed
+  assert "Total net" not in closed
   assert "$" not in closed
