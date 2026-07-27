@@ -3417,7 +3417,12 @@ public sealed partial class AutoTradeEngineTests
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
-    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    // This test is about the price a confirmed closure carries, not about
+    // the missing-snapshot confirmation gate itself (covered separately) -
+    // one confirmation keeps its original single-reconcile-pass shape.
+    var engine = new AutoTradeEngine(
+      Options() with { PositionMissingConfirmations = 1 }, store, () => now, _ => { }
+    );
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
       cts.Token
@@ -3443,12 +3448,15 @@ public sealed partial class AutoTradeEngineTests
   public async Task ReconcileDetectedCloseRecordsWarningOnlyCooldownMarker()
   {
     // The engine cannot tell an SL hit from a manual close apart here, so it
-    // records evidence but must not claim a confirmed stop loss.
+    // records evidence but must not claim a confirmed stop loss. Not about
+    // the missing-snapshot confirmation gate itself (covered separately).
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
-    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    var engine = new AutoTradeEngine(
+      Options() with { PositionMissingConfirmations = 1 }, store, () => now, _ => { }
+    );
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
       cts.Token
@@ -3467,6 +3475,109 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal("reconciliation_unknown", cooldown.Reason);
     Assert.Equal("unconfirmed", cooldown.Confidence);
     Assert.Equal(("XAU", "BUY"), Assert.Single(store.ZoneCooldownDirections));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingPositionSnapshotRequiresTwoConfirmationsBeforeTerminalising()
+  {
+    // Incident hardening: a single reconcile pass that does not see a
+    // tracked position must only "suspect" it missing, not delete its
+    // tracking - only a second, time-separated confirmation may terminalise.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+
+    // First missing snapshot: still tracked, not yet closed.
+    Assert.Contains(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.DoesNotContain(
+      "position_missing_snapshot_confirmed",
+      store.MetricsSnapshot()
+    );
+
+    // Second independent snapshot, separated by the recheck interval,
+    // confirms the absence. A short real-time settle lets the loop finish
+    // recomputing nextReconcile off the *current* now before it is advanced
+    // again - otherwise this assignment can race ahead of that bookkeeping
+    // and get folded into the same nextReconcile computation, pushing the
+    // next eligible reconcile pass out by another 15s for nothing.
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    Assert.DoesNotContain(positionId, store.Positions.Keys);
+    Assert.Contains("position_missing_snapshot_confirmed", store.Metrics);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingPositionSnapshotClearsWhenPositionReappearsBeforeConfirmation()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var tracked = store.Positions[positionId];
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+
+    // The position reappears at the broker before the second confirmation.
+    // The short settle delay avoids racing the loop's post-reconcile
+    // nextReconcile bookkeeping the same way the confirmation test does.
+    client.SeedPosition(new TradingPosition(
+      tracked.PositionId,
+      Symbol.SymbolId,
+      tracked.Direction,
+      tracked.RemainingVolume,
+      tracked.EntryPrice,
+      tracked.CurrentStopLoss ?? tracked.EntryPrice,
+      "apexvoid-auto",
+      ""
+    ));
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_recovered")
+    );
+
+    Assert.Contains(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.DoesNotContain(
+      "position_missing_snapshot_confirmed",
+      store.MetricsSnapshot()
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -5739,6 +5850,30 @@ public sealed partial class AutoTradeEngineTests
     )
     {
       Positions.Remove(positionId);
+      return Task.CompletedTask;
+    }
+    public Dictionary<long, PositionMissingRecord> PositionMissing { get; } = [];
+    public Task<PositionMissingRecord?> GetPositionMissingAsync(
+      long positionId,
+      CancellationToken cancellationToken
+    ) => Task.FromResult(
+      PositionMissing.TryGetValue(positionId, out var record) ? record : null
+    );
+    public Task SavePositionMissingAsync(
+      long positionId,
+      PositionMissingRecord record,
+      CancellationToken cancellationToken
+    )
+    {
+      PositionMissing[positionId] = record;
+      return Task.CompletedTask;
+    }
+    public Task ClearPositionMissingAsync(
+      long positionId,
+      CancellationToken cancellationToken
+    )
+    {
+      PositionMissing.Remove(positionId);
       return Task.CompletedTask;
     }
     public Task<long> GetDailyTradeCountAsync(
