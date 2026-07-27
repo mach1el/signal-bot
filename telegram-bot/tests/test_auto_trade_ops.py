@@ -187,11 +187,11 @@ def test_partial_tp_without_volume_percent_uses_closed_volume_fallback():
 def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
   stop = delivery.render_auto_trade_event({
     "type": "stop_moved",
-    "message": "🛡 ApexVoid Algo stop → 4,087.72 (BE+6 ticks) · position 39016393",
+    "message": "🛡 ApexVoid Algo stop → 4,087.60 (BE+6 ticks) · position 39016393",
     "direction": "BUY",
     "entry_price": 4087.66,
     "previous_stop": 4081.66,
-    "price": 4087.72,
+    "price": 4087.60,
     "mode": "BE+6 ticks",
     "buffer_price": 0.06,
     "trigger_tp1_broker_confirmed": True,
@@ -200,7 +200,7 @@ def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
   assert "Direction: <b>BUY</b>" in stop
   assert "Entry: <b>4,087.66</b>" in stop
   assert "Previous SL: <b>4,081.66</b>" in stop
-  assert "New SL: <b>4,087.72</b>" in stop
+  assert "New SL: <b>4,087.60</b>" in stop
   assert "Mode: <b>BE+6 ticks</b>" in stop
   assert "Buffer: <b>0.06</b>" in stop
   assert "Trigger TP1 broker-confirmed: <b>yes</b>" in stop

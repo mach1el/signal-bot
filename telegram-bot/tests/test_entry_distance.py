@@ -52,12 +52,16 @@ def test_stop_trail_be_plus_six_ticks_parity(case):
   entry = Decimal(case["entry_price"])
   offset = buffer_ticks * tick
   if case["direction"] == "BUY":
-    desired = entry + offset
-  else:
     desired = entry - offset
+  else:
+    desired = entry + offset
   assert desired == Decimal(case["expected_stop"])
   assert offset == Decimal(case["expected_offset"])
   assert offset == Decimal("0.06")
   assert offset != Decimal("0.60")
   assert case["expected_label"] == f"BE+{fixture['break_even_buffer_ticks']} ticks"
   assert abs(desired - entry) == Decimal("0.06")
+  if case["direction"] == "BUY":
+    assert desired < entry
+  else:
+    assert desired > entry

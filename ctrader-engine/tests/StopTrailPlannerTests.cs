@@ -101,8 +101,8 @@ public sealed class StopTrailPlannerTests
   }
 
   [Theory]
-  [InlineData(TradeDirection.Buy, 4000.26, 4003.2, 4006.2)]
-  [InlineData(TradeDirection.Sell, 4000.14, 3997.2, 3994.2)]
+  [InlineData(TradeDirection.Buy, 4000.14, 4003.2, 4006.2)]
+  [InlineData(TradeDirection.Sell, 4000.26, 3997.2, 3994.2)]
   public void HoldsAfterTp2ThenTrailsTwoTargetsBehind(
     TradeDirection direction,
     double afterTp1,
