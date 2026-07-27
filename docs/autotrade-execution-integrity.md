@@ -135,15 +135,26 @@ outside the cap and retains the setup; C# re-checks before broker mutation.
 
 ### Break-even after confirmed TP1
 
-After a broker-confirmed partial close at TP1, the stop moves to BE+6
-profitable pips anchored to the actual fill:
+After a broker-confirmed partial close at TP1, the stop moves to **BE+N
+broker ticks** anchored to the actual fill. This is **not** trading pips.
 
-- BUY: `entry + AUTO_TRADE_BE_BUFFER_PIPS × pip_size`
-- SELL: `entry - AUTO_TRADE_BE_BUFFER_PIPS × pip_size`
+Canonical config: `AUTO_TRADE_BE_BUFFER_TICKS` (default `6`).
 
-Example: SELL `4112.04` with pip `0.1` → `4111.44`. Target evaluation requires
-a quote newer than the fill (`spot.Timestamp > OpenedAt`). One trade group
-produces one canonical terminal Telegram result.
+For XAU with `digits=2`, tick size is `0.01`. The BE buffer stays on the
+**adverse** side of the broker fill (spread cushion), not locked profit:
+
+- BUY: `entry - ticks × tick_size` → BE+6 = `entry - 0.06`
+- SELL: `entry + ticks × tick_size` → BE+6 = `entry + 0.06`
+
+Examples: BUY `4087.66` → `4087.60`; SELL `4087.66` → `4087.72`.
+
+Never multiply the BE buffer by `AUTO_TRADE_XAU_PIP_SIZE` (0.1). The deprecated
+alias `AUTO_TRADE_BE_BUFFER_PIPS` is interpreted as a tick count during
+migration only.
+
+Target evaluation requires a quote newer than the fill
+(`spot.Timestamp > OpenedAt`). One trade group produces one canonical terminal
+Telegram result.
 
 ### Executor validation and entry tolerance
 

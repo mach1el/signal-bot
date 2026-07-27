@@ -70,7 +70,7 @@ public sealed partial class AutoTradeEngineTests
         .Select(item => Assert.IsType<int>(item.TargetPips))
     );
     Assert.Equal(
-      new decimal[] { 3993.7m, 4000.8m, 4003.2m, 4006.2m },
+      new decimal[] { 3993.7m, 4000.14m, 4003.2m, 4006.2m },
       client.StopAmendments.Select(item => item.StopLoss)
     );
     Assert.Equal(3, store.Events.Count(item => item.Type == "stop_moved"));
@@ -4392,7 +4392,7 @@ public sealed partial class AutoTradeEngineTests
     StopLossDistance: 6.5m,
     TargetsPips: [30, 60, 90, 120, 200],
     TargetWeights: [20, 20, 20, 20, 20],
-    BreakEvenBufferPips: 6,
+    BreakEvenBufferTicks: 6,
     CandidateMaxAgeSeconds: 90,
     SpotMaxAgeSeconds: 5,
     MaxSpreadPips: 5,

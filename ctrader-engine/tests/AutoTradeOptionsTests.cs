@@ -102,7 +102,7 @@ public sealed class AutoTradeOptionsTests
       () => (Options() with { TargetWeights = [25, 25, 25, 25] }).Validate()
     );
     Assert.Throws<AutoTradeConfigurationException>(
-      () => (Options() with { BreakEvenBufferPips = 30 }).Validate()
+      () => (Options() with { BreakEvenBufferTicks = 1000 }).Validate()
     );
   }
 
@@ -493,7 +493,7 @@ public sealed class AutoTradeOptionsTests
     StopLossDistance: 6.5m,
     TargetsPips: [30, 60, 90, 120, 200],
     TargetWeights: [20, 20, 20, 20, 20],
-    BreakEvenBufferPips: 6,
+    BreakEvenBufferTicks: 6,
     CandidateMaxAgeSeconds: 90,
     SpotMaxAgeSeconds: 5,
     MaxSpreadPips: 5,

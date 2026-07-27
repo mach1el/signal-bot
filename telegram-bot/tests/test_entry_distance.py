@@ -45,17 +45,23 @@ def test_entry_distance_parity_fixture(case):
   _load("stop-trail-parity.json")["cases"],
   ids=lambda case: case["name"],
 )
-def test_stop_trail_be_plus_six_parity(case):
+def test_stop_trail_be_plus_six_ticks_parity(case):
   fixture = _load("stop-trail-parity.json")
-  pip = Decimal(fixture["pip_size"])
-  buffer = Decimal(str(fixture["break_even_buffer_pips"]))
+  tick = Decimal(fixture["tick_size"])
+  buffer_ticks = Decimal(str(fixture["break_even_buffer_ticks"]))
   entry = Decimal(case["entry_price"])
+  offset = buffer_ticks * tick
   if case["direction"] == "BUY":
-    desired = entry + buffer * pip
+    desired = entry - offset
   else:
-    desired = entry - buffer * pip
+    desired = entry + offset
   assert desired == Decimal(case["expected_stop"])
-  assert case["expected_label"] == f"BE+{fixture['break_even_buffer_pips']}"
-  if case["direction"] == "SELL":
-    assert desired != Decimal("4111.74")
-    assert desired != Decimal("4112.64")
+  assert offset == Decimal(case["expected_offset"])
+  assert offset == Decimal("0.06")
+  assert offset != Decimal("0.60")
+  assert case["expected_label"] == f"BE+{fixture['break_even_buffer_ticks']} ticks"
+  assert abs(desired - entry) == Decimal("0.06")
+  if case["direction"] == "BUY":
+    assert desired < entry
+  else:
+    assert desired > entry
