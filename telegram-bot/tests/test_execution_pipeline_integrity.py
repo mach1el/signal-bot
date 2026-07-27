@@ -474,6 +474,55 @@ async def test_preflight_rejects_unavailable_zone_split_capability(
 
 
 @pytest.mark.asyncio
+async def test_preflight_blocks_opposite_initial_group(monkeypatch):
+  from app.autotrade import worker
+  from app.autotrade.trend import RegimeInfo
+
+  client = redis_state.get_client()
+  await client.sadd("auto_trade:positions", "39000344")
+  await client.set(
+    "auto_trade:position:39000344",
+    json.dumps({
+      "position_id": 39000344,
+      "direction": 1,
+      "remaining_volume": 400,
+      "group_id": "group-sell-1",
+      "parent_group_id": None,
+    }),
+    ex=60,
+  )
+  subject = _policy_match(
+    strategy="Key Level Reaction",
+    direction="BUY",
+    entry_low=4090.8,
+    entry_high=4094.13,
+    current_price=4093.31,
+    structure_swing=4092.47,
+  )
+  intent = _intent("buy-key-level", direction="BUY")
+  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
+
+  decision = await worker._common_preflight(
+    client,
+    intent,
+    subject,
+    spot=worker.AutoTradeSpot(4093.31, 1_000, True),
+    regime=RegimeInfo(
+      "trend", "up", 3, 1.0, True, None, ("test",),
+    ),
+    htf_zones=[],
+    htf_levels=[],
+    market_map=None,
+    frames={},
+  )
+
+  assert not decision.executable
+  assert decision.terminal
+  assert decision.reason_code == "opposite_initial_group_active"
+  assert decision.measured["active_direction"] == "SELL"
+
+
+@pytest.mark.asyncio
 async def test_preflight_waits_when_required_limit_is_on_wrong_side(
   monkeypatch,
 ):
