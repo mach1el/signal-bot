@@ -224,7 +224,7 @@ def test_strategy_route_auto_ready_shows_executor_fields():
     },
   })
 
-  assert "AUTO READY" in text
+  assert "Algo bot READY" in text
   assert "Route: <b>market</b>" in text
   assert "Planned entry: <b>4,100.50</b>" in text
   assert "Executor distance: <b>2.5p</b>" in text
@@ -249,7 +249,7 @@ def test_strategy_route_executor_wait_shows_quote_zone_and_limit():
     },
   })
 
-  assert "AUTO WAIT" in text
+  assert "Algo bot WAIT" in text
   assert "Quote: <b>4,053.56</b>" in text
   assert "Distance: <b>15.6p</b>" in text
   assert "Executor limit: <b>10.0p</b>" in text

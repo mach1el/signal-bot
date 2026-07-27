@@ -637,9 +637,9 @@ def test_scanner_card_never_claims_ready_before_worker(monkeypatch):
     execution_match=None,
   )
 
-  assert "AUTO CHECKING" in ready
-  assert "AUTO READY" not in ready
-  assert "AUTO BLOCKED" in blocked
+  assert "Algo bot CHECKING" in ready
+  assert "Algo bot READY" not in ready
+  assert "Algo bot BLOCKED" in blocked
 
 
 def test_scalp_status_reports_active_range_and_touched_edge():
