@@ -493,7 +493,7 @@ public sealed class AutoTradeOptionsTests
     StopLossDistance: 6.5m,
     TargetsPips: [30, 60, 90, 120, 200],
     TargetWeights: [20, 20, 20, 20, 20],
-    BreakEvenBufferPips: 3,
+    BreakEvenBufferPips: 6,
     CandidateMaxAgeSeconds: 90,
     SpotMaxAgeSeconds: 5,
     MaxSpreadPips: 5,

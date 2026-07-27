@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using ApexVoid.CTraderFeed;
 
 namespace CTraderFeed.Tests;
@@ -12,9 +14,90 @@ public sealed class StopTrailPlannerTests
     PipPosition: 2
   );
 
+  private static readonly JsonDocument Fixture = LoadFixture();
+
+  private static JsonDocument LoadFixture()
+  {
+    var directory = new DirectoryInfo(AppContext.BaseDirectory);
+    while (directory is not null)
+    {
+      var candidate = Path.Combine(
+        directory.FullName,
+        "contracts",
+        "autotrade",
+        "stop-trail-parity.json"
+      );
+      if (File.Exists(candidate))
+      {
+        return JsonDocument.Parse(File.ReadAllText(candidate));
+      }
+      directory = directory.Parent;
+    }
+    throw new FileNotFoundException(
+      "contracts/autotrade/stop-trail-parity.json was not found above "
+      + AppContext.BaseDirectory
+    );
+  }
+
+  private static IEnumerable<JsonElement> ParityCases() =>
+    Fixture.RootElement.GetProperty("cases").EnumerateArray();
+
+  private static decimal Number(JsonElement element, string name) =>
+    decimal.Parse(
+      element.GetProperty(name).GetString()!,
+      CultureInfo.InvariantCulture
+    );
+
+  public static TheoryData<string> ParityCaseNames
+  {
+    get
+    {
+      var data = new TheoryData<string>();
+      foreach (var item in ParityCases())
+      {
+        data.Add(item.GetProperty("name").GetString()!);
+      }
+      return data;
+    }
+  }
+
   [Theory]
-  [InlineData(TradeDirection.Buy, 4000.5, 4003.2, 4006.2)]
-  [InlineData(TradeDirection.Sell, 3999.9, 3997.2, 3994.2)]
+  [MemberData(nameof(ParityCaseNames))]
+  public void SharedStopTrailFixtureMatchesPlanner(string name)
+  {
+    var root = Fixture.RootElement;
+    var item = ParityCases().Single(entry =>
+      entry.GetProperty("name").GetString() == name
+    );
+    var pipSize = Number(root, "pip_size");
+    var bufferPips = root.GetProperty("break_even_buffer_pips").GetInt32();
+    var direction = item.GetProperty("direction").GetString() == "BUY"
+      ? TradeDirection.Buy
+      : TradeDirection.Sell;
+    var entry = Number(item, "entry_price");
+    var completedTargetIndex = item.GetProperty("completed_target_index").GetInt32();
+    var initialStop = direction == TradeDirection.Buy
+      ? entry - 6.5m
+      : entry + 6.5m;
+    var state = State(direction, entry, initialStop);
+
+    var move = Assert.IsType<StopTrailMove>(
+      StopTrailPlanner.Plan(
+        state,
+        completedTargetIndex,
+        Symbol,
+        pipSize,
+        bufferPips
+      )
+    );
+
+    Assert.Equal(Number(item, "expected_stop"), move.StopLoss);
+    Assert.Equal(item.GetProperty("expected_label").GetString(), move.Label);
+  }
+
+  [Theory]
+  [InlineData(TradeDirection.Buy, 4000.8, 4003.2, 4006.2)]
+  [InlineData(TradeDirection.Sell, 3999.6, 3997.2, 3994.2)]
   public void HoldsAfterTp2ThenTrailsTwoTargetsBehind(
     TradeDirection direction,
     double afterTp1,
@@ -24,27 +107,27 @@ public sealed class StopTrailPlannerTests
   {
     var state = State(direction);
     var tp1 = Assert.IsType<StopTrailMove>(
-      StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 3)
+      StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6)
     );
     Assert.Equal(Convert.ToDecimal(afterTp1), tp1.StopLoss);
-    Assert.Equal("BE+3", tp1.Label);
+    Assert.Equal("BE+6", tp1.Label);
     state = state with { CurrentStopLoss = tp1.StopLoss };
 
-    Assert.Null(StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 3));
+    Assert.Null(StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 6));
 
     var tp3 = Assert.IsType<StopTrailMove>(
-      StopTrailPlanner.Plan(state, 2, Symbol, 0.1m, 3)
+      StopTrailPlanner.Plan(state, 2, Symbol, 0.1m, 6)
     );
     Assert.Equal(Convert.ToDecimal(afterTp3), tp3.StopLoss);
     Assert.Equal("TP1", tp3.Label);
     state = state with { CurrentStopLoss = tp3.StopLoss };
 
     var tp4 = Assert.IsType<StopTrailMove>(
-      StopTrailPlanner.Plan(state, 3, Symbol, 0.1m, 3)
+      StopTrailPlanner.Plan(state, 3, Symbol, 0.1m, 6)
     );
     Assert.Equal(Convert.ToDecimal(afterTp4), tp4.StopLoss);
     Assert.Equal("TP2", tp4.Label);
-    Assert.Null(StopTrailPlanner.Plan(state, 4, Symbol, 0.1m, 3));
+    Assert.Null(StopTrailPlanner.Plan(state, 4, Symbol, 0.1m, 6));
   }
 
   [Fact]
@@ -58,7 +141,7 @@ public sealed class StopTrailPlannerTests
     };
 
     var move = Assert.IsType<StopTrailMove>(
-      StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 3)
+      StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 6)
     );
 
     Assert.Equal(4003.2m, move.StopLoss);
@@ -78,21 +161,26 @@ public sealed class StopTrailPlannerTests
       CurrentStopLoss = Convert.ToDecimal(currentStop),
     };
 
-    Assert.Null(StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 3));
+    Assert.Null(StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6));
   }
 
-  private static AutoTradePositionState State(TradeDirection direction) => new(
+  private static AutoTradePositionState State(
+    TradeDirection direction,
+    decimal entryPrice = 4000.2m,
+    decimal? currentStopLoss = null
+  ) => new(
     "candidate",
     91,
     7,
     direction,
-    4000.2m,
+    entryPrice,
     1_000,
     1_000,
     [200, 200, 200, 200, 200],
     [30, 60, 90, 120, 200],
     0,
     1_000,
-    direction == TradeDirection.Buy ? 3993.7m : 4006.7m
+    currentStopLoss
+      ?? (direction == TradeDirection.Buy ? entryPrice - 6.5m : entryPrice + 6.5m)
   );
 }

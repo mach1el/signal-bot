@@ -168,6 +168,92 @@ def test_partial_and_final_tp_use_volume_weighted_pips_not_money():
   assert "$" not in partial + final
 
 
+@pytest.mark.no_database
+def test_partial_tp_without_volume_percent_uses_closed_volume_fallback():
+  partial = delivery.render_auto_trade_event({
+    "type": "take_profit",
+    "message": "TP1 +48.4 pips closed volume 300",
+    "volume": 300,
+    "leg_realized_pips": 48.4,
+  })
+
+  assert partial is not None
+  assert "closed volume <b>300</b>" in partial
+  assert "Leg: <b>+48.4 pips</b>" in partial
+  assert "33.3%" not in partial
+
+
+@pytest.mark.no_database
+def test_stop_moved_renders_richer_be_plus_card_when_fields_present():
+  stop = delivery.render_auto_trade_event({
+    "type": "stop_moved",
+    "message": "🛡 ApexVoid Algo stop → 4,100.06 (BE+6) · position 39016393",
+    "direction": "BUY",
+    "entry_price": 4094.0,
+    "previous_stop": 4088.0,
+    "price": 4100.06,
+    "mode": "BE+6",
+    "trigger_tp1_broker_confirmed": True,
+  })
+
+  assert "Direction: <b>BUY</b>" in stop
+  assert "Entry: <b>4,094.00</b>" in stop
+  assert "Previous SL: <b>4,088.00</b>" in stop
+  assert "New SL: <b>4,100.06</b>" in stop
+  assert "Mode: <b>BE+6</b>" in stop
+  assert "Trigger TP1 broker-confirmed: <b>yes</b>" in stop
+
+
+@pytest.mark.no_database
+def test_strategy_route_auto_ready_shows_executor_fields():
+  text = delivery.render_auto_trade_event({
+    "type": "strategy_route",
+    "status": "candidate_published",
+    "strategy": "Key Level Reaction",
+    "direction": "BUY",
+    "measured": {
+      "planned_execution_route": "market",
+      "planned_entry_price": 4100.5,
+      "entry_low": 4100.0,
+      "entry_high": 4100.3,
+      "executor_distance_pips": 2.5,
+      "executor_limit_pips": 10.0,
+    },
+  })
+
+  assert "AUTO READY" in text
+  assert "Route: <b>market</b>" in text
+  assert "Planned entry: <b>4,100.50</b>" in text
+  assert "Executor distance: <b>2.5p</b>" in text
+  assert "Executor limit: <b>10.0p</b>" in text
+  assert "Drift" not in text
+
+
+@pytest.mark.no_database
+def test_strategy_route_executor_wait_shows_quote_zone_and_limit():
+  text = delivery.render_auto_trade_event({
+    "type": "strategy_route",
+    "status": "waiting",
+    "reason_code": "executor_entry_envelope_exceeded",
+    "strategy": "Mapped Zone Reaction",
+    "direction": "BUY",
+    "measured": {
+      "executor_quote": 4053.56,
+      "entry_low": 4050.0,
+      "entry_high": 4052.0,
+      "executor_distance_pips": 15.6,
+      "executor_limit_pips": 10.0,
+    },
+  })
+
+  assert "AUTO WAIT" in text
+  assert "Quote: <b>4,053.56</b>" in text
+  assert "Distance: <b>15.6p</b>" in text
+  assert "Executor limit: <b>10.0p</b>" in text
+  assert "Setup retained" in text
+  assert "Drift" not in text
+
+
 
 def test_essential_trade_lifecycle_still_renders():
   filled = delivery.render_auto_trade_event(_opened_event())
@@ -276,7 +362,7 @@ def test_render_auto_trade_stop_and_warning_events():
 
   assert "ApexVoid Algo" in stop
   assert "Risk protected" in stop
-  assert "SL moved to <b>4,029.49</b>" in stop
+  assert "4,029.49" in stop
   assert "BE+3" in stop
   assert "39016393" not in stop
   assert "Warning" in warning
@@ -542,6 +628,84 @@ async def test_full_tp_merges_result_and_suppresses_duplicate_group_reply():
   assert "$" not in calls[0][0]
   assert "71.82" not in calls[0][0]
   assert "39000344" not in calls[0][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_terminal_dedupe_allows_one_close_card_per_group():
+  client = redis_state.get_client()
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append(text)
+    return SimpleNamespace(message_id=9001)
+
+  group_id = "group-terminal-dedupe"
+  position_closed = {
+    "type": "position_closed",
+    "message": "BUY position is closed",
+    "group_id": group_id,
+    "group_realized_pips": 7.2,
+  }
+  group_result = {
+    "type": "group_result",
+    "message": f"group {group_id} realised 7.2 pips",
+    "group_id": group_id,
+    "group_realized_pips": 7.2,
+  }
+
+  delivered_closed = await delivery._deliver_auto_trade_event(
+    client,
+    position_closed,
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+  delivered_result = await delivery._deliver_auto_trade_event(
+    client,
+    group_result,
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert delivered_closed is True
+  assert delivered_result is False
+  assert len(calls) == 1
+  assert "POSITION CLOSED" in calls[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_full_tp_suppresses_position_closed_terminal_card():
+  client = redis_state.get_client()
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append(text)
+    return SimpleNamespace(message_id=9002)
+
+  group_id = "group-full-tp-terminal"
+  await client.set(
+    delivery._full_tp_result_key("internal", group_id),
+    "1",
+    ex=60,
+  )
+  delivered = await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "message": "position is closed",
+      "group_id": group_id,
+      "group_realized_pips": 51.3,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert delivered is False
+  assert calls == []
 
 
 @pytest.mark.asyncio

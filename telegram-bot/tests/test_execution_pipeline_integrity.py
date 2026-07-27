@@ -148,7 +148,7 @@ def test_execution_policy_keeps_fill_relative_room_from_planned_entry():
   assert evaluation.measured["remaining_target_room_pips"] == 60.0
   assert evaluation.measured["target_model"] == "fill_relative"
   assert evaluation.measured["planned_entry_price"] == 4102.5
-  assert evaluation.measured["order_type_preference"] == "either"
+  assert evaluation.measured["order_type_preference"] == "market"
   assert evaluation.measured["effective_risk_multiplier"] == 1.0
 
 
@@ -295,6 +295,13 @@ def test_zone_split_route_publishes_proximal_and_midpoint_legs():
     spot_price=4100.5,
     regime="trend",
     pip_size=0.1,
+    cfg=SimpleNamespace(
+      auto_trade_zone_fill_enabled=True,
+      auto_trade_zone_fill_min_atr=0.5,
+      auto_trade_inside_zone_market_entry_enabled=True,
+      auto_trade_zone_fill_fallback_enabled=True,
+      auto_trade_xau_price_digits=2,
+    ),
   )
 
   assert evaluation.allowed
@@ -325,17 +332,22 @@ def test_market_route_publishes_the_quote_as_planned_entry():
   assert evaluation.measured["planned_leg_entry_prices"] == []
 
 
-def test_uncommitted_route_leaves_the_executor_free_to_choose():
+@pytest.mark.parametrize(
+  "strategy",
+  ["Key Level Reaction", "Trendline Reaction"],
+)
+def test_reaction_family_publishes_concrete_market_route(strategy):
   evaluation = evaluate_execution_policy(
-    _policy_match(),
+    _policy_match(strategy=strategy),
     spot_price=4100.5,
+    executable_quote=4100.5,
     regime="range",
     pip_size=0.1,
   )
 
   assert evaluation.allowed
-  assert evaluation.measured["order_type_preference"] == "either"
-  assert evaluation.measured["planned_execution_route"] == "either"
+  assert evaluation.measured["order_type_preference"] == "market"
+  assert evaluation.measured["planned_execution_route"] == "market"
   assert evaluation.measured["planned_leg_entry_prices"] == []
 
 
