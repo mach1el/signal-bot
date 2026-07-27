@@ -92,6 +92,34 @@ def test_execution_lifecycle_cards_suppress_noise_keep_essentials():
   assert "EXECUTOR REJECTED" in rejected
 
 
+def test_position_closed_labels_broker_stop_loss_or_take_profit():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "stop_loss_or_take_profit",
+  })
+  assert "Closed by broker SL/TP" in closed
+  assert "Closed manually" not in closed
+
+
+def test_position_closed_labels_manual_or_external_close():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "manual_or_external_close",
+  })
+  assert "Closed manually on platform" in closed
+
+
+def test_position_closed_omits_label_when_reason_unconfirmed():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+  })
+  assert "Closed by broker SL/TP" not in closed
+  assert "Closed manually" not in closed
+
+
 def test_render_box_open_and_full_tp_as_shareable_cards():
   opened = delivery.render_auto_trade_event({
     "type": "opened",

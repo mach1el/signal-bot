@@ -3583,6 +3583,89 @@ public sealed partial class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Theory]
+  [InlineData(
+    PositionCloseReason.StopLossOrTakeProfit,
+    "stop_loss_or_take_profit",
+    "stop loss / take profit"
+  )]
+  [InlineData(
+    PositionCloseReason.ManualOrExternalOrder,
+    "manual_or_external_close",
+    "manual or external order"
+  )]
+  public async Task ConfirmedMissingPositionReportsBestEffortCloseReason(
+    PositionCloseReason reason,
+    string expectedReasonCode,
+    string expectedMessageFragment
+  )
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient { PositionCloseReasonToReturn = reason };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal(expectedReasonCode, closed.ReasonCode);
+    Assert.Contains(expectedMessageFragment, closed.Message);
+    Assert.Contains(positionId, client.PositionCloseReasonLookups);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ConfirmedMissingPositionWithUnknownCloseReasonKeepsAmbiguousMessage()
+  {
+    // Default FakeTradingClient behavior (no override) - matches a broker
+    // that could not be queried, or the lookup genuinely being ambiguous.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Null(closed.ReasonCode);
+    Assert.Contains("reason unconfirmed", closed.Message);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
   [Fact]
   public async Task FullTakeProfitCloseNeverRecordsZoneCooldown()
   {
@@ -5090,6 +5173,18 @@ public sealed partial class AutoTradeEngineTests
     public int? FailLimitOrderCall { get; init; }
     public int? FailMarketOrderCall { get; init; }
     public int? FailCancelCall { get; init; }
+    public PositionCloseReason PositionCloseReasonToReturn { get; init; } =
+      PositionCloseReason.Unknown;
+    public List<long> PositionCloseReasonLookups { get; } = [];
+    public Task<PositionCloseReason> DeterminePositionCloseReasonAsync(
+      long positionId,
+      long approximateCloseTimestamp,
+      CancellationToken cancellationToken
+    )
+    {
+      PositionCloseReasonLookups.Add(positionId);
+      return Task.FromResult(PositionCloseReasonToReturn);
+    }
     // "Broker accepted, response never arrived": the order exists at the broker
     // but the caller only sees a transport failure.
     public int? LoseMarketResponseCall { get; init; }
