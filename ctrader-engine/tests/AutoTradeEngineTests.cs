@@ -3709,10 +3709,11 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task ConfirmedMissingPositionWithUnknownCloseReasonKeepsAmbiguousMessage()
+  public async Task ConfirmedMissingPositionAtProtectiveStopReportsSlReason()
   {
-    // Default FakeTradingClient behavior (no override) - matches a broker
-    // that could not be queried, or the lookup genuinely being ambiguous.
+    // Default FakeTradingClient lookup stays Unknown, but the exit falls
+    // back to the protective stop — that is an ordinary SL hit, not an
+    // ambiguous "reason unconfirmed" close.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
@@ -3725,6 +3726,50 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
     var positionId = client.StopAmendments.Single().PositionId;
+    var stop = client.StopAmendments.Single().StopLoss;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("stop loss / take profit", closed.Message);
+    Assert.DoesNotContain("unconfirmed", closed.Message);
+    Assert.Equal(stop, closed.Price);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ConfirmedMissingPositionAwayFromStopKeepsAmbiguousMessage()
+  {
+    // Lookup recovered a fill far from the protective stop — do not guess
+    // SL/TP; keep the ambiguous message.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      PositionCloseExecutionPriceToReturn = 4009.35m,
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var stop = client.StopAmendments.Single().StopLoss;
+    Assert.NotEqual(4009.35m, stop);
 
     client.RemovePosition(positionId);
     now = Now.AddSeconds(16);
@@ -3738,6 +3783,63 @@ public sealed partial class AutoTradeEngineTests
     var closed = store.Events.Single(item => item.Type == "position_closed");
     Assert.Null(closed.ReasonCode);
     Assert.Contains("reason unconfirmed", closed.Message);
+    Assert.Equal(4009.35m, closed.Price);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task FullSlHitWithoutAnyTpReportsSlReason()
+  {
+    // Range-box / single-tranche SL out before any target books — the case
+    // that previously printed "reason unconfirmed" for a clean broker SL.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(BoxCandidateJson(
+      fullTpPips: 88,
+      timeframe: "M5"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with
+      {
+        RangeFlipEnabled = false,
+        RangeTargetsPips = [20, 30, 40, 50, 70, 88],
+      },
+      store,
+      () => now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var state = Assert.Single(store.Positions.Values);
+    Assert.Equal(0, state.NextTargetIndex);
+    var stop = Assert.NotNull(state.CurrentStopLoss ?? state.InitialStopLoss);
+    var positionId = state.PositionId;
+
+    client.PositionCloseReasonToReturn = PositionCloseReason.Unknown;
+    client.PositionCloseExecutionPriceToReturn = stop;
+    client.RemovePosition(positionId);
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("stop loss / take profit", closed.Message);
+    Assert.DoesNotContain("unconfirmed", closed.Message);
+    Assert.NotNull(closed.GroupRealizedPips);
+    Assert.True(closed.GroupRealizedPips < 0);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);

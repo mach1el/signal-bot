@@ -19,14 +19,23 @@ from app.autotrade.trade_plan import TRADE_PLAN_VERSION
 pytestmark = pytest.mark.no_database
 
 
-def test_default_contract_mode_is_legacy_v6():
+def test_default_contract_mode_is_v7_only():
   from app.core.config import settings
 
-  assert settings.auto_trade_contract_mode == "legacy_v6"
+  assert settings.auto_trade_contract_mode == "v7_only"
 
 
 def test_contract_mode_rejects_unknown_value(monkeypatch):
   monkeypatch.setenv("AUTO_TRADE_CONTRACT_MODE", "definitely_not_a_mode")
+  config_module = importlib.import_module("app.core.config")
+  with pytest.raises(ValueError, match="AUTO_TRADE_CONTRACT_MODE"):
+    config_module.Settings()
+
+
+def test_legacy_v6_mode_value_is_rejected_not_silently_ignored(monkeypatch):
+  # V7 is the sole autonomous contract, unconditionally - a former mode
+  # value must fail closed at startup, never boot into a stale V6 path.
+  monkeypatch.setenv("AUTO_TRADE_CONTRACT_MODE", "legacy_v6")
   config_module = importlib.import_module("app.core.config")
   with pytest.raises(ValueError, match="AUTO_TRADE_CONTRACT_MODE"):
     config_module.Settings()
