@@ -30,8 +30,9 @@ def test_render_auto_trade_event_filters_noise_and_escapes_message():
     "type": "rejected",
     "message": "ordinary candidate rejection",
   })
-  assert "EXECUTOR REJECTED" in rejected
-  assert "ordinary candidate rejection" in rejected
+  # One forming card per setup (P4): a reject never becomes a card - it
+  # deletes the forming card instead (see _deliver_auto_trade_event).
+  assert rejected is None
   text = delivery.render_auto_trade_event({
     "type": "opened",
     "message": "BUY <0.12> lots",
@@ -89,7 +90,7 @@ def test_execution_lifecycle_cards_suppress_noise_keep_essentials():
 
   assert "WAITING FOR PRICE" in waiting
   assert "POSITION CLOSED" in closed
-  assert "EXECUTOR REJECTED" in rejected
+  assert rejected is None
 
 
 def test_position_closed_labels_broker_stop_loss_or_take_profit():
@@ -347,7 +348,7 @@ def test_essential_trade_lifecycle_still_renders():
   assert "POSITION CLOSED" in closed
   assert "Total net" not in closed
   assert "POSITION CLOSED" in closed_without_net
-  assert "EXECUTOR REJECTED" in rejected
+  assert rejected is None
 
 
 @pytest.mark.asyncio
@@ -567,21 +568,29 @@ async def test_opened_event_replies_to_stored_forming_message():
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_rejected_event_replies_to_stored_forming_message():
+async def test_rejected_event_deletes_forming_card_and_sends_nothing(monkeypatch):
+  # One forming card per setup (P4): a reject deletes the card (never posts
+  # "EXECUTOR REJECTED") and the setup is never re-carded.
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"
   await client.set(
     delivery._forming_message_key(match_id),
-    "7001",
+    json.dumps({"chat_id": 123, "message_id": 7001}),
     ex=60,
   )
+  deleted = []
+
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
     calls.append((text, kwargs))
     return SimpleNamespace(message_id=8124)
 
-  await delivery._deliver_auto_trade_event(
+  result = await delivery._deliver_auto_trade_event(
     client,
     {
       "type": "rejected",
@@ -594,8 +603,10 @@ async def test_rejected_event_replies_to_stored_forming_message():
     send=sent,
   )
 
-  assert len(calls) == 1
-  assert calls[0][1]["reply_to"] == 7001
+  assert result is False
+  assert calls == []
+  assert deleted == [(123, 7001)]
+  assert await client.get(delivery._forming_message_key(match_id)) is None
 
 
 @pytest.mark.asyncio
@@ -660,6 +671,120 @@ async def test_take_profit_replies_to_stored_order_message():
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 8123
   assert await client.get("auto_trade:tp_msg:39000344") == "8124"
+
+
+@pytest.mark.asyncio
+async def test_take_profit_prefers_the_forming_card_over_position_chain():
+  # One forming card per setup (P4): when a forming card exists for the
+  # event's match_id, take_profit/stop_moved/position_closed reply directly
+  # to it - not to the position-chain "opened" message (_reply_message_id).
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    json.dumps({"chat_id": 123, "message_id": 7001}),
+    ex=60,
+  )
+  await client.set("auto_trade:msg:39000344", "8123", ex=60)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8124)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "take_profit",
+      "match_id": match_id,
+      "message": "TP1 +30 pips closed volume 200",
+      "position_id": 39000344,
+      "stop_pips": 65,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+
+
+@pytest.mark.asyncio
+async def test_stop_moved_and_position_closed_also_thread_to_forming_card():
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    json.dumps({"chat_id": 123, "message_id": 7001}),
+    ex=60,
+  )
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8124)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "stop_moved",
+      "match_id": match_id,
+      "message": "🛡 ApexVoid Algo stop → 4,100.00 (breakeven)",
+      "position_id": 39000344,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "match_id": match_id,
+      "message": "BUY position is closed",
+      "position_id": 39000344,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert [call[1]["reply_to"] for call in calls] == [7001, 7001]
+
+
+@pytest.mark.asyncio
+async def test_thread_lifecycle_disabled_reverts_to_position_chain(monkeypatch):
+  client = redis_state.get_client()
+  match_id = "supply:M5:4062.49:4066.18:sweep"
+  await client.set(
+    delivery._forming_message_key(match_id),
+    json.dumps({"chat_id": 123, "message_id": 7001}),
+    ex=60,
+  )
+  await client.set("auto_trade:msg:39000344", "8123", ex=60)
+  monkeypatch.setattr(delivery.settings, "delivery_thread_lifecycle", False)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=9999)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "take_profit",
+      "match_id": match_id,
+      "message": "TP1 +30 pips closed volume 200",
+      "position_id": 39000344,
+      "stop_pips": 65,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert calls[0][1]["reply_to"] == 8123
 
 
 @pytest.mark.asyncio

@@ -1920,3 +1920,170 @@ async def test_scanner_loads_frames_with_h1_present_and_m30_absent(monkeypatch):
   frames = await scanner._load_frames(source, "XAU", "M5", scanner._htf_tfs())
   assert "H1" in frames
   assert "M30" not in frames
+
+
+def _card_ctx() -> SimpleNamespace:
+  return SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"H1": SimpleNamespace(bias="up")},
+    frames={"M5": _frame()},
+    regime=None,
+    spot_price=None,
+    trigger_ts="2026-07-10T00:00:00Z",
+  )
+
+
+def _card_result(structural_id: str = "demand-1") -> "scanner.DetectionResult":
+  return scanner.DetectionResult(
+    "Demand Zone Reaction",
+    "BUY",
+    4100.0,
+    Zone(4099.5, 4100.5, "demand"),
+    4101.0,
+    3,
+    ["demand zone"],
+    structural_source="supply_demand",
+    structural_id=structural_id,
+    structural_kind="demand",
+  )
+
+
+@pytest.mark.asyncio
+async def test_one_forming_card_per_setup_posts_once_then_edits(monkeypatch):
+  # One forming card per setup (P4): re-detection of the same setup_id
+  # edits the existing card - it never posts a second one.
+  client = redis_state.get_client()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  sent_texts = []
+  edited = []
+
+  async def notify(text, **kwargs):
+    sent_texts.append(text)
+    return SimpleNamespace(message_id=9001)
+
+  async def edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  match = SimpleNamespace(
+    strategy="Demand Zone Reaction",
+    match_id="p4-setup-1",
+    structural_zone_id=None,
+  )
+  result = _card_result()
+
+  await scanner._notify_digest_once(
+    client, "XAU", "M5", _card_ctx(), [result], notify, ["H1"],
+    execution_match=match, edit=edit,
+  )
+  # Second detection reaches here (band/dedup keys already claimed the
+  # first time) by clearing them, simulating a later independent cycle
+  # that reconfirms the same structural_id.
+  await client.delete(scanner._dedup_key("XAU", "M5", result))
+  await client.delete(scanner._band_dedup_key("XAU", result))
+
+  await scanner._notify_digest_once(
+    client, "XAU", "M5", _card_ctx(), [result], notify, ["H1"],
+    execution_match=match, edit=edit,
+  )
+
+  assert len(sent_texts) == 1
+  assert len(edited) == 1
+  assert edited[0][:2] == (4242, 9001)
+
+
+@pytest.mark.asyncio
+async def test_terminal_setup_is_never_re_carded_by_scanner(monkeypatch):
+  from app.autotrade.setup_lifecycle import (
+    CONFIRMED,
+    INVALIDATED,
+    create_setup,
+    transition_setup,
+  )
+
+  client = redis_state.get_client()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  await create_setup(
+    client, setup_id="p4-setup-2", thesis_id="thesis-2", symbol="XAU",
+  )
+  for state in ("watching", "touched", "forming", CONFIRMED):
+    await transition_setup(client, "p4-setup-2", state)
+  await transition_setup(client, "p4-setup-2", INVALIDATED, reason_code="structure_broke")
+
+  calls = []
+
+  async def notify(text, **kwargs):
+    calls.append(text)
+    return SimpleNamespace(message_id=1)
+
+  async def edit(chat_id, message_id, text):
+    calls.append(text)
+
+  match = SimpleNamespace(
+    strategy="Demand Zone Reaction",
+    match_id="p4-setup-2",
+    structural_zone_id=None,
+  )
+
+  await scanner._notify_digest_once(
+    client, "XAU", "M5", _card_ctx(), [_card_result()], notify, ["H1"],
+    execution_match=match, edit=edit,
+  )
+
+  assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_structure_invalidation_deletes_card_for_tracked_setup(monkeypatch):
+  from app.autotrade.setup_lifecycle import (
+    CONFIRMED,
+    create_setup,
+    load_setup,
+    transition_setup,
+  )
+  from app.autotrade import setup_card as setup_card_module
+
+  client = redis_state.get_client()
+  await create_setup(
+    client, setup_id="p4-setup-3", thesis_id="thesis-3", symbol="XAU",
+  )
+  for state in ("watching", "touched", "forming", CONFIRMED):
+    await transition_setup(client, "p4-setup-3", state)
+  await setup_card_module.save_forming_card(
+    client, "p4-setup-3", chat_id=4242, message_id=7777,
+  )
+  await client.set(
+    "scanner:setup:active_band:XAU:M5:test-bucket",
+    json.dumps({
+      "setup": "Demand Zone Reaction",
+      "direction": "BUY",
+      "zone_low": 4099.5,
+      "zone_high": 4100.5,
+      "confluence": 3,
+      "match_id": "p4-setup-3",
+    }),
+    ex=3600,
+  )
+  deleted = []
+
+  async def delete_fn(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  monkeypatch.setattr(scanner, "delete_scanner_message", delete_fn)
+  standalone_calls = []
+
+  async def notify(text, **kwargs):
+    standalone_calls.append(text)
+    return SimpleNamespace(message_id=1)
+
+  df = pd.DataFrame({
+    "open": [4095.0], "high": [4095.5], "low": [4094.5], "close": [4095.0],
+  }, index=pd.date_range("2026-07-10", periods=1, freq="5min", tz="UTC"))
+
+  await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, atr=1.0)
+
+  assert deleted == [(4242, 7777)]
+  assert standalone_calls == []  # no "SETUP INVALIDATED" text posted
+  record = await load_setup(client, "p4-setup-3")
+  assert record.state == "invalidated"
+  assert await setup_card_module.load_forming_card(client, "p4-setup-3") is None
