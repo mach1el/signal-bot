@@ -13,6 +13,8 @@ _publish_trade_plan_v7 twice: once to arm, once with a qualifying M1 bar in
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 import pytest
 
@@ -31,6 +33,9 @@ from app.persistence import redis_state
 
 
 def _match(**overrides) -> StrategyMatch:
+  # expires_at must be in the future relative to real wall-clock time (not
+  # a fixed historical epoch) since P4's EXPIRED sweep in
+  # _publish_trade_plan_v7 compares it against datetime.now(timezone.utc).
   base = dict(
     version=STRATEGY_MATCH_VERSION,
     match_id="match-v7-1",
@@ -38,7 +43,7 @@ def _match(**overrides) -> StrategyMatch:
     source_tf="M15",
     event_ts="1719999600",
     issued_at=1719999600,
-    expires_at=1719999600 + 3600,
+    expires_at=int(time.time()) + 3600,
     strategy="Trend Pullback",
     strategy_mode="with_trend",
     direction="BUY",
