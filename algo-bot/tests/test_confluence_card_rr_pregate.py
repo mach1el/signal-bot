@@ -1,0 +1,474 @@
+"""P3b: merged detector cards and reward/risk setup eligibility."""
+
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pandas as pd
+import pytest
+
+from app.analysis import scanner
+from app.analysis.confluence_zone import confluence_setup_id
+from app.analysis.types import Zone
+from app.autotrade import delivery, worker
+from app.autotrade.setup_lifecycle import (
+  ARMED_WAITING_TRIGGER,
+  CONFIRMED,
+  EXPIRED,
+  create_setup,
+  load_setup,
+  transition_setup,
+)
+from app.autotrade.strategy_match import StrategyMatch
+from app.autotrade.trade_plan_builder import TradePlanBuildRejected
+from app.persistence import redis_state
+
+
+pytestmark = pytest.mark.no_database
+
+
+def _frame(price: float = 4101.0) -> pd.DataFrame:
+  index = pd.date_range("2026-07-28 12:00", periods=3, freq="5min", tz="UTC")
+  return pd.DataFrame({
+    "open": [price - 0.2, price + 0.1, price - 0.1],
+    "high": [price + 0.4, price + 0.5, price + 0.3],
+    "low": [price - 0.5, price - 0.3, price - 0.4],
+    "close": [price + 0.1, price - 0.1, price],
+    "volume": [100.0, 120.0, 110.0],
+  }, index=index)
+
+
+def _ctx(price: float = 4101.0, atr: float = 2.0):
+  frame = _frame(price)
+  return SimpleNamespace(
+    tf="M5",
+    htf_bias="down",
+    indicators={"M5": SimpleNamespace(atr=pd.Series([atr]))},
+    structures={"M30": SimpleNamespace(bias="down")},
+    frames={"M5": frame},
+    regime=SimpleNamespace(kind="trend"),
+    spot_price=None,
+    trigger_ts="2026-07-28T12:10:00+00:00",
+    analysis=None,
+  )
+
+
+def _result(
+  *,
+  setup: str,
+  direction: str,
+  low: float,
+  high: float,
+  structural_id: str,
+  source: str,
+  kind: str,
+  confluence: int = 3,
+  current_price: float | None = None,
+) -> scanner.DetectionResult:
+  side = "demand" if direction == "BUY" else "supply"
+  return scanner.DetectionResult(
+    setup=setup,
+    direction=direction,
+    key_level=(low + high) / 2,
+    entry_zone=Zone(low, high, side, score=float(confluence)),
+    current_price=(
+      (low + high) / 2 if current_price is None else current_price
+    ),
+    confluence=confluence,
+    reasons=[f"{kind} reaction"],
+    structural_source=source,
+    structural_id=structural_id,
+    structural_low=low,
+    structural_high=high,
+    structural_timeframe="M5",
+    structural_kind=kind,
+    confirmation_type="wick_rejection",
+    confirmation_bar_ts="2026-07-28T12:10:00+00:00",
+    touch_bar_ts="2026-07-28T12:05:00+00:00",
+  )
+
+
+def _build_one(result: scanner.DetectionResult, ctx) -> StrategyMatch:
+  match, reason, measured = scanner._build_one_strategy_match(
+    "XAU",
+    "M5",
+    "2026-07-28T12:10:00+00:00",
+    ctx,
+    result,
+    now=1_722_168_600,
+  )
+  assert reason is None, measured
+  assert match is not None
+  return match
+
+
+@pytest.mark.asyncio
+async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
+  client = redis_state.get_client()
+  ctx = _ctx()
+  supply = _result(
+    setup="Supply Zone Reaction",
+    direction="SELL",
+    low=4100.5,
+    high=4102.2,
+    structural_id="supply-1",
+    source="supply_demand",
+    kind="supply",
+    confluence=4,
+  )
+  key = _result(
+    setup="Key Level Reaction",
+    direction="SELL",
+    low=4101.8,
+    high=4102.4,
+    structural_id="key-1",
+    source="key_level",
+    kind="resistance",
+    confluence=3,
+  )
+
+  merged = scanner._merge_detection_confluence(
+    "XAU", "M5", [supply, key], atr=2.0,
+  )
+
+  assert len(merged) == 1
+  result = merged[0]
+  assert result.setup == "Supply Zone Reaction"
+  assert result.confluence_tags == ("key_level", "supply")
+  assert result.confluence == 2
+  monkeypatch.setattr(
+    scanner.settings,
+    "auto_trade_strategy_match_enabled",
+    True,
+  )
+  match = await scanner._sync_strategy_match(
+    client,
+    "XAU",
+    "M5",
+    "2026-07-28T12:10:00+00:00",
+    ctx,
+    merged,
+  )
+  assert match is not None
+  assert match.match_id == confluence_setup_id(
+    result.confluence_zone_id,
+    "SELL",
+  )
+  assert match.structural_zone_id == result.confluence_zone_id
+  assert match.confluence_zone_id == result.confluence_zone_id
+  assert {"kind:key_level", "kind:supply"} <= set(match.tags)
+  restored = StrategyMatch.from_json(match.to_json())
+  assert restored is not None
+  assert restored.match_id == match.match_id
+  assert restored.confluence_zone_id == result.confluence_zone_id
+  setup_keys = [key async for key in client.scan_iter("analysis:setup:*")]
+  assert setup_keys == [f"analysis:setup:{match.match_id}"]
+  assert (await load_setup(client, match.match_id)).state == CONFIRMED
+  assert worker._resolve_match_confluence_claim_id(
+    "XAU", match, None,
+  ) == result.confluence_zone_id
+
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  sent_texts = []
+
+  async def notify(text, **_kwargs):
+    sent_texts.append(text)
+    return SimpleNamespace(message_id=9001)
+
+  cards = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    ctx,
+    merged,
+    notify,
+    ["M30"],
+    execution_match=match,
+    execution_matches=[match],
+  )
+
+  assert cards == merged
+  assert len(sent_texts) == 1
+  assert "Key Level + Supply · Supply Zone Reaction" in sent_texts[0]
+
+
+@pytest.mark.asyncio
+async def test_distinct_same_side_zones_still_form_two_cards(monkeypatch):
+  client = redis_state.get_client()
+  ctx = _ctx()
+  raw = [
+    _result(
+      setup="Demand Zone Reaction", direction="BUY",
+      low=4099.0, high=4100.2, structural_id="demand-a",
+      source="supply_demand", kind="demand",
+    ),
+    _result(
+      setup="Key Level Reaction", direction="BUY",
+      low=4099.8, high=4100.4, structural_id="key-a",
+      source="key_level", kind="support",
+    ),
+    _result(
+      setup="Demand Zone Reaction", direction="BUY",
+      low=4110.0, high=4111.2, structural_id="demand-b",
+      source="supply_demand", kind="demand",
+    ),
+    _result(
+      setup="Key Level Reaction", direction="BUY",
+      low=4110.8, high=4111.4, structural_id="key-b",
+      source="key_level", kind="support",
+    ),
+  ]
+  merged = scanner._merge_detection_confluence(
+    "XAU", "M5", raw, atr=2.0,
+  )
+
+  assert len(merged) == 2
+  assert len({item.confluence_zone_id for item in merged}) == 2
+  matches = [_build_one(item, ctx) for item in merged]
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  notify = AsyncMock(return_value=SimpleNamespace(message_id=9002))
+
+  cards = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    ctx,
+    merged,
+    notify,
+    ["M30"],
+    execution_match=matches[0],
+    execution_matches=matches,
+  )
+
+  assert len(cards) == 2
+  assert notify.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_opposing_sides_at_same_price_are_not_merged_or_card_suppressed(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  ctx = _ctx()
+  raw = [
+    _result(
+      setup="Demand Zone Reaction", direction="BUY",
+      low=4100.0, high=4101.0, structural_id="demand-buy",
+      source="supply_demand", kind="demand",
+    ),
+    _result(
+      setup="Supply Zone Reaction", direction="SELL",
+      low=4100.0, high=4101.0, structural_id="supply-sell",
+      source="supply_demand", kind="supply",
+    ),
+  ]
+  merged = scanner._merge_detection_confluence(
+    "XAU", "M5", raw, atr=2.0,
+  )
+
+  assert len(merged) == 2
+  assert {item.direction for item in merged} == {"BUY", "SELL"}
+  matches = [_build_one(item, ctx) for item in merged]
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
+  notify = AsyncMock(return_value=SimpleNamespace(message_id=9003))
+
+  cards = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    ctx,
+    merged,
+    notify,
+    ["M30"],
+    execution_match=matches[0],
+    execution_matches=matches,
+  )
+
+  assert len(cards) == 2
+  assert notify.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_reward_risk_pre_gate_suppresses_card_and_confirmation(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  ctx = _ctx(price=4100.5, atr=2.0)
+  frames = ctx.frames
+  result = _result(
+    setup="Demand Zone Reaction",
+    direction="BUY",
+    low=4100.0,
+    high=4101.0,
+    structural_id="low-rr-demand",
+    source="supply_demand",
+    kind="demand",
+    confluence=3,
+    current_price=4100.5,
+  )
+  monkeypatch.setattr(scanner.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", "M5")
+  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30")
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(scanner.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(scanner.settings, "auto_trade_tp_pips", "30")
+  monkeypatch.setattr(
+    scanner,
+    "_load_market_context_for_symbol",
+    AsyncMock(return_value=(ctx, frames)),
+  )
+  notify = AsyncMock(return_value=SimpleNamespace(message_id=9004))
+
+  sent = await scanner._handle_event(
+    "XAU:M5:2026-07-28T12:10:00+00:00",
+    detectors=[lambda _ctx: result],
+    client=client,
+    notify=notify,
+  )
+
+  assert sent == []
+  notify.assert_not_awaited()
+  setup_keys = [key async for key in client.scan_iter("analysis:setup:*")]
+  assert setup_keys == []
+  status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
+  assert status["eligibility_gated"][0]["reason"] == "rr_pre_gate"
+  records = await client.lrange(scanner._detect_log_key("XAU", "M5"), 0, 0)
+  logged = json.loads(records[0])
+  assert logged["entries"][0]["outcome"] == "rr_pre_gate"
+  assert logged["entries"][0]["reason"] == "rr_pre_gate"
+
+
+async def _confirm(client, match: StrategyMatch) -> None:
+  await create_setup(
+    client,
+    setup_id=match.match_id,
+    thesis_id=match.thesis_id,
+    symbol=match.symbol,
+    source_structure_id=match.structural_zone_id,
+    formation_timeframe=match.structural_timeframe,
+    expires_at=match.expires_at,
+  )
+  for state in ("watching", "touched", "forming", CONFIRMED):
+    await transition_setup(client, match.match_id, state)
+
+
+@pytest.mark.asyncio
+async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  zone_id = "merged-zone-final-rr"
+  setup_id = confluence_setup_id(zone_id, "BUY")
+  match = StrategyMatch(
+    version=1,
+    match_id=setup_id,
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="1722168600",
+    issued_at=1722168600,
+    expires_at=2_000_000_000,
+    strategy="Demand Zone Reaction",
+    strategy_mode="with_bias",
+    direction="BUY",
+    key_level=4100.5,
+    entry_low=4100.0,
+    entry_high=4101.0,
+    current_price=4100.5,
+    confluence=3,
+    reasons=("demand reaction",),
+    atr=2.0,
+    structure_swing=4100.0,
+    targets_pips=(30,),
+    family="supply_demand",
+    structural_source="supply_demand",
+    zone_id=zone_id,
+    confluence_zone_id=zone_id,
+    structural_zone_id=zone_id,
+    structural_zone_low=4100.0,
+    structural_zone_high=4101.0,
+    structural_kind="demand",
+    structural_timeframe="M5",
+    htf_bias="up",
+    regime_kind="trend",
+    thesis_id="thesis-final-rr",
+  )
+  await _confirm(client, match)
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({"chat_id": 4242, "message_id": 9005}),
+    ex=60,
+  )
+  spot = worker.AutoTradeSpot(
+    price=4100.5,
+    ts=1722168600,
+    fresh=True,
+    bid=4100.4,
+    ask=4100.6,
+  )
+  monkeypatch.setattr(
+    worker,
+    "evaluate_m1_trigger",
+    lambda *_args, **_kwargs: SimpleNamespace(wick_extreme=4099.5),
+  )
+
+  def reject_rr(*_args, **_kwargs):
+    raise TradePlanBuildRejected(
+      "policy_reward_risk_insufficient",
+      "remaining reward/risk below policy minimum",
+      {"reward_risk": 0.75, "min_reward_risk": 1.15},
+    )
+
+  monkeypatch.setattr(
+    worker,
+    "build_trade_plan_from_strategy_match",
+    reject_rr,
+  )
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  ) is None
+  assert (await load_setup(client, setup_id)).state == ARMED_WAITING_TRIGGER
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    frames={"M1": _frame()},
+  ) is None
+  assert (await load_setup(client, setup_id)).state == EXPIRED
+  assert await client.get(f"execution:trade_plan:v7:{setup_id}") is None
+  events = await client.xrange(worker.settings.auto_trade_event_stream)
+  payloads = [json.loads(fields["payload"]) for _id, fields in events]
+  assert payloads[-1]["type"] == EXPIRED
+  assert payloads[-1]["reason_code"] == "m1_trigger_expired"
+
+  deleted = []
+
+  async def delete_card(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  sent_messages = []
+
+  async def send_message(text, **kwargs):
+    sent_messages.append((text, kwargs))
+    return SimpleNamespace(message_id=9006)
+
+  monkeypatch.setattr(delivery.settings, "delivery_delete_on_terminal", True)
+  monkeypatch.setattr(delivery, "delete_scanner_message", delete_card)
+  delivered = await delivery._deliver_auto_trade_event(
+    client,
+    payloads[-1],
+    profile="internal",
+    chat_id=4242,
+    send=send_message,
+  )
+
+  assert delivered is False
+  assert deleted == [(4242, 9005)]
+  assert sent_messages == []
+  assert await client.get(delivery._forming_message_key(setup_id)) is None
