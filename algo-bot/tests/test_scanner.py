@@ -639,7 +639,8 @@ def test_scanner_card_never_claims_ready_before_worker(monkeypatch):
 
   assert "Algo bot CHECKING" in ready
   assert "Algo bot READY" not in ready
-  assert "Algo bot BLOCKED" in blocked
+  assert "ANALYSIS ONLY" in blocked
+  assert "Algo bot BLOCKED" not in blocked
 
 
 def test_scalp_status_reports_active_range_and_touched_edge():
@@ -854,14 +855,22 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
     notify=notify,
   )
 
-  assert sent == results[:2]
+  assert [
+    (item.setup, item.direction, item.key_level)
+    for item in sent
+  ] == [
+    (item.setup, item.direction, item.key_level)
+    for item in results[:2]
+  ]
+  assert all(item.confluence_zone_id for item in sent)
   assert notify.await_count == 2
   sync_strategy_match.assert_awaited_once()
   execution_digest = sync_strategy_match.await_args.args[5]
-  assert execution_digest == results
+  assert len(execution_digest) == len(results)
+  assert all(item.confluence_zone_id for item in execution_digest)
   assert all([
     await client.get(scanner._dedup_key("XAU", "M5", result)) == "1"
-    for result in results
+    for result in execution_digest
   ])
 
 
@@ -1290,9 +1299,7 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   # "invalidated" (B3) on the very next scan against the same static close -
   # clear its tracking state, matching the band-dedup reset above, since this
   # test isn't exercising invalidation.
-  await client.delete(
-    scanner._active_setup_key("XAU", "M5", result_far.setup, result_far.direction)
-  )
+  await client.delete(scanner._active_setup_band_key("XAU", "M5", result_far))
   current["result"] = result_b
   after_ttl = await scanner._handle_event(
     "XAU:M5:4",
@@ -1721,7 +1728,7 @@ def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):
 # --- B3: setup invalidation --------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_setup_invalidation_fires_when_zone_is_violated(monkeypatch):
+async def test_setup_invalidation_is_silent_when_zone_is_violated(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
@@ -1749,10 +1756,7 @@ async def test_setup_invalidation_fires_when_zone_is_violated(monkeypatch):
 
   await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, 0.0)
 
-  notify.assert_awaited_once()
-  text = notify.await_args.args[0]
-  assert "SETUP INVALIDATED" in text
-  assert "Range Edge Scalp" in text
+  notify.assert_not_awaited()
   assert await client.get(key) is None
 
 
@@ -1835,7 +1839,7 @@ async def test_setup_invalidation_suppressed_after_autonomous_entry(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_overlapping_setups_invalidate_once_per_band(monkeypatch):
+async def test_overlapping_setup_invalidations_are_all_silent(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
@@ -1866,7 +1870,7 @@ async def test_overlapping_setups_invalidate_once_per_band(monkeypatch):
 
   await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, 0.0)
 
-  notify.assert_awaited_once()
+  notify.assert_not_awaited()
   assert await client.get(
     scanner._active_setup_band_key("XAU", "M5", key_level),
   ) is None

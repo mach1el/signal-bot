@@ -285,10 +285,11 @@ def test_strategy_route_plan_published_shows_executor_fields():
 
 
 @pytest.mark.no_database
-def test_strategy_route_executor_wait_shows_quote_zone_and_limit():
+@pytest.mark.parametrize("status", ["waiting", "blocked", "executor_rejected"])
+def test_strategy_route_preflight_outcomes_are_telegram_silent(status):
   text = delivery.render_auto_trade_event({
     "type": "strategy_route",
-    "status": "waiting",
+    "status": status,
     "reason_code": "executor_entry_envelope_exceeded",
     "strategy": "Mapped Zone Reaction",
     "direction": "BUY",
@@ -301,12 +302,7 @@ def test_strategy_route_executor_wait_shows_quote_zone_and_limit():
     },
   })
 
-  assert "Algo bot WAIT" in text
-  assert "Quote: <b>4,053.56</b>" in text
-  assert "Distance: <b>15.6p</b>" in text
-  assert "Executor limit: <b>10.0p</b>" in text
-  assert "Setup retained" in text
-  assert "Drift" not in text
+  assert text is None
 
 
 
@@ -611,7 +607,7 @@ async def test_rejected_event_deletes_forming_card_and_sends_nothing(monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_strategy_route_replies_to_stored_forming_message():
+async def test_blocked_strategy_route_does_not_reply_to_forming_message():
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"
   await client.set(
@@ -641,8 +637,8 @@ async def test_strategy_route_replies_to_stored_forming_message():
     send=sent,
   )
 
-  assert len(calls) == 1
-  assert calls[0][1]["reply_to"] == 7001
+  assert calls == []
+  assert await client.get(delivery._forming_message_key(match_id)) == "7001"
 
 
 @pytest.mark.asyncio
