@@ -120,6 +120,31 @@ def test_position_closed_omits_label_when_reason_unconfirmed():
   assert "Closed manually" not in closed
 
 
+def test_position_closed_recaps_total_after_earlier_partial_tps():
+  # SL hit after being moved to BE/TP2/TP3 - the final leg's own pips are
+  # not the story; the owner needs the blended group result (earlier TP
+  # legs already booked their own pips in their own cards).
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "position is no longer open at broker (reason unconfirmed)",
+    "previous_state": "partially_closed",
+    "group_realized_pips": 7.975,
+  })
+  assert "Total: <b>+8.0 pips</b>" in closed
+
+
+def test_position_closed_omits_total_when_never_partially_closed():
+  # A position closed in one shot (no prior TP legs) has nothing to recap -
+  # its own leg pips would just duplicate the group total.
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "stop_loss_or_take_profit",
+    "group_realized_pips": -12.0,
+  })
+  assert "Total:" not in closed
+
+
 def test_render_box_open_and_full_tp_as_shareable_cards():
   opened = delivery.render_auto_trade_event({
     "type": "opened",

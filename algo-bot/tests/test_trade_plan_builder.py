@@ -1,20 +1,24 @@
 """TradePlan V7 builder - translates an already-confirmed StrategyMatch.
 
-Per docs/adr-trade-plan-v7-boundary.md this must be a pure reshape, not a
-second decision: stop.price must be exactly StrategyMatch.structure_swing
-(no recomputation), and target prices must be a mechanical pip->price
-conversion of the already-decided targets_pips ladder.
+Per docs/adr-trade-plan-v7-boundary.md this is a pure reshape of what
+`evaluate_execution_policy` (the same route/stop planner the V6 path already
+calls) already decided - never a second, independently-derived route or
+stop, and never a direction-derived shortcut (BUY => bias up, BUY => demand).
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
-from app.autotrade.trade_plan import TradePlanError
-from app.autotrade.trade_plan_builder import build_trade_plan_from_strategy_match
+from app.autotrade.trade_plan_builder import (
+  TradePlanBuildRejected,
+  build_trade_plan_from_strategy_match,
+)
 
 
 def _match(
@@ -24,8 +28,11 @@ def _match(
   entry_high: float = 4090.00,
   structure_swing: float = 4081.80,
   targets: tuple[int, ...] = (60, 140, 250),
-  thesis_id: str | None = "thesis-abc",
   match_id: str = "match-abc",
+  structural_zone_id: str | None = "zone-xau-4088-4090",
+  structural_kind: str | None = "demand",
+  htf_bias: str = "up",
+  regime_kind: str = "trend",
 ) -> StrategyMatch:
   return StrategyMatch(
     version=STRATEGY_MATCH_VERSION,
@@ -49,7 +56,13 @@ def _match(
     targets_pips=targets,
     tier="A",
     family="trend_pullback",
-    thesis_id=thesis_id,
+    structural_zone_id=structural_zone_id,
+    structural_zone_low=entry_low,
+    structural_zone_high=entry_high,
+    structural_kind=structural_kind,
+    structural_timeframe="H1",
+    htf_bias=htf_bias,
+    regime_kind=regime_kind,
   )
 
 
@@ -57,57 +70,130 @@ def _build(match: StrategyMatch, **overrides):
   kwargs = {
     "plan_id": "plan-1",
     "setup_id": "setup-1",
+    "thesis_id": "thesis-1",
     "pip_size": Decimal("0.1"),
-    "entry_reference_price": Decimal("4090.00"),
-    "price_side": "ask",
+    "spot_price": match.current_price,
+    "regime": "trend",
+    "cfg": None,
+    "executable_quote": match.current_price,
     "max_volume": 1000,
   }
   kwargs.update(overrides)
   return build_trade_plan_from_strategy_match(match, **kwargs)
 
 
-def test_builds_valid_plan_from_confirmed_match():
+def test_builds_valid_plan_with_real_bias_kind_and_regime():
   plan = _build(_match())
 
   assert plan.version == 7
   assert plan.plan_id == "plan-1"
+  assert plan.thesis_id == "thesis-1"
   assert plan.symbol == "XAU"
   assert plan.analysis.direction == "BUY"
   assert plan.analysis.strategy == "Trend Pullback"
+  # Real captured values, not derived from direction.
+  assert plan.analysis.bias == "up"
+  assert plan.analysis.regime == "trend"
+  assert plan.source_structure.kind == "demand"
+  assert plan.source_structure.structure_id == "zone-xau-4088-4090"
+  assert plan.source_structure.timeframe == "H1"
+
+
+def test_bias_and_kind_are_whatever_was_captured_not_direction_derived():
+  # A BUY with a bearish HTF bias and a supply-side structural kind (e.g. a
+  # counter-trend fade) must round-trip exactly as captured - the builder
+  # must never silently overwrite it with "BUY => bias up, BUY => demand".
+  match = _match(direction="BUY", htf_bias="down", structural_kind="supply")
+  plan = _build(match)
+
+  assert plan.analysis.direction == "BUY"
+  assert plan.analysis.bias == "down"
+  assert plan.source_structure.kind == "supply"
+
+
+def test_missing_structural_zone_id_fails_closed():
+  match = _match(structural_zone_id=None)
+
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(match)
+
+  assert excinfo.value.reason_code == "missing_stable_thesis_id"
+
+
+def test_missing_structural_kind_fails_closed():
+  match = _match(structural_kind=None)
+
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(match)
+
+  assert excinfo.value.reason_code == "missing_structural_kind"
+
+
+def test_missing_htf_bias_fails_closed():
+  match = _match(htf_bias="")
+
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(match)
+
+  assert excinfo.value.reason_code == "missing_htf_bias"
+
+
+def test_market_route_produces_market_watch_entry():
+  # quote inside the zone, zone-fill disabled -> execution_policy resolves
+  # "market".
+  match = _match(entry_low=4088.10, entry_high=4090.00)
+  plan = _build(match, spot_price=4089.0, executable_quote=4089.0)
+
   assert plan.entry.type == "market_watch"
   assert plan.entry.zone_low == Decimal("4088.1")
   assert plan.entry.zone_high == Decimal("4090.0")
+  assert plan.entry.price_side == "ask"
+  assert plan.execution_policy.allow_market is True
+  assert plan.execution_policy.allow_limit is False
 
 
-def test_stop_price_is_exactly_structure_swing_no_recomputation():
-  match = _match(structure_swing=4081.80)
-  plan = _build(match)
+def test_single_limit_route_produces_single_limit_entry():
+  # Narrow zone relative to ATR (zone_width_atr < 0.5) resolves "single".
+  match = _match(entry_low=4088.60, entry_high=4088.80)
+  plan = _build(match, spot_price=4088.5, executable_quote=4088.5)
 
-  assert plan.stop.price == Decimal("4081.8")
-  assert plan.stop.source == "structural_invalidation"
-
-
-def test_targets_convert_pips_to_absolute_prices_from_entry_reference():
-  plan = _build(_match(targets=(60, 140, 250)))
-
-  prices = [target.price for target in plan.targets]
-  assert prices == [Decimal("4096.0"), Decimal("4104.0"), Decimal("4115.0")]
-  assert [target.target_id for target in plan.targets] == ["TP1", "TP2", "TP3"]
+  assert plan.entry.type == "single_limit"
+  assert plan.entry.order_price == Decimal("4088.5")
+  assert plan.execution_policy.allow_limit is True
+  assert plan.execution_policy.allow_market is False
 
 
-def test_sell_direction_targets_go_below_entry_reference():
-  match = _match(
-    direction="SELL",
-    entry_low=4110.00,
-    entry_high=4112.00,
-    structure_swing=4118.50,
-    targets=(80, 180),
+def test_zone_split_route_produces_limit_ladder_with_two_legs():
+  cfg = SimpleNamespace(
+    auto_trade_zone_fill_enabled=True, auto_trade_zone_fill_min_atr=0.1,
   )
-  plan = _build(match, entry_reference_price=Decimal("4111.20"), price_side="bid")
+  match = _match(entry_low=4088.10, entry_high=4090.00)
+  plan = _build(match, cfg=cfg, spot_price=4089.0, executable_quote=4089.0)
+
+  assert plan.entry.type == "limit_ladder"
+  assert len(plan.entry.legs) == 2
+  total_ratio = sum(leg.volume_ratio for leg in plan.entry.legs)
+  assert total_ratio == Decimal("1")
+
+
+def test_stop_price_comes_from_execution_policy_not_raw_structure_swing():
+  # structure_swing=4081.80 but the real protective-stop plan (buffer,
+  # clamping, min/max stop pips) produces a different absolute price - the
+  # builder must transport that, not fall back to the raw swing.
+  match = _match(structure_swing=4081.80)
+  plan = _build(match, spot_price=4089.0, executable_quote=4089.0)
+
+  assert plan.stop.price != Decimal("4081.8")
+  assert plan.stop.price == Decimal("4082.50")
+  assert plan.stop.structure_id == "zone-xau-4088-4090"
+
+
+def test_targets_convert_pips_to_absolute_prices_from_planned_entry():
+  plan = _build(_match(targets=(60, 140, 250)), spot_price=4089.0, executable_quote=4089.0)
 
   prices = [target.price for target in plan.targets]
-  assert prices == [Decimal("4103.20"), Decimal("4093.20")]
-  assert plan.stop.price == Decimal("4118.5")
+  assert prices == [Decimal("4095.0"), Decimal("4103.0"), Decimal("4114.0")]
+  assert [target.target_id for target in plan.targets] == ["TP1", "TP2", "TP3"]
 
 
 def test_equal_close_ratios_sum_to_exactly_one():
@@ -127,26 +213,14 @@ def test_custom_close_ratios_are_respected():
   assert ratios == [Decimal("0.4"), Decimal("0.35"), Decimal("0.25")]
 
 
-def test_close_ratios_length_mismatch_raises():
-  with pytest.raises(TradePlanError, match="close_ratios length"):
+def test_close_ratios_length_mismatch_rejects():
+  with pytest.raises(TradePlanBuildRejected, match="close_ratios length"):
     _build(_match(targets=(60, 140, 250)), close_ratios=[Decimal("1.0")])
 
 
-def test_missing_targets_pips_raises():
-  with pytest.raises(TradePlanError, match="no targets_pips"):
+def test_missing_targets_pips_rejects():
+  with pytest.raises(TradePlanBuildRejected, match="no targets_pips"):
     _build(_match(targets=()))
-
-
-def test_invalid_price_side_raises():
-  with pytest.raises(TradePlanError, match="price_side"):
-    _build(_match(), price_side="mid")
-
-
-def test_thesis_id_falls_back_to_match_id_when_absent():
-  match = _match(thesis_id=None, match_id="fallback-id")
-  plan = _build(match)
-
-  assert plan.thesis_id == "fallback-id"
 
 
 def test_be_after_target_defaults_to_first_target():
@@ -161,18 +235,15 @@ def test_be_after_target_index_can_be_overridden():
   assert plan.management.be_after_target_id == "TP2"
 
 
-def test_source_structure_kind_follows_direction():
-  buy_plan = _build(_match(direction="BUY"))
-  sell_plan = _build(
-    _match(
-      direction="SELL",
-      entry_low=4110.00,
-      entry_high=4112.00,
-      structure_swing=4118.50,
-    ),
-    entry_reference_price=Decimal("4111.20"),
-    price_side="bid",
-  )
+def test_execution_policy_rejection_is_not_silently_swallowed():
+  # confluence 1 is below Trend Pullback's min_confluence=2 -> the shared
+  # V6 gate rejects it, and the builder must surface that reason, not
+  # raise an opaque error or (worse) build a plan anyway.
+  match = _match()
+  low_confluence = replace(match, confluence=1)
 
-  assert buy_plan.source_structure.kind == "demand"
-  assert sell_plan.source_structure.kind == "supply"
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(low_confluence)
+
+  assert excinfo.value.reason_code
+  assert excinfo.value.measured
