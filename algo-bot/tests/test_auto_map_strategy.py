@@ -48,7 +48,7 @@ def _map(
     box_low=box_low,
     box_high=box_high,
     bias=bias,
-    bias_tf="M30",
+    bias_tf="H1",
     actionable_entries=(
       list(entries) if actionable_entries is None else list(actionable_entries)
     ),
@@ -90,9 +90,14 @@ def _cfg(**overrides) -> SimpleNamespace:
   return SimpleNamespace(**values)
 
 
-def test_incident_m1_rejection_matches_mapped_supply(monkeypatch):
+def test_m1_rejection_no_longer_produces_a_candidate(monkeypatch):
+  # M1 mapped-zone reaction is retired as a setup source (H1->M15->M5
+  # single-analysis-source cutover, P2): inputs that previously produced a
+  # "candidate" (a clean M1 rejection at an executable structural zone) must
+  # now stop at "waiting_for_touch" with no match - the structural pool
+  # still tracks the zone, it just no longer has any trigger mechanism.
   m1 = _m1_bar()
-  frames = {tf: m1 for tf in ("M1", "M5", "M15", "M30")}
+  frames = {tf: m1 for tf in ("M1", "M5", "M15", "H1")}
   market_map = _map(
     MapEntry("sell", 4150.0, 4150.0, 4150, 4151, "level", ["round"], 1.0),
     _supply(),
@@ -117,17 +122,10 @@ def test_incident_m1_rejection_matches_mapped_supply(monkeypatch):
     now=1784731560,
   )
 
-  assert decision.state == "candidate"
-  assert decision.mapped_zone == (4152.97, 4153.37)
-  assert decision.match is not None
-  assert decision.match.strategy == "Mapped Zone Reaction"
-  assert decision.match.strategy_mode == "mapped_zone_reaction"
-  assert decision.match.direction == "SELL"
-  assert decision.match.source_tf == "M1"
-  assert decision.match.entry_low < 4152.97
-  assert decision.match.structure_swing == 4153.37
-  assert decision.match.confluence == 3
-  assert StrategyMatch.from_json(decision.match.to_json()) == decision.match
+  assert decision.state == "waiting_for_touch"
+  assert decision.match is None
+  assert decision.mapped_zone is None
+  assert "nearest mapped SELL zone 4152.97-4153.37" in decision.reasons[0]
 
 
 def test_round_number_fallback_is_never_executable():
@@ -156,7 +154,7 @@ def test_display_capped_zone_is_still_executable_from_actionable_pool(monkeypatc
   # `actionable_entries` structural pool. Selection must use the pool, not
   # the display list, so a zone Telegram doesn't show can still be traded.
   m1 = _m1_bar()
-  frames = {tf: m1 for tf in ("M1", "M5", "M15", "M30")}
+  frames = {tf: m1 for tf in ("M1", "M5", "M15", "H1")}
   round_level = MapEntry("sell", 4150.0, 4150.0, 4150, 4151, "level", ["round"], 1.0)
   supply = _supply()
   market_map = _map(
@@ -181,8 +179,8 @@ def test_display_capped_zone_is_still_executable_from_actionable_pool(monkeypatc
     now=1784731560,
   )
 
-  assert decision.state == "candidate"
-  assert decision.mapped_zone == (4152.97, 4153.37)
+  assert decision.state == "waiting_for_touch"
+  assert "nearest mapped SELL zone 4152.97-4153.37" in decision.reasons[0]
 
 
 def test_zone_only_in_display_list_is_not_executable(monkeypatch):
@@ -190,7 +188,7 @@ def test_zone_only_in_display_list_is_not_executable(monkeypatch):
   # `entries` list (e.g. it lost genuine structural status since the map
   # was built) must not be executable just because Telegram still shows it.
   m1 = _m1_bar()
-  frames = {tf: m1 for tf in ("M1", "M5", "M15", "M30")}
+  frames = {tf: m1 for tf in ("M1", "M5", "M15", "H1")}
   round_level = MapEntry("sell", 4150.0, 4150.0, 4150, 4151, "level", ["round"], 1.0)
   supply = _supply()
   market_map = _map(
@@ -219,7 +217,12 @@ def test_zone_only_in_display_list_is_not_executable(monkeypatch):
   assert decision.mapped_zone is None
 
 
-def test_touch_without_m1_rejection_waits():
+def test_touched_zone_reports_waiting_for_touch_with_no_trigger_source():
+  # "waiting_for_reaction" (a touch confirmed but M1 rejection still
+  # pending) no longer exists - M1 mapped-zone reaction is retired as a
+  # setup source (P2), so any executable-but-untriggered zone reports the
+  # same "waiting_for_touch" terminal state regardless of whether price has
+  # touched it yet.
   selected, state, reasons = map_strategy._select_reaction(
     _map(_supply()),
     _m1_bar(open_=4151.5, high=4153.2, low=4151.4, close=4153.1),
@@ -230,8 +233,8 @@ def test_touch_without_m1_rejection_waits():
   )
 
   assert selected is None
-  assert state == "waiting_for_reaction"
-  assert "waiting for M1 rejection" in reasons[0]
+  assert state == "waiting_for_touch"
+  assert "no entry trigger source configured" in reasons[0]
 
 
 def test_bias_selects_only_the_matching_side():
@@ -440,7 +443,11 @@ def test_counter_bias_flag_off_keeps_opposite_zone_ignored():
   assert state == "waiting_for_touch"
 
 
-def test_worked_counter_bias_zone_produces_tagged_eq_capped_match(monkeypatch):
+def test_worked_counter_bias_zone_reaches_waiting_for_touch_no_match(monkeypatch):
+  # Counter-bias zone SELECTION still runs (Market Map's structural pool is
+  # kept) but no longer promotes the winning zone to a StrategyMatch - the
+  # M1 reaction detector (and the EQ-capped target/tag construction that
+  # depended on it) is retired as a setup source (P2).
   monkeypatch.setattr(
     map_strategy,
     "atr_indicator",
@@ -458,16 +465,9 @@ def test_worked_counter_bias_zone_produces_tagged_eq_capped_match(monkeypatch):
     now=1784806680,
   )
 
-  assert decision.state == "candidate"
-  assert decision.mapped_zone == (4066.0, 4073.0)
-  assert decision.match is not None
-  assert decision.match.direction == "BUY"
-  assert "counter_bias" in decision.match.tags
-  assert decision.match.tags[0] == "counter_bias"
-  assert decision.match.target_price == 4084.0
-  assert decision.match.targets_pips == (30, 60, 90, 111)
-  assert "counter_bias" in decision.match.reasons[0]
-  assert "target capped at box EQ 4084.00" in decision.match.reasons[-1]
+  assert decision.state == "waiting_for_touch"
+  assert decision.match is None
+  assert "nearest mapped BUY zone 4066.00-4073.00" in decision.reasons[0]
 
 
 @pytest.mark.parametrize(
@@ -482,7 +482,11 @@ def test_counter_bias_uses_same_structural_zone_rules_as_aligned_entries(
   tags,
   score,
 ):
-  selected, state, reasons = map_strategy._select_reaction(
+  # Reaching "waiting_for_touch" (rather than "waiting_for_zone"/
+  # "no_zone_in_range") proves the counter-bias zone passed every structural
+  # filter and distance check - the M1 trigger that used to promote it
+  # further to "candidate" is retired as a setup source (P2).
+  selection = map_strategy._select_reaction_detailed(
     _worked_counter_bias_map(
       tags=tags,
       score=score,
@@ -495,9 +499,9 @@ def test_counter_bias_uses_same_structural_zone_rules_as_aligned_entries(
     _cfg(auto_trade_map_counter_bias_enabled=True),
   )
 
-  assert selected is not None
-  assert selected[1] == "BUY"
-  assert state == "candidate"
+  assert selection.selected is None
+  assert selection.state == "waiting_for_touch"
+  assert selection.actionable_entries[0].side == "buy"
 
 
 def test_nearby_trendline_level_satisfies_counter_bias_confluence():
@@ -506,7 +510,7 @@ def test_nearby_trendline_level_satisfies_counter_bias_confluence():
     include_level=True,
   )
 
-  selected, state, _ = map_strategy._select_reaction(
+  selection = map_strategy._select_reaction_detailed(
     market_map,
     _counter_rejection_bar(),
     4072.88,
@@ -515,16 +519,16 @@ def test_nearby_trendline_level_satisfies_counter_bias_confluence():
     _cfg(auto_trade_map_counter_bias_enabled=True),
   )
 
-  assert state == "candidate"
-  assert selected is not None
-  assert selected[0].tier == "zone"
-  assert selected[1] == "BUY"
+  assert selection.state == "waiting_for_touch"
+  assert selection.selected is None
+  assert selection.actionable_entries[0].tier == "zone"
+  assert selection.actionable_entries[0].side == "buy"
 
 
 def test_counter_bias_tier_is_not_a_quality_criterion():
   market_map = _worked_counter_bias_map(tier="level", include_level=False)
 
-  selected, state, _ = map_strategy._select_reaction(
+  selection = map_strategy._select_reaction_detailed(
     market_map,
     _counter_rejection_bar(),
     4072.88,
@@ -533,9 +537,9 @@ def test_counter_bias_tier_is_not_a_quality_criterion():
     _cfg(auto_trade_map_counter_bias_enabled=True),
   )
 
-  assert state == "candidate"
-  assert selected is not None
-  assert selected[0].tier == "level"
+  assert selection.state == "waiting_for_touch"
+  assert selection.selected is None
+  assert selection.actionable_entries[0].tier == "level"
 
 
 def test_replay_1938_filters_dead_band_then_selects_counter_bias(monkeypatch):
@@ -567,10 +571,13 @@ def test_replay_1938_filters_dead_band_then_selects_counter_bias(monkeypatch):
   assert aligned_only.state == "waiting_for_touch"
   assert "nearest mapped SELL zone 4087.00-4095.00" in aligned_only.reasons[0]
   assert "degenerate_width=1" in aligned_only.reasons[0]
-  assert counter_enabled.state == "candidate"
-  assert counter_enabled.match is not None
-  assert "counter_bias" in counter_enabled.match.tags
-  assert counter_enabled.match.tags[0] == "counter_bias"
+  # With counter-bias enabled, the dead/degenerate band is filtered out and
+  # the BUY zone at 4066-4073 is selected instead - proving the filtering +
+  # counter-bias selection still both work, even though neither path can
+  # reach "candidate" anymore (M1 reaction retired as a setup source, P2).
+  assert counter_enabled.state == "waiting_for_touch"
+  assert counter_enabled.match is None
+  assert "nearest mapped BUY zone 4066.00-4073.00" in counter_enabled.reasons[0]
 
 
 def test_zone_beyond_default_track_limit_is_no_zone_in_range():
@@ -626,7 +633,7 @@ def test_zone_inside_track_outside_execute_is_waiting_for_touch():
   assert "5.0 away · tracked, execute within 3.6" in reasons[0]
 
 
-def test_zone_inside_execute_distance_is_market_eligible():
+def test_zone_inside_execute_distance_reaches_waiting_for_touch():
   supply = MapEntry(
     "sell", 4075.0, 4087.51, 4075, 4088,
     "major", ["supply", "fresh"], 10.0,
@@ -649,12 +656,15 @@ def test_zone_inside_execute_distance_is_market_eligible():
     _cfg(),
   )
 
-  assert state == "candidate"
-  assert selected is not None
-  assert selected[1] == "SELL"
+  # Inside execute distance, but M1 reaction is retired as a setup source
+  # (P2) - so even a within-range zone stops at "waiting_for_touch", not
+  # "candidate".
+  assert state == "waiting_for_touch"
+  assert selected is None
+  assert "nearest mapped SELL zone 4075.00-4087.51" in reasons[0]
 
 
-def test_tracked_zone_still_requires_touch_and_reject():
+def test_tracked_zone_has_no_trigger_source():
   supply = MapEntry(
     "sell", 4075.0, 4087.51, 4075, 4088,
     "major", ["supply", "fresh"], 10.0,
@@ -672,7 +682,7 @@ def test_tracked_zone_still_requires_touch_and_reject():
 
   assert selected is None
   assert state == "waiting_for_touch"
-  assert "waiting for M1 touch" in reasons[0]
+  assert "no entry trigger source configured" in reasons[0]
 
 
 def test_replay_2213_map_tracks_nearest_sell_without_order(monkeypatch):

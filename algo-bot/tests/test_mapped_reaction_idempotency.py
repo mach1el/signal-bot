@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
 from app.analysis.market_map import MapEntry, MarketMap
-from app.autotrade import map_strategy
 from app.autotrade.multi_match import same_thesis
 from app.autotrade.reaction_identity import (
   mapped_group_id,
   mapped_reaction_id,
+  mapped_thesis_id,
   structural_zone_id,
   zones_materially_equivalent,
 )
@@ -134,14 +133,72 @@ def test_same_reaction_same_reaction_id_across_event_ts():
   assert first == second
 
 
+def _mapped_zone_reaction_match(
+  lo: float,
+  hi: float,
+  *,
+  hour: int,
+) -> StrategyMatch:
+  # M1 mapped-zone reaction no longer promotes a zone to a StrategyMatch
+  # itself (retired as a setup source, P2) - so this replay test constructs
+  # what evaluate_market_map_strategy used to build directly, reusing the
+  # same identity functions, purely to exercise _publish_strategy_match's
+  # reaction/thesis dedup discipline for strategy_mode="mapped_zone_reaction"
+  # matches originating elsewhere.
+  zone_structural_id = structural_zone_id(
+    "XAUUSD", "BUY", lo, hi, atr=2.4, pip_size=0.1, tags=["demand", "ob", "fresh"],
+  )
+  reaction_id = mapped_reaction_id(
+    symbol="XAUUSD",
+    strategy="Mapped Zone Reaction",
+    direction="BUY",
+    structural_zone_id=zone_structural_id,
+    touch_bar_ts="2026-07-24T21:40:00+00:00",
+    confirmation_bar_ts="2026-07-24T21:41:00+00:00",
+    reaction_type="reclaim",
+  )
+  return StrategyMatch(
+    version=1,
+    match_id=reaction_id,
+    symbol="XAUUSD",
+    source_tf="M1",
+    event_ts=str(1_780_000_000 + hour),
+    issued_at=1_780_000_000 + hour,
+    expires_at=1_780_000_000 + hour + 420,
+    strategy="Mapped Zone Reaction",
+    strategy_mode="mapped_zone_reaction",
+    direction="BUY",
+    key_level=hi,
+    entry_low=4056.0,
+    entry_high=4060.5,
+    current_price=4058.5,
+    confluence=3,
+    reasons=("H1 bias up", f"mapped BUY zone {lo:.2f}-{hi:.2f}"),
+    atr=2.4,
+    structure_swing=lo,
+    targets_pips=(30, 60, 90),
+    family="mapped_zone",
+    structural_source="market_map_zone",
+    zone_id=zone_structural_id,
+    reaction_id=reaction_id,
+    thesis_id=mapped_thesis_id(
+      symbol="XAUUSD",
+      strategy="Mapped Zone Reaction",
+      direction="BUY",
+      structural_zone_id=zone_structural_id,
+    ),
+    structural_zone_id=zone_structural_id,
+    structural_zone_low=lo,
+    structural_zone_high=hi,
+    touch_bar_ts="2026-07-24T21:40:00+00:00",
+    confirmation_bar_ts="2026-07-24T21:41:00+00:00",
+    reaction_type="reclaim",
+  )
+
+
 @pytest.mark.asyncio
 async def test_incident_replay_publishes_one_candidate(monkeypatch):
   """Exact 21:43–21:49 replay: one match identity, one publish, six suppressed."""
-  monkeypatch.setattr(
-    map_strategy,
-    "atr_indicator",
-    lambda *args: __import__("pandas").Series([2.4, 2.4]),
-  )
   from app.core import config as config_mod
   monkeypatch.setattr(config_mod.settings, "auto_trade_enabled", True)
   monkeypatch.setattr(
@@ -236,22 +293,7 @@ async def test_incident_replay_publishes_one_candidate(monkeypatch):
   matches = []
   published = []
   for hour, (lo, hi) in zip(event_hours, bands):
-    decision = map_strategy.evaluate_market_map_strategy(
-      {"M1": _rejection_m1()},
-      symbol="XAUUSD",
-      event_ts=str(1_780_000_000 + hour),
-      spot_price=4058.5,
-      cfg=_cfg(),
-      market_map=_map(_zone(lo, hi), price=4058.5),
-      now=1_780_000_000 + hour,
-    )
-    assert decision.state == "candidate"
-    assert decision.match is not None
-    match = replace(
-      decision.match,
-      entry_low=4056.0,
-      entry_high=4060.5,
-    )
+    match = _mapped_zone_reaction_match(lo, hi, hour=hour)
     matches.append(match)
     spot = SimpleNamespace(price=4058.5, ts=1_780_000_000 + hour, fresh=True)
     result = await _publish_strategy_match(

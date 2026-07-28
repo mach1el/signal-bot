@@ -112,6 +112,22 @@ def _no_rejection_df() -> pd.DataFrame:
   ])
 
 
+def _uptrend_df(bars: int) -> pd.DataFrame:
+  # A staircase of higher highs/higher lows (two-bar up-leg, one-bar
+  # pullback, repeating) so find_swings/market_structure reliably reads
+  # "up" - a plain monotonic line has no fractal swings to detect.
+  rows = []
+  price = 4000.0
+  for i in range(bars):
+    if i % 3 == 2:
+      rows.append((price, price + 0.5, price - 1.5, price - 1.0, 100))
+      price -= 1.0
+    else:
+      rows.append((price, price + 3.0, price - 0.3, price + 2.5, 100))
+      price += 2.5
+  return _df(rows)
+
+
 def _trend_pullback_ctx() -> detectors.DetectionContext:
   df = _buy_rejection_df()
   return _ctx(
@@ -1021,3 +1037,38 @@ def test_detectors_module_has_no_delivery_or_redis_imports():
   assert not hasattr(detectors, "send_with_retry")
   assert not hasattr(detectors, "broadcast_entry")
   assert not hasattr(detectors, "store_manual_signal")
+
+
+def test_build_context_htf_bias_unknown_when_h1_frame_missing():
+  # H1 is scanner_htf's primary entry (H1->M15->M5 single-analysis-source
+  # cutover, P2) - if it's absent entirely, HTF bias must fail closed to
+  # "unknown" rather than silently falling back through the rest of
+  # per_tf/_ordered_tfs to guess from M5/M15 alone.
+  m5 = _uptrend_df(60)
+  ctx = detectors.build_context(
+    "XAU", "M5", {"M5": m5}, detectors.DetectorSettings(confluence_floor=2),
+    htf_order=["H1", "M15"],
+  )
+  assert ctx.htf_bias == "unknown"
+
+
+def test_build_context_htf_bias_unknown_when_h1_frame_too_short():
+  m5 = _uptrend_df(60)
+  h1 = _uptrend_df(10)  # below _MIN_PRIMARY_HTF_WARMUP_BARS
+  ctx = detectors.build_context(
+    "XAU", "M5", {"M5": m5, "H1": h1},
+    detectors.DetectorSettings(confluence_floor=2),
+    htf_order=["H1", "M15"],
+  )
+  assert ctx.htf_bias == "unknown"
+
+
+def test_build_context_htf_bias_computed_once_h1_has_enough_bars():
+  m5 = _uptrend_df(60)
+  h1 = _uptrend_df(60)  # >= _MIN_PRIMARY_HTF_WARMUP_BARS
+  ctx = detectors.build_context(
+    "XAU", "M5", {"M5": m5, "H1": h1},
+    detectors.DetectorSettings(confluence_floor=2),
+    htf_order=["H1", "M15"],
+  )
+  assert ctx.htf_bias != "unknown"

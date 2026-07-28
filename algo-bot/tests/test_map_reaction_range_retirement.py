@@ -231,7 +231,10 @@ def test_box_broken_never_coexists_with_armed_rails():
   assert payload["state"] != "ARMED"
 
 
-def test_m1_touch_one_bar_ago_plus_rejection_now_creates_candidate():
+def test_m1_touch_one_bar_ago_plus_rejection_reaches_waiting_for_touch():
+  # M1 mapped-zone reaction is retired as a setup source (P2): a touch +
+  # rejection sequence that used to produce "candidate" now only proves the
+  # zone is tracked/executable ("waiting_for_touch"), with no trigger.
   demand = _demand()
   m1 = _m1_frame([
     {"open": 4054.0, "high": 4055.5, "low": 4053.0, "close": 4054.2, "volume": 1},
@@ -251,12 +254,11 @@ def test_m1_touch_one_bar_ago_plus_rejection_now_creates_candidate():
     proximal_band_atr=0.5,
     cfg=_cfg(),
   )
-  assert state == "candidate"
-  assert selected is not None
-  assert selected[1] == "BUY"
+  assert state == "waiting_for_touch"
+  assert selected is None
 
 
-def test_m1_touch_three_bars_ago_plus_continuation_creates_candidate():
+def test_m1_touch_three_bars_ago_plus_continuation_reaches_waiting_for_touch():
   demand = _demand()
   m1 = _m1_frame([
     {"open": 4054.5, "high": 4055.8, "low": 4053.0, "close": 4053.4, "volume": 1},
@@ -272,8 +274,8 @@ def test_m1_touch_three_bars_ago_plus_continuation_creates_candidate():
     proximal_band_atr=0.5,
     cfg=_cfg(),
   )
-  assert state == "candidate"
-  assert selected is not None
+  assert state == "waiting_for_touch"
+  assert selected is None
 
 
 def test_reaction_older_than_lookback_is_rejected():
@@ -305,30 +307,6 @@ def test_reaction_older_than_lookback_is_rejected():
   )
   assert selected is None
   assert state in {"waiting_for_touch", "entry_moved", "no_zone_in_range"}
-
-
-def test_excessive_drift_does_not_chase_price():
-  demand = _demand()
-  m1 = _pad_atr(_m1_frame([
-    {"open": 4054.0, "high": 4055.5, "low": 4053.0, "close": 4054.0, "volume": 1},
-    {"open": 4054.0, "high": 4055.0, "low": 4053.2, "close": 4055.0, "volume": 1},
-  ]))
-  # Spot already chased far above the zone after a valid reaction.
-  decision = map_strategy.evaluate_market_map_strategy(
-    {"M1": m1},
-    symbol="XAU",
-    event_ts="1000",
-    spot_price=4059.5,
-    cfg=_cfg(
-      auto_trade_max_entry_distance_pips=10,
-      auto_trade_map_max_entry_drift_atr=0.20,
-      auto_trade_map_execute_distance_atr=8.0,
-    ),
-    market_map=_map(demand, price=4059.5),
-    now=1000,
-  )
-  assert decision.state == "entry_moved"
-  assert decision.match is None
 
 
 def test_actionable_map_entry_appears_in_rendered_market_map():
@@ -423,20 +401,3 @@ async def test_auto_status_reports_breakout_retest_instead_of_no_detection(
   text = await delivery.auto_trade_status_text()
   assert "breakout-retest" in text
   assert "no_detection_result" not in text
-
-
-def _pad_atr(m1: pd.DataFrame) -> pd.DataFrame:
-  # ATR needs history; prepend flat bars.
-  seed = pd.DataFrame(
-    {
-      "open": [4054.0] * 20,
-      "high": [4055.0] * 20,
-      "low": [4053.0] * 20,
-      "close": [4054.0] * 20,
-      "volume": [1.0] * 20,
-    },
-    index=pd.date_range(
-      "2026-07-24 09:00", periods=20, freq="1min", tz="UTC",
-    ),
-  )
-  return pd.concat([seed, m1])
