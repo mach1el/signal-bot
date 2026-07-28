@@ -33,7 +33,7 @@ def _frame() -> pd.DataFrame:
 class StaticSource:
   async def window(self, symbol, tf, n):
     assert symbol == "XAU"
-    assert tf in {"M5", "M30", "M15"}
+    assert tf in {"M5", "M30", "M15", "H1"}
     return _frame()
 
 
@@ -1902,3 +1902,21 @@ async def test_scan_report_aggregates_fires_sent_and_conflicts():
   text = scanner.format_scan_report(rows, "XAU", "M5", 24)
   assert "Box Breakout" in text
   assert "Fade Scalp" in text
+
+
+def test_scanner_default_htf_is_h1_not_m30():
+  # H1->M15->M5 single-analysis-source cutover (P2): the scanner's default
+  # HTF stack is H1 (primary) + M15, with no M30 dependency anywhere.
+  assert scanner.settings.scanner_htf == "H1,M15"
+  assert scanner._htf_tfs() == ["H1", "M15"]
+  assert scanner._all_tfs("M5", scanner._htf_tfs()) == ["M5", "H1", "M15"]
+  assert "M30" not in scanner._all_tfs("M5", scanner._htf_tfs())
+
+
+@pytest.mark.asyncio
+async def test_scanner_loads_frames_with_h1_present_and_m30_absent(monkeypatch):
+  monkeypatch.setattr(scanner.settings, "scanner_window", 500)
+  source = StaticSource()
+  frames = await scanner._load_frames(source, "XAU", "M5", scanner._htf_tfs())
+  assert "H1" in frames
+  assert "M30" not in frames

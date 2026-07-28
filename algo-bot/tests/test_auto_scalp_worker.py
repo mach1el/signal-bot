@@ -808,10 +808,15 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
 async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
   monkeypatch,
 ):
-  """Regression guard for the fix above: chop regime must still let
-  box-scalp win the confluence comparison exactly as before when trend is
+  """Regression guard for the fix above: chop regime classification and
+  box_eligibility telemetry must still work exactly as before when trend is
   ALSO (spuriously) a candidate - the new regime gate must not accidentally
-  suppress box-scalp during genuine chop.
+  break box eligibility reporting during genuine chop. The private M1 range
+  gate itself no longer enters arbitration at all (retired as an autonomous
+  setup source, P2), so - unlike before - it can no longer win or appear in
+  ordered_intent_ids; this test now guards that box_eligibility keeps
+  reporting eligible=True as pure diagnostic telemetry even though nothing
+  built from it ever reaches arbitration.
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
@@ -860,14 +865,19 @@ async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
   assert result == _decision()
   # Neither box nor trend publishes a V6 candidate anymore - see
   # docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal". The
-  # actual regression guard is that box stays eligible and wins arbitration
-  # ordering during genuine chop even though trend is also a candidate.
+  # actual regression guard is that box_eligibility still reports eligible
+  # during genuine chop even though trend is also a candidate - and that the
+  # private range gate (retired as a setup source, P2) never contributes an
+  # intent to arbitration regardless.
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
   assert status["regime"] == "chop"
   assert status["box_eligibility"]["eligible"] is True
-  assert status["arbitration"]["ordered_intent_ids"][0].startswith("range:")
+  assert not any(
+    intent_id.startswith("range:")
+    for intent_id in status["arbitration"]["ordered_intent_ids"]
+  )
 
 
 @pytest.mark.asyncio
