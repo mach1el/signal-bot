@@ -5,14 +5,15 @@ Redis client (same fakeredis-backed client the rest of the suite uses) - not
 a mock of the publish call - so a regression here means the live runtime
 stopped publishing, not just that a function was called with the right args.
 
-Since P3 (the M1 candlestick trigger), a CONFIRMED setup no longer publishes
-on the first call - it arms and waits. Every test here calls
-_publish_trade_plan_v7 twice: once to arm, once with a qualifying M1 bar in
-`frames["M1"]` to actually trigger the publish.
+Non-reaction setups preserve P3's arm-then-M1 flow. Scanner-confirmed
+structural reactions may publish in the first call while executable bid/ask
+remains in-zone; a reaction that already left requires a fresh M1 trigger from
+its persisted retest episode.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 
 import pandas as pd
@@ -20,9 +21,18 @@ import pytest
 
 from app.analysis.market_map import MapEntry, MarketMap
 from app.autotrade import worker
+from app.autotrade.arbitration import ExecutionIntent
+from app.autotrade.execution_confirmation import (
+  IN_ZONE_WAITING_M1,
+  PUBLISHED,
+  TRIGGER_PRICE_LEFT_ZONE,
+  WAITING_RETEST,
+  load_execution_confirmation,
+)
 from app.autotrade.setup_lifecycle import (
   ARMED_WAITING_TRIGGER,
   CONFIRMED,
+  EXPIRED,
   INVALIDATED,
   PLAN_PUBLISHED,
   create_setup,
@@ -31,6 +41,7 @@ from app.autotrade.setup_lifecycle import (
 )
 from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
 from app.autotrade.trade_plan_stream import read_plan_state, read_trade_plan
+from app.autotrade.trend import RegimeInfo
 from app.persistence import redis_state
 
 
@@ -102,6 +113,73 @@ def _m1_trigger_bar(
   }, index=index)
 
 
+def _reaction_match(**overrides) -> StrategyMatch:
+  now = int(time.time())
+  base = dict(
+    match_id="reaction-v7-1",
+    source_tf="M5",
+    event_ts=str(now - 60),
+    issued_at=now - 60,
+    expires_at=now + 900,
+    strategy="Key Level Reaction",
+    strategy_mode="with_bias",
+    direction="SELL",
+    key_level=4040.23,
+    entry_low=4038.36,
+    entry_high=4042.09,
+    current_price=4038.41,
+    reasons=("strong reclaim",),
+    atr=4.0,
+    structure_swing=4045.0,
+    targets_pips=(100, 200),
+    family="key_level",
+    structural_source="key_level",
+    structural_zone_id="key-level-4040",
+    structural_zone_low=4038.36,
+    structural_zone_high=4042.09,
+    touch_bar_ts=str(now - 120),
+    confirmation_bar_ts=str(now - 60),
+    reaction_type="strong_reclaim",
+    structural_kind="resistance",
+    structural_timeframe="M5",
+    htf_bias="down",
+    regime_kind="trend",
+    thesis_id="thesis-key-level-4040",
+  )
+  base.update(overrides)
+  return _match(**base)
+
+
+def _sell_retest_bar(timestamp: int) -> pd.DataFrame:
+  return pd.DataFrame(
+    {
+      "open": [4045.0],
+      "high": [4046.5],
+      "low": [4043.5],
+      "close": [4043.7],
+      "volume": [500.0],
+    },
+    index=pd.DatetimeIndex(
+      [pd.Timestamp(timestamp, unit="s", tz="UTC")],
+    ),
+  )
+
+
+def _buy_retest_bar(timestamp: int) -> pd.DataFrame:
+  return pd.DataFrame(
+    {
+      "open": [4039.0],
+      "high": [4040.5],
+      "low": [4037.5],
+      "close": [4040.3],
+      "volume": [500.0],
+    },
+    index=pd.DatetimeIndex(
+      [pd.Timestamp(timestamp, unit="s", tz="UTC")],
+    ),
+  )
+
+
 def _market_map(*entries: MapEntry) -> MarketMap:
   return MarketMap(
     entries=list(entries),
@@ -112,6 +190,30 @@ def _market_map(*entries: MapEntry) -> MarketMap:
     bias="up",
     bias_tf="H1",
     actionable_entries=list(entries),
+  )
+
+
+def _intent_for_match(match: StrategyMatch) -> ExecutionIntent:
+  return ExecutionIntent(
+    intent_id=match.match_id,
+    source="scanner_strategy_match",
+    strategy=match.strategy,
+    direction=match.direction,
+    confluence=match.confluence,
+    tier=match.tier,
+    freshness=60.0,
+    distance_pips=0.0,
+    symbol=match.symbol,
+    timeframe=match.source_tf,
+    family=match.family or "",
+    entry_low=match.entry_low,
+    entry_high=match.entry_high,
+    structural_id=match.structural_zone_id or "",
+    match_id=match.match_id,
+    reaction_id=match.reaction_id,
+    thesis_id=match.thesis_id,
+    current_price=match.current_price,
+    targets_pips=match.targets_pips,
   )
 
 
@@ -152,6 +254,587 @@ async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
   assert await read_plan_state(client, plan_id) == "published"
   record = await load_setup(client, "match-v7-1")
   assert record.state == PLAN_PUBLISHED
+
+
+@pytest.mark.asyncio
+async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
+  client = redis_state.get_client()
+  match = _reaction_match()
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4038.51,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4038.41,
+    ask=4038.61,
+  )
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  )
+
+  assert plan_id is not None
+  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.entry.price_side == "bid"
+  assert plan.provenance.confirmation_source == "m5_authoritative"
+  assert plan.provenance.zone_episode_id is not None
+  assert plan.stop.source == "m5_structure"
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == PUBLISHED
+  assert await client.xlen(worker.settings.auto_trade_trade_plan_stream) == 1
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  ) is None
+  assert await client.xlen(worker.settings.auto_trade_trade_plan_stream) == 1
+
+
+@pytest.mark.asyncio
+async def test_m5_authoritative_buy_uses_ask_for_same_cycle_eligibility():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="reaction-v7-buy",
+    thesis_id="thesis-reaction-v7-buy",
+    direction="BUY",
+    key_level=4040.0,
+    entry_low=4038.0,
+    entry_high=4042.0,
+    current_price=4041.8,
+    structure_swing=4035.0,
+    structural_kind="support",
+    htf_bias="up",
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4041.75,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4041.6,
+    ask=4041.9,
+  )
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.entry.price_side == "ask"
+  assert plan.provenance.confirmation_source == "m5_authoritative"
+
+
+@pytest.mark.asyncio
+async def test_confirmed_trendline_sell_below_zone_waits_for_fresh_retest():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="incident-a-trendline",
+    thesis_id="incident-a-thesis",
+    strategy="Trendline Reaction",
+    family="trendline",
+    reaction_type="rejection_choch",
+    key_level=4044.98,
+    entry_low=4043.80,
+    entry_high=4046.16,
+    current_price=4040.68,
+    structure_swing=4049.0,
+    structural_source="trendline",
+    structural_zone_id="trendline-4044",
+    structural_zone_low=4043.80,
+    structural_zone_high=4046.16,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4040.78,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4040.68,
+    ask=4040.88,
+  )
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  ) is None
+  assert (await load_setup(client, match.match_id)).state == ARMED_WAITING_TRIGGER
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == WAITING_RETEST
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+
+
+@pytest.mark.asyncio
+async def test_outer_preflight_routes_outside_reaction_to_waiting_retest(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="incident-a-preflight",
+    thesis_id="incident-a-preflight-thesis",
+    strategy="Trendline Reaction",
+    family="trendline",
+    reaction_type="rejection_choch",
+    entry_low=4043.80,
+    entry_high=4046.16,
+    current_price=4040.68,
+    structure_swing=4049.0,
+    structural_source="trendline",
+    structural_zone_id="trendline-preflight-4044",
+    structural_zone_low=4043.80,
+    structural_zone_high=4046.16,
+  )
+  spot = worker.AutoTradeSpot(
+    price=4040.78,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4040.68,
+    ask=4040.88,
+  )
+  intent = _intent_for_match(match)
+  monkeypatch.setattr(worker.settings, "auto_trade_strategy_match_enabled", True)
+  monkeypatch.setattr(
+    worker.settings, "auto_trade_trendline_reaction_enabled", True,
+  )
+
+  decision = await worker._preflight_strategy_intent(
+    client,
+    intent,
+    match,
+    spot=spot,
+    regime=RegimeInfo(
+      "trend", "down", 3, 1.0, True, None, ("test",),
+    ),
+    htf_zones=[],
+    htf_levels=[],
+    market_map=None,
+    frames={},
+  )
+
+  assert not decision.executable
+  assert not decision.terminal
+  assert decision.reason_code == "reaction_confirmation_handoff"
+  assert decision.measured["quote_side"] == "bid"
+  assert decision.measured["quote_inside_zone"] is False
+
+
+@pytest.mark.asyncio
+async def test_outer_preflight_allows_inside_authoritative_reaction(
+  monkeypatch,
+):
+  async def no_news_event(*_args, **_kwargs):
+    return None
+
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="incident-b-preflight",
+    thesis_id="incident-b-preflight-thesis",
+  )
+  spot = worker.AutoTradeSpot(
+    price=4038.51,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4038.41,
+    ask=4038.61,
+  )
+  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(worker.settings, "auto_trade_strategy_match_enabled", True)
+  monkeypatch.setattr(worker.settings, "auto_trade_news_guard_minutes", 0)
+  monkeypatch.setattr(worker, "event_in_window", no_news_event)
+  monkeypatch.setattr(
+    worker.settings, "auto_trade_key_level_reaction_enabled", True,
+  )
+
+  decision = await worker._preflight_strategy_intent(
+    client,
+    _intent_for_match(match),
+    match,
+    spot=spot,
+    regime=RegimeInfo(
+      "trend", "down", 3, 1.0, True, None, ("test",),
+    ),
+    htf_zones=[],
+    htf_levels=[],
+    market_map=None,
+    frames={},
+  )
+
+  assert decision.executable, (
+    decision.reason_code, decision.message, decision.measured,
+  )
+  assert decision.reason_code == "preflight_allowed"
+
+
+@pytest.mark.asyncio
+async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="incident-a-retest",
+    thesis_id="incident-a-retest-thesis",
+    strategy="Trendline Reaction",
+    family="trendline",
+    reaction_type="rejection_choch",
+    key_level=4044.98,
+    entry_low=4043.80,
+    entry_high=4046.16,
+    current_price=4040.68,
+    structure_swing=4049.0,
+    structural_source="trendline",
+    structural_zone_id="trendline-retest-4044",
+    structural_zone_low=4043.80,
+    structural_zone_high=4046.16,
+  )
+  await _confirm_setup(client, match)
+  outside_ts = int(time.time())
+  outside = worker.AutoTradeSpot(
+    price=4040.78,
+    ts=outside_ts,
+    fresh=True,
+    bid=4040.68,
+    ask=4040.88,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", outside, match,
+  ) is None
+
+  entered_ts = outside_ts + 60
+  inside = worker.AutoTradeSpot(
+    price=4044.60,
+    ts=entered_ts,
+    fresh=True,
+    bid=4044.50,
+    ask=4044.70,
+  )
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    inside,
+    match,
+    frames={"M1": _sell_retest_bar(entered_ts)},
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.provenance.confirmation_source == "m1_retest"
+  assert plan.provenance.confirmation_bar_ts == entered_ts
+  assert plan.provenance.zone_episode_id
+  assert plan.stop.source == "m1_trigger_wick"
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == PUBLISHED
+  assert state.trigger_bar_ts == entered_ts
+  assert state.episode_id == plan.provenance.zone_episode_id
+  assert plan.expires_at <= entered_ts + 180
+
+
+@pytest.mark.asyncio
+async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="buy-retest",
+    thesis_id="buy-retest-thesis",
+    direction="BUY",
+    key_level=4040.0,
+    entry_low=4038.36,
+    entry_high=4042.09,
+    current_price=4045.0,
+    structure_swing=4038.5,
+    structural_kind="support",
+    htf_bias="up",
+    structural_zone_id="buy-retest-zone",
+    structural_zone_low=4038.36,
+    structural_zone_high=4042.09,
+  )
+  await _confirm_setup(client, match)
+  start = int(time.time())
+  outside = worker.AutoTradeSpot(
+    price=4044.9,
+    ts=start,
+    fresh=True,
+    bid=4044.8,
+    ask=4045.0,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", outside, match,
+  ) is None
+
+  entered_ts = start + 60
+  inside = worker.AutoTradeSpot(
+    price=4040.1,
+    ts=entered_ts,
+    fresh=True,
+    bid=4040.0,
+    ask=4040.2,
+  )
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    inside,
+    match,
+    frames={"M1": _buy_retest_bar(entered_ts)},
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.entry.price_side == "ask"
+  assert plan.provenance.confirmation_source == "m1_retest"
+  assert plan.provenance.confirmation_bar_ts == entered_ts
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == PUBLISHED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase_before_expiry", ("waiting_retest", "in_zone"))
+async def test_reaction_expiry_is_terminal_in_every_waiting_phase(
+  phase_before_expiry,
+):
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id=f"expiry-{phase_before_expiry}",
+    thesis_id=f"expiry-thesis-{phase_before_expiry}",
+    strategy="Trendline Reaction",
+    family="trendline",
+    reaction_type="rejection_choch",
+    entry_low=4043.80,
+    entry_high=4046.16,
+    current_price=4040.68,
+    structure_swing=4049.0,
+    structural_zone_id=f"expiry-zone-{phase_before_expiry}",
+    structural_zone_low=4043.80,
+    structural_zone_high=4046.16,
+  )
+  await _confirm_setup(client, match)
+  start = int(time.time())
+  outside = worker.AutoTradeSpot(
+    price=4040.78, ts=start, fresh=True, bid=4040.68, ask=4040.88,
+  )
+  await worker._publish_trade_plan_v7(client, "XAU", outside, match)
+  latest_spot = outside
+  if phase_before_expiry == "in_zone":
+    latest_spot = worker.AutoTradeSpot(
+      price=4044.60,
+      ts=start + 60,
+      fresh=True,
+      bid=4044.50,
+      ask=4044.70,
+    )
+    await worker._publish_trade_plan_v7(
+      client, "XAU", latest_spot, match,
+    )
+
+  expired = replace(match, expires_at=int(time.time()) - 1)
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", latest_spot, expired,
+  ) is None
+  assert (await load_setup(client, match.match_id)).state == EXPIRED
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == "expired"
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+
+
+@pytest.mark.asyncio
+async def test_structure_invalidation_prevents_retest_revival():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="reaction-invalidated",
+    thesis_id="reaction-invalidated-thesis",
+    structure_swing=4045.0,
+  )
+  await _confirm_setup(client, match)
+  invalidating_spot = worker.AutoTradeSpot(
+    price=4045.6,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4045.5,
+    ask=4045.7,
+  )
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", invalidating_spot, match,
+  ) is None
+  assert (await load_setup(client, match.match_id)).state == INVALIDATED
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == "invalidated"
+
+  inside = worker.AutoTradeSpot(
+    price=4040.1,
+    ts=invalidating_spot.ts + 60,
+    fresh=True,
+    bid=4040.0,
+    ask=4040.2,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    inside,
+    match,
+    frames={"M1": _sell_retest_bar(inside.ts)},
+  ) is None
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+
+
+@pytest.mark.asyncio
+async def test_reaction_missing_confirmation_metadata_fails_closed():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="reaction-metadata-missing",
+    thesis_id="reaction-metadata-missing-thesis",
+    confirmation_bar_ts=None,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4038.51,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4038.41,
+    ask=4038.61,
+  )
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  ) is None
+  assert (await load_setup(client, match.match_id)).state == INVALIDATED
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == "invalidated"
+
+
+@pytest.mark.asyncio
+async def test_trigger_missed_after_quote_left_is_consumed_and_new_episode_required():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="trigger-left-zone",
+    thesis_id="trigger-left-zone-thesis",
+    strategy="Trendline Reaction",
+    family="trendline",
+    reaction_type="rejection_choch",
+    key_level=4044.98,
+    entry_low=4043.80,
+    entry_high=4046.16,
+    current_price=4040.68,
+    structure_swing=4049.0,
+    structural_source="trendline",
+    structural_zone_id="trendline-trigger-left",
+    structural_zone_low=4043.80,
+    structural_zone_high=4046.16,
+  )
+  await _confirm_setup(client, match)
+  start = int(time.time())
+  outside = worker.AutoTradeSpot(
+    price=4040.78, ts=start, fresh=True, bid=4040.68, ask=4040.88,
+  )
+  await worker._publish_trade_plan_v7(client, "XAU", outside, match)
+
+  entered = worker.AutoTradeSpot(
+    price=4044.60,
+    ts=start + 60,
+    fresh=True,
+    bid=4044.50,
+    ask=4044.70,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", entered, match,
+  ) is None
+  episode_a = await load_execution_confirmation(client, match.match_id)
+  assert episode_a is not None
+  assert episode_a.phase == IN_ZONE_WAITING_M1
+  repeated_inside = worker.AutoTradeSpot(
+    price=4044.65,
+    ts=start + 61,
+    fresh=True,
+    bid=4044.55,
+    ask=4044.75,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", repeated_inside, match,
+  ) is None
+  repeated_episode = await load_execution_confirmation(
+    client, match.match_id,
+  )
+  assert repeated_episode is not None
+  assert repeated_episode.episode_id == episode_a.episode_id
+
+  left = worker.AutoTradeSpot(
+    price=4040.78,
+    ts=start + 120,
+    fresh=True,
+    bid=4040.68,
+    ask=4040.88,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    left,
+    match,
+    frames={"M1": _sell_retest_bar(start + 60)},
+  ) is None
+  missed = await load_execution_confirmation(client, match.match_id)
+  assert missed is not None
+  assert missed.phase == TRIGGER_PRICE_LEFT_ZONE
+  assert missed.trigger_consumed is True
+
+  reentered = worker.AutoTradeSpot(
+    price=4044.60,
+    ts=start + 180,
+    fresh=True,
+    bid=4044.50,
+    ask=4044.70,
+  )
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    reentered,
+    match,
+    frames={"M1": _sell_retest_bar(start + 60)},
+  ) is None
+  episode_b = await load_execution_confirmation(client, match.match_id)
+  assert episode_b is not None
+  assert episode_b.phase == IN_ZONE_WAITING_M1
+  assert episode_b.episode_id != episode_a.episode_id
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+  ("direction", "bid", "ask"),
+  (
+    ("SELL", 4037.90, 4040.00),
+    ("BUY", 4040.00, 4042.40),
+  ),
+)
+async def test_midpoint_inside_does_not_override_executable_quote_outside(
+  direction, bid, ask,
+):
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id=f"spread-boundary-{direction.lower()}",
+    thesis_id=f"spread-boundary-thesis-{direction.lower()}",
+    direction=direction,
+    structure_swing=4045.0 if direction == "SELL" else 4035.0,
+    structural_kind="resistance" if direction == "SELL" else "support",
+    htf_bias="down" if direction == "SELL" else "up",
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4040.0,
+    ts=int(time.time()),
+    fresh=True,
+    bid=bid,
+    ask=ask,
+  )
+
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  ) is None
+  state = await load_execution_confirmation(client, match.match_id)
+  assert state is not None
+  assert state.phase == WAITING_RETEST
 
 
 @pytest.mark.asyncio

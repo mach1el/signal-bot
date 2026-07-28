@@ -423,6 +423,9 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
     structural_zone_id=zone_id,
     structural_zone_low=4100.0,
     structural_zone_high=4101.0,
+    touch_bar_ts="1722168300",
+    confirmation_bar_ts="1722168600",
+    reaction_type="strong_reclaim",
     structural_kind="demand",
     structural_timeframe="M5",
     htf_bias="up",
@@ -442,12 +445,6 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
     bid=4100.4,
     ask=4100.6,
   )
-  monkeypatch.setattr(
-    worker,
-    "evaluate_m1_trigger",
-    lambda *_args, **_kwargs: SimpleNamespace(wick_extreme=4099.5),
-  )
-
   def reject_rr(*_args, **_kwargs):
     raise TradePlanBuildRejected(
       "policy_reward_risk_insufficient",
@@ -464,20 +461,12 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
   assert await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
   ) is None
-  assert (await load_setup(client, setup_id)).state == ARMED_WAITING_TRIGGER
-  assert await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    spot,
-    match,
-    frames={"M1": _frame()},
-  ) is None
   assert (await load_setup(client, setup_id)).state == EXPIRED
   assert await client.get(f"execution:trade_plan:v7:{setup_id}") is None
   events = await client.xrange(worker.settings.auto_trade_event_stream)
   payloads = [json.loads(fields["payload"]) for _id, fields in events]
   assert payloads[-1]["type"] == EXPIRED
-  assert payloads[-1]["reason_code"] == "m1_trigger_expired"
+  assert payloads[-1]["reason_code"] == "confirmation_expired"
 
   deleted = []
 
