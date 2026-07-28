@@ -271,7 +271,10 @@ async def test_worker_handles_m1_without_calling_scanner(monkeypatch):
 
   assert result == _decision()
   forming.assert_not_awaited()
-  assert await client.xlen("auto_trade:test") == 1
+  # The private M1 range gate has no V7 equivalent and no longer publishes
+  # an autonomous V6 candidate at all - see docs/adr-trade-plan-v7-boundary.md
+  # "Legacy autonomous removal".
+  assert await client.xlen("auto_trade:test") == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
   assert status["state"] == "candidate"
   assert status["rail"]["role"] == "support"
@@ -328,26 +331,23 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
 
   assert result.state == "waiting_for_box"
   trend_publish.assert_not_awaited()
+  # The scanner-routed autonomous path publishes only TradePlan V7 now (see
+  # docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal") - no V6
+  # candidate is ever written to the candidate stream, regime confirmation
+  # or not. This match has no thesis_id/confirmed setup_lifecycle record
+  # (out of scope for this test), so V7 also does not publish here;
+  # test_publish_trade_plan_v7.py covers the V7-publishes-given-a-confirmed-
+  # setup case directly.
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1, await client.get(
+  assert len(entries) == 0, await client.get(
     "auto_trade:last_route_outcome:XAU"
   )
-  candidate = json.loads(entries[0][1]["payload"])
-  assert candidate["version"] == 5
-  assert candidate["mode"] == "auto_strategy_match"
-  assert candidate["setup"] == "Liquidity Sweep"
-  assert candidate["signal_source"] == "scanner_strategy_match"
-  assert candidate["candidate_id"] == match.match_id
-  assert candidate["source_event_ts"] == match.event_ts
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
-  assert status["state"] == "candidate"
+  assert status["state"] == "strategy_match_waiting"
   assert status["gate_source"] == "scanner_strategy_match"
   assert status["strategy_match"]["id"] == match.match_id
   assert status["strategy_match"]["strategy"] == "Liquidity Sweep"
   assert status["direction"] == "BUY"
-  assert status["selected_strategy"] == "Liquidity Sweep"
-  assert status["selected_timeframe"] == "M5"
-  assert status["selection_state"] == "published"
 
 
 @pytest.mark.asyncio
@@ -420,19 +420,18 @@ async def test_worker_routes_m1_market_map_reaction_as_its_own_strategy(
     f"XAU:M1:{now}", source=source, client=client,
   )
 
+  # Scanner-routed matches (Market Map reaction included) publish only
+  # TradePlan V7 now - no V6 candidate is ever written. This match has no
+  # thesis_id/confirmed setup_lifecycle record (out of scope for this
+  # test), so V7 also does not publish here; test_publish_trade_plan_v7.py
+  # covers the V7-publishes-given-a-confirmed-setup case directly.
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1, await client.get(
+  assert len(entries) == 0, await client.get(
     "auto_trade:last_route_outcome:XAU"
   )
-  candidate = json.loads(entries[0][1]["payload"])
-  assert candidate["setup"] == "Mapped Zone Reaction"
-  assert candidate["signal_source"] == "market_map_strategy"
-  assert candidate["timeframe"] == "M1"
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
   assert status["gate_source"] == "market_map_strategy"
   assert status["market_map_state"] == "candidate"
-  assert status["selected_strategy"] == "Mapped Zone Reaction"
-  assert status["selection_state"] == "published"
 
 
 @pytest.mark.asyncio
@@ -783,20 +782,26 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
   )
 
   assert result == _decision()
+  # Neither box nor trend publishes a V6 candidate anymore - the private M1
+  # detectors have no V7 equivalent (see docs/adr-trade-plan-v7-boundary.md
+  # "Legacy autonomous removal"). The regression this test guards against
+  # (box must not out-rank trend once regime has left chop) is now visible
+  # in arbitration order, not publish content.
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1
-  payload = json.loads(entries[0][1]["payload"])
-  assert payload["mode"] == "auto_trend_pullback"
-  assert payload["setup"] == "Trend Pullback"
-  assert payload["regime"] == "trend"
+  assert len(entries) == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
   assert status["regime"] == "trend"
   assert status["box_state"] == "candidate"
   assert status["trend_state"] == "candidate"
   assert status["trend_mode"] == "pullback"
   assert status["direction"] == "BUY"
-  assert status["selected_strategy"] == "Trend Pullback"
-  assert status["selection_state"] == "published"
+  # This is the actual regression guard now that publish no longer happens
+  # for either candidate: box must lose eligibility once regime has left
+  # chop, so trend is the one ranked first for arbitration.
+  assert status["box_eligibility"]["eligible"] is False
+  assert status["arbitration"]["ordered_intent_ids"][0] == (
+    "trend:pullback:BUY:4016.2"
+  )
 
 
 @pytest.mark.asyncio
@@ -853,12 +858,16 @@ async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
   )
 
   assert result == _decision()
+  # Neither box nor trend publishes a V6 candidate anymore - see
+  # docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal". The
+  # actual regression guard is that box stays eligible and wins arbitration
+  # ordering during genuine chop even though trend is also a candidate.
   entries = await client.xrange("auto_trade:test")
-  assert len(entries) == 1
-  payload = json.loads(entries[0][1]["payload"])
-  assert payload["mode"] == "auto_box_scalp"
-  assert payload["setup"] == "Range Box Scalp"
-  assert payload["regime"] == "chop"
+  assert len(entries) == 0
+  status = json.loads(await client.get("auto_trade:last_gate:XAU"))
+  assert status["regime"] == "chop"
+  assert status["box_eligibility"]["eligible"] is True
+  assert status["arbitration"]["ordered_intent_ids"][0].startswith("range:")
 
 
 @pytest.mark.asyncio
@@ -872,6 +881,13 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
   (momentum's own conditions had nothing to evaluate against). This proves
   _publish_trend_candidate now attaches the same scale-context fields the
   box-scalp path already carried.
+
+  Calls _publish_trend_candidate directly rather than through
+  worker._handle_event's autonomous wiring - the private trend detector has
+  no autonomous publish call site anymore (see
+  docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal"), but the
+  function itself is unchanged and still directly unit-tested, same as
+  _publish_strategy_match/_publish_candidate elsewhere in this file.
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
@@ -881,16 +897,6 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
   monkeypatch.setattr(worker.settings, "auto_trade_stream", "auto_trade:test")
   monkeypatch.setattr(worker.settings, "auto_trade_min_confluence", 2)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
-  source = AsyncMock()
-  source.window = AsyncMock(return_value=_frame())
-  monkeypatch.setattr(
-    worker,
-    "_load_spot",
-    AsyncMock(return_value=worker.AutoTradeSpot(4017.2, now, True)),
-  )
-  monkeypatch.setattr(
-    worker, "evaluate_auto_scalp_gate", lambda frames, **kwargs: _decision(),
-  )
   trend_context = AutoScaleContext(
     bar_ts=now - 60,
     atr=1.2,
@@ -909,9 +915,6 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
     worker, "build_auto_scale_context", lambda *a, **k: trend_context,
   )
   trend_regime = RegimeInfo("trend", "up", 2, 1.3, True, None, ("forced trend",))
-  monkeypatch.setattr(
-    worker, "classify_regime", lambda frames, decision, cfg: trend_regime,
-  )
   trend_decision = TrendDecision(
     "candidate",
     direction="BUY",
@@ -925,10 +928,18 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
     confluence=2,
     reasons=("forced",),
   )
-  monkeypatch.setattr(worker, "evaluate_trend_gate", lambda *a, **k: trend_decision)
 
-  await worker._handle_event("XAU:M1:1784552400", source=source, client=client)
+  candidate_id = await worker._publish_trend_candidate(
+    client,
+    "XAU",
+    "1784552400",
+    worker.AutoTradeSpot(4017.2, now, True),
+    trend_regime,
+    trend_decision,
+    frames={"M1": _frame()},
+  )
 
+  assert candidate_id is not None
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 1
   payload = json.loads(entries[0][1]["payload"])

@@ -74,8 +74,7 @@ async def _confirm_setup(client, match: StrategyMatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_publishes_plan_in_shadow_v7_mode(monkeypatch):
-  monkeypatch.setattr(worker.settings, "auto_trade_contract_mode", "shadow_v7")
+async def test_publishes_plan_unconditionally():
   client = redis_state.get_client()
   match = _match()
   await _confirm_setup(client, match)
@@ -97,7 +96,12 @@ async def test_publishes_plan_in_shadow_v7_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_v6_mode_never_publishes(monkeypatch):
+async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
+  # _publish_trade_plan_v7 must not gate on AUTO_TRADE_CONTRACT_MODE - V7 is
+  # the sole autonomous path, unconditionally, not a mode. Force the
+  # setting to a value that would have disabled V7 under the old gate (and
+  # is now rejected by Settings validation, but this function doesn't
+  # validate - it just must not branch on it) to prove the gate is gone.
   monkeypatch.setattr(worker.settings, "auto_trade_contract_mode", "legacy_v6")
   client = redis_state.get_client()
   match = _match(match_id="match-v7-2", thesis_id="thesis-v7-2")
@@ -106,14 +110,13 @@ async def test_legacy_v6_mode_never_publishes(monkeypatch):
 
   plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
 
-  assert plan_id is None
+  assert plan_id is not None
   record = await load_setup(client, "match-v7-2")
-  assert record.state == CONFIRMED
+  assert record.state == PLAN_PUBLISHED
 
 
 @pytest.mark.asyncio
-async def test_second_setup_for_same_thesis_is_rejected_not_duplicated(monkeypatch):
-  monkeypatch.setattr(worker.settings, "auto_trade_contract_mode", "shadow_v7")
+async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
   client = redis_state.get_client()
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
@@ -135,10 +138,9 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_setup_not_confirmed_is_rejected(monkeypatch):
+async def test_setup_not_confirmed_is_rejected():
   # e.g. a map_strategy.py-sourced match, which never runs through
   # scanner.py's setup lifecycle wiring at all.
-  monkeypatch.setattr(worker.settings, "auto_trade_contract_mode", "shadow_v7")
   client = redis_state.get_client()
   match = _match(match_id="match-v7-4", thesis_id="thesis-v7-4")
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)

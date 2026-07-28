@@ -2,8 +2,23 @@
 
 ## Status
 
-Proposed. Phase 1 of a multi-phase migration (see "Migration phases" below).
-No broker execution behavior changes in this phase.
+Adopted and live. TradePlan V7 is the sole autonomous order-creation path:
+`algo-bot` publishes only V7 plans for autonomous (non-manual) trade ideas,
+and `ctrader-engine` executes only V7 plans autonomously
+(`TradePlanRuntime`/`TradePlanExecutionEngine`). The parallel V6 autonomous
+candidate path (scanner-routed, private M1 range, trend) has been removed
+outright, not gated behind a mode - Python's Settings accept only
+`AUTO_TRADE_CONTRACT_MODE=v7_only`, and real C# deployments default to
+`v7_only` too (`AutoTradeOptions.FromEnvironment`); the two services'
+values must still match exactly, and a mismatch is still fatal. (C#'s
+`AutoTradeOptions.Validate()` itself stays lenient on the four historical
+values rather than also restricting to `v7_only` - a pre-existing C#
+test-suite constraint documented in `docs/trade-plan-v7-migration.md`, not
+a production behavior change.) V6 is retained
+for exactly two things: managing positions that were already open before
+this cutover (break-even, target closes, manual close, close-reason
+reporting), and the manual `/algo` command path, which was never part of
+the autonomous V6 candidate path and is unaffected by its removal.
 
 ## Context
 
@@ -133,6 +148,17 @@ close outside the structural zone produces a separate, explicitly named
    production deployment in this phase.
 6. **Legacy removal preparation**: deprecate V6 fields; do not delete V6
    code until parity is demonstrated over a real sample.
+7. **Legacy autonomous removal** (done): the V6 autonomous candidate path
+   (scanner-routed, private M1 range, trend) is removed from `worker.py`'s
+   publish wiring, not gated behind a mode - Python's Settings accept only
+   `v7_only`, and C# defaults to `v7_only` in real deployments.
+   `ctrader-engine`'s `ProcessCandidateAsync` keeps
+   its `legacy_candidate_disabled_in_v7_only` rejection as defense-in-depth.
+   V6 candidate-*building* functions (`_publish_strategy_match`,
+   `_publish_candidate`, `_publish_trend_candidate`) remain in the codebase
+   only because they are still directly unit-tested for their internal
+   guard/veto logic reuse; they have no autonomous caller. V6 open-position
+   management and the manual `/algo` path are untouched.
 
 ## Consequences
 
