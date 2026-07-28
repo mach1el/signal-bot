@@ -24,6 +24,7 @@ public sealed class TradePlanExecutionEngineDependencyTests
   [
     "TradePlanExecutionEngine.cs",
     "TradePlanV7.cs",
+    "TradePlanRuntime.cs",
   ];
 
   private static string SourceDirectory()
