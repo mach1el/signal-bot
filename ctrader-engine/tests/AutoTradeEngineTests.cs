@@ -683,6 +683,37 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task V7OnlyModeRejectsNewAutonomousV6CandidatesButNotManualAlgo()
+  {
+    // Section L of the TradePlan V7 cutover: v7_only must reject new
+    // autonomous V6 candidates as defense-in-depth even if Python is also
+    // supposed to have stopped publishing them - and must not touch manual
+    // /algo candidates, which are the owner's direct decision.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(
+      Options() with { ContractMode = "v7_only" }, store, () => Now, _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Processed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Empty(client.Orders);
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "rejected"
+        && item.Message.Contains("legacy_candidate_disabled_in_v7_only")
+    );
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task RejectsMomentumCandidateAsUnsupported()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
