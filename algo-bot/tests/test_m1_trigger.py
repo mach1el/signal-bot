@@ -1,0 +1,230 @@
+"""M1 candlestick trigger (Codex Prompt P3, Part 2).
+
+Each pattern is tested in isolation (m1_trigger_patterns restricted to just
+that one pattern) so a match doesn't depend on ALL_PATTERNS check ordering -
+this proves each detector's own qualifying logic, not just "something fired".
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from app.analysis.m1_trigger import ALL_PATTERNS, evaluate_m1_trigger
+
+
+ZONE_LOW = 4088.0
+ZONE_HIGH = 4090.0
+KEY_LEVEL = 4089.0
+
+
+def _cfg(pattern: str, **overrides) -> SimpleNamespace:
+  values = {
+    "m1_trigger_patterns": pattern,
+    "m1_trigger_wick_fraction": 0.5,
+    "m1_trigger_strong_close_pct": 0.2,
+  }
+  values.update(overrides)
+  return SimpleNamespace(**values)
+
+
+def _bars(rows: list[dict], *, prior: dict | None = None) -> pd.DataFrame:
+  data = ([prior] if prior else []) + rows
+  index = pd.date_range("2026-07-22 14:45", periods=len(data), freq="1min", tz="UTC")
+  return pd.DataFrame(data, index=index)
+
+
+@pytest.mark.parametrize("pattern", ALL_PATTERNS)
+def test_all_six_patterns_are_enabled_by_default(pattern):
+  # Sanity check for the config default before testing each in isolation.
+  from app.core.config import Settings
+  assert pattern in Settings.model_fields["m1_trigger_patterns"].default
+
+
+def test_wick_rejection_fires_and_non_qualifying_bar_does_not():
+  qualifying = _bars([{
+    "open": 4089.5, "high": 4090.5, "low": 4087.0, "close": 4090.3, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("wick_rejection"),
+  )
+  assert result is not None
+  assert result.pattern == "wick_rejection"
+  assert result.wick_extreme == 4087.0
+
+  non_qualifying = _bars([{
+    # Never touches the zone at all.
+    "open": 4200.0, "high": 4200.5, "low": 4199.5, "close": 4200.2, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("wick_rejection"),
+  ) is None
+
+
+def test_wick_rejection_fires_for_sell_direction():
+  qualifying = _bars([{
+    "open": 4088.5, "high": 4091.0, "low": 4087.5, "close": 4087.7, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("wick_rejection"),
+  )
+  assert result is not None
+  assert result.pattern == "wick_rejection"
+  assert result.wick_extreme == 4091.0
+
+
+def test_body_close_fires_and_non_qualifying_bar_does_not():
+  qualifying = _bars([{
+    "open": 4088.5, "high": 4089.8, "low": 4088.3, "close": 4089.5, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("body_close"),
+  )
+  assert result is not None
+  assert result.pattern == "body_close"
+
+  non_qualifying = _bars([{
+    "open": 4088.5, "high": 4088.9, "low": 4088.3, "close": 4088.6, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("body_close"),
+  ) is None
+
+
+def test_strong_close_fires_and_non_qualifying_bar_does_not():
+  qualifying = _bars([{
+    "open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.85, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("strong_close"),
+  )
+  assert result is not None
+  assert result.pattern == "strong_close"
+
+  non_qualifying = _bars([{
+    "open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.3, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("strong_close"),
+  ) is None
+
+
+def test_pin_bar_fires_and_non_qualifying_bar_does_not():
+  qualifying = _bars([{
+    "open": 4089.0, "high": 4089.1, "low": 4087.0, "close": 4089.05, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("pin_bar"),
+  )
+  assert result is not None
+  assert result.pattern == "pin_bar"
+
+  non_qualifying = _bars([{
+    # Fat body, no dominant wick.
+    "open": 4088.0, "high": 4089.5, "low": 4087.5, "close": 4089.3, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("pin_bar"),
+  ) is None
+
+
+def test_engulfing_fires_and_non_qualifying_bar_does_not():
+  prior = {"open": 4089.0, "high": 4089.2, "low": 4088.4, "close": 4088.5, "volume": 100.0}
+  qualifying = _bars(
+    [{"open": 4088.3, "high": 4089.5, "low": 4088.2, "close": 4089.3, "volume": 100.0}],
+    prior=prior,
+  )
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("engulfing"),
+  )
+  assert result is not None
+  assert result.pattern == "engulfing"
+
+  non_qualifying = _bars(
+    [{"open": 4088.6, "high": 4088.8, "low": 4088.5, "close": 4088.7, "volume": 100.0}],
+    prior=prior,
+  )
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("engulfing"),
+  ) is None
+
+  # No prior bar at all: engulfing can never fire.
+  no_prior = _bars(
+    [{"open": 4088.3, "high": 4089.5, "low": 4088.2, "close": 4089.3, "volume": 100.0}],
+  )
+  assert evaluate_m1_trigger(
+    no_prior, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("engulfing"),
+  ) is None
+
+
+def test_hammer_fires_and_non_qualifying_bar_does_not():
+  qualifying = _bars([{
+    "open": 4088.5, "high": 4088.7, "low": 4087.0, "close": 4088.6, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("hammer"),
+  )
+  assert result is not None
+  assert result.pattern == "hammer"
+
+  non_qualifying = _bars([{
+    # Long upper wick instead of lower - a shooting star shape, not a hammer.
+    "open": 4088.5, "high": 4090.5, "low": 4088.4, "close": 4088.6, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    non_qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("hammer"),
+  ) is None
+
+
+def test_shooting_star_shape_fires_hammer_pattern_for_sell():
+  qualifying = _bars([{
+    "open": 4089.5, "high": 4091.0, "low": 4089.3, "close": 4089.4, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("hammer"),
+  )
+  assert result is not None
+  assert result.pattern == "hammer"
+  assert result.wick_extreme == 4091.0
+
+
+def test_disabled_pattern_never_fires_even_if_bar_qualifies():
+  # This bar qualifies for hammer (touches zone, small body, dominant lower
+  # wick) but its close (4088.6) never exceeds zone_high (4090.0), so it
+  # cannot also qualify for wick_rejection - a genuinely disjoint case.
+  qualifying_for_hammer_only = _bars([{
+    "open": 4088.5, "high": 4088.7, "low": 4087.0, "close": 4088.6, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    qualifying_for_hammer_only, zone_low=ZONE_LOW, zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL, direction="BUY", cfg=_cfg("wick_rejection"),
+  ) is None
+
+
+def test_no_bars_or_empty_frame_returns_none():
+  empty = pd.DataFrame(columns=["open", "high", "low", "close"])
+  assert evaluate_m1_trigger(
+    empty, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("wick_rejection"),
+  ) is None
+  assert evaluate_m1_trigger(
+    None, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("wick_rejection"),
+  ) is None

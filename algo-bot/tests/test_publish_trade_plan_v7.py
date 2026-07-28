@@ -4,14 +4,21 @@ Exercises app.autotrade.worker._publish_trade_plan_v7 directly against a real
 Redis client (same fakeredis-backed client the rest of the suite uses) - not
 a mock of the publish call - so a regression here means the live runtime
 stopped publishing, not just that a function was called with the right args.
+
+Since P3 (the M1 candlestick trigger), a CONFIRMED setup no longer publishes
+on the first call - it arms and waits. Every test here calls
+_publish_trade_plan_v7 twice: once to arm, once with a qualifying M1 bar in
+`frames["M1"]` to actually trigger the publish.
 """
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from app.autotrade import worker
 from app.autotrade.setup_lifecycle import (
+  ARMED_WAITING_TRIGGER,
   CONFIRMED,
   PLAN_PUBLISHED,
   create_setup,
@@ -73,14 +80,43 @@ async def _confirm_setup(client, match: StrategyMatch) -> None:
     record, _changed = await transition_setup(client, match.match_id, state)
 
 
+def _m1_trigger_bar(
+  *, entry_low: float = 4088.10, entry_high: float = 4090.00,
+) -> pd.DataFrame:
+  # A wick_rejection bar for a BUY setup: wicks below the zone then closes
+  # back above it, lower-wick fraction well past the default 0.5 threshold.
+  index = pd.date_range("2026-07-22 14:45", periods=1, freq="1min", tz="UTC")
+  return pd.DataFrame({
+    "open": [entry_high - 1.0],
+    "high": [entry_high + 0.5],
+    "low": [entry_low - 2.0],
+    "close": [entry_high + 0.3],
+    "volume": [500.0],
+  }, index=index)
+
+
 @pytest.mark.asyncio
-async def test_publishes_plan_unconditionally():
+async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
   client = redis_state.get_client()
   match = _match()
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
-  plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  # First call: CONFIRMED -> ARMED_WAITING_TRIGGER, no plan yet.
+  armed_plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  assert armed_plan_id is None
+  armed_record = await load_setup(client, "match-v7-1")
+  assert armed_record.state == ARMED_WAITING_TRIGGER
+
+  # Still armed, no M1 data at all: stays armed, still no plan.
+  still_waiting = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  assert still_waiting is None
+  assert (await load_setup(client, "match-v7-1")).state == ARMED_WAITING_TRIGGER
+
+  # Qualifying M1 candle: publishes exactly now, stop anchored to the wick.
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
+  )
 
   assert plan_id is not None
   plan = await read_trade_plan(client, plan_id)
@@ -90,6 +126,9 @@ async def test_publishes_plan_unconditionally():
   assert plan.analysis.direction == "BUY"
   assert plan.analysis.bias == "up"
   assert plan.source_structure.kind == "demand"
+  assert plan.stop.source == "m1_trigger_wick"
+  # The trigger bar's low (4086.10) drives the stop, not the raw zone edge.
+  assert float(plan.stop.price) < 4088.10
   assert await read_plan_state(client, plan_id) == "published"
   record = await load_setup(client, "match-v7-1")
   assert record.state == PLAN_PUBLISHED
@@ -108,7 +147,10 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
-  plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
+  )
 
   assert plan_id is not None
   record = await load_setup(client, "match-v7-2")
@@ -122,12 +164,18 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
 
   first_match = _match(match_id="match-v7-3a", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, first_match)
-  first_plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, first_match)
+  await worker._publish_trade_plan_v7(client, "XAU", spot, first_match)
+  first_plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, first_match, frames={"M1": _m1_trigger_bar()},
+  )
   assert first_plan_id is not None
 
   second_match = _match(match_id="match-v7-3b", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, second_match)
-  second_plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, second_match)
+  await worker._publish_trade_plan_v7(client, "XAU", spot, second_match)
+  second_plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, second_match, frames={"M1": _m1_trigger_bar()},
+  )
 
   assert second_plan_id is None
   # Only one plan_id was ever minted for this thesis.
@@ -149,3 +197,28 @@ async def test_setup_not_confirmed_is_rejected():
 
   assert plan_id is None
   assert await load_setup(client, "match-v7-4") is None
+
+
+@pytest.mark.asyncio
+async def test_non_qualifying_m1_bar_does_not_publish():
+  client = redis_state.get_client()
+  match = _match(match_id="match-v7-5", thesis_id="thesis-v7-5")
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+
+  # A tiny, symmetric doji sitting inside the zone with no directional wick,
+  # body, or close - qualifies for none of the six patterns.
+  index = pd.date_range("2026-07-22 14:45", periods=1, freq="1min", tz="UTC")
+  flat_bar = pd.DataFrame({
+    "open": [4089.0], "high": [4089.05], "low": [4088.95], "close": [4089.0],
+    "volume": [100.0],
+  }, index=index)
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match, frames={"M1": flat_bar},
+  )
+
+  assert plan_id is None
+  record = await load_setup(client, "match-v7-5")
+  assert record.state == ARMED_WAITING_TRIGGER
