@@ -167,7 +167,9 @@ machine-readable Redis evidence remains complete.
 - Manual `/algo` and `/auto_close_all` bypass autonomous arbitration and
   tier-risk rules.
 - Telegram contains no monetary PnL, noisy remaining-lot, or managing cards.
-- Position closes continue to use broker-fill total net pips.
+- Position closes after booked TPs report the highest target reached (e.g.
+  TP2 = 60 pips), not a volume-weighted blend diluted by a later BE residual.
+  Broker-fill weighted net remains the fallback when no target was booked yet.
 
 ## Operator Redis evidence
 
