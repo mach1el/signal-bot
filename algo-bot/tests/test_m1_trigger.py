@@ -12,7 +12,11 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from app.analysis.m1_trigger import ALL_PATTERNS, evaluate_m1_trigger
+from app.analysis.m1_trigger import (
+  ALL_PATTERNS,
+  evaluate_m1_trigger,
+  evaluate_m1_trigger_window,
+)
 
 
 ZONE_LOW = 4088.0
@@ -227,4 +231,191 @@ def test_no_bars_or_empty_frame_returns_none():
   assert evaluate_m1_trigger(
     None, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
     direction="BUY", cfg=_cfg("wick_rejection"),
+  ) is None
+
+
+@pytest.mark.parametrize(
+  ("pattern", "prior", "bar"),
+  (
+    (
+      "wick_rejection",
+      None,
+      {"open": 4089.5, "high": 4090.5, "low": 4087.0, "close": 4090.3},
+    ),
+    (
+      "body_close",
+      None,
+      {"open": 4088.5, "high": 4089.8, "low": 4088.3, "close": 4089.5},
+    ),
+    (
+      "strong_close",
+      None,
+      {"open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.85},
+    ),
+    (
+      "pin_bar",
+      None,
+      {"open": 4089.0, "high": 4089.1, "low": 4087.0, "close": 4089.05},
+    ),
+    (
+      "engulfing",
+      {"open": 4089.0, "high": 4089.2, "low": 4088.4, "close": 4088.5},
+      {"open": 4088.3, "high": 4089.5, "low": 4088.2, "close": 4089.3},
+    ),
+    (
+      "hammer",
+      None,
+      {"open": 4088.5, "high": 4088.7, "low": 4087.0, "close": 4088.6},
+    ),
+  ),
+)
+def test_every_pattern_has_one_common_zone_intersection_gate(pattern, prior, bar):
+  def shifted(row):
+    return {
+      key: value + 100.0 if key in {"open", "high", "low", "close"} else value
+      for key, value in {**row, "volume": 100.0}.items()
+    }
+
+  outside = _bars(
+    [shifted(bar)],
+    prior=None if prior is None else shifted(prior),
+  )
+
+  assert evaluate_m1_trigger(
+    outside,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    cfg=_cfg(pattern),
+  ) is None
+
+
+def test_windowed_evaluator_recovers_earlier_trigger_before_later_doji():
+  bars = _bars([
+    {
+      "open": 4089.5,
+      "high": 4090.5,
+      "low": 4087.0,
+      "close": 4090.3,
+      "volume": 100.0,
+    },
+    {
+      "open": 4089.0,
+      "high": 4089.05,
+      "low": 4088.95,
+      "close": 4089.0,
+      "volume": 100.0,
+    },
+  ])
+  earliest = int(bars.index[0].timestamp())
+
+  result = evaluate_m1_trigger_window(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    earliest_bar_ts=earliest,
+    after_bar_ts=None,
+    cfg=_cfg("wick_rejection"),
+  )
+
+  assert result is not None
+  assert result.pattern == "wick_rejection"
+  assert int(result.bar_ts) == earliest
+
+
+def test_windowed_evaluator_never_uses_explicitly_open_bar():
+  bars = _bars([
+    {
+      "open": 4089.5,
+      "high": 4090.5,
+      "low": 4087.0,
+      "close": 4090.3,
+      "volume": 100.0,
+      "closed": False,
+    },
+  ])
+
+  assert evaluate_m1_trigger_window(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    earliest_bar_ts=int(bars.index[0].timestamp()),
+    after_bar_ts=None,
+    cfg=_cfg("wick_rejection"),
+  ) is None
+
+
+def test_windowed_evaluator_ignores_pre_episode_and_consumed_bars():
+  bars = _bars([
+    {
+      "open": 4089.5,
+      "high": 4090.5,
+      "low": 4087.0,
+      "close": 4090.3,
+      "volume": 100.0,
+    },
+    {
+      "open": 4089.0,
+      "high": 4089.05,
+      "low": 4088.95,
+      "close": 4089.0,
+      "volume": 100.0,
+    },
+  ])
+  first_ts = int(bars.index[0].timestamp())
+
+  assert evaluate_m1_trigger_window(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    earliest_bar_ts=first_ts + 60,
+    after_bar_ts=None,
+    cfg=_cfg("wick_rejection"),
+  ) is None
+  assert evaluate_m1_trigger_window(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    earliest_bar_ts=first_ts,
+    after_bar_ts=first_ts,
+    cfg=_cfg("wick_rejection"),
+  ) is None
+
+
+def test_windowed_engulfing_does_not_use_prior_bar_across_episode_boundary():
+  prior = {
+    "open": 4089.0,
+    "high": 4089.2,
+    "low": 4088.4,
+    "close": 4088.5,
+    "volume": 100.0,
+  }
+  current = {
+    "open": 4088.3,
+    "high": 4089.5,
+    "low": 4088.2,
+    "close": 4089.3,
+    "volume": 100.0,
+  }
+  bars = _bars([current], prior=prior)
+  episode_start = int(bars.index[1].timestamp())
+
+  assert evaluate_m1_trigger_window(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    earliest_bar_ts=episode_start,
+    after_bar_ts=None,
+    cfg=_cfg("engulfing"),
   ) is None

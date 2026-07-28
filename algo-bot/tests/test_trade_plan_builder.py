@@ -247,3 +247,32 @@ def test_execution_policy_rejection_is_not_silently_swallowed():
 
   assert excinfo.value.reason_code
   assert excinfo.value.measured
+
+
+def test_retest_trigger_wick_drives_stop_rr_and_confirmation_provenance():
+  plan = _build(
+    _match(structure_swing=4085.0, targets=(140, 250)),
+    confirmation_source="m1_retest",
+    execution_confirmation_bar_ts=1_720_000_060,
+    zone_episode_id="episode-1",
+    trigger_wick_extreme=4083.5,
+  )
+
+  assert plan.stop.source == "m1_trigger_wick"
+  assert plan.stop.price < Decimal("4084.46")
+  assert plan.provenance.confirmation_source == "m1_retest"
+  assert plan.provenance.confirmation_bar_ts == 1_720_000_060
+  assert plan.provenance.zone_episode_id == "episode-1"
+
+
+def test_final_reward_risk_uses_retest_trigger_wick_not_structure_fallback():
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(
+      _match(structure_swing=4085.0, targets=(60,)),
+      confirmation_source="m1_retest",
+      execution_confirmation_bar_ts=1_720_000_060,
+      zone_episode_id="episode-rr",
+      trigger_wick_extreme=4083.5,
+    )
+
+  assert excinfo.value.reason_code == "policy_reward_risk_insufficient"
