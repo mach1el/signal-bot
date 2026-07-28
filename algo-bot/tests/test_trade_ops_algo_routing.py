@@ -170,8 +170,9 @@ async def test_do_close_defers_to_broker_when_algo_and_filled(monkeypatch):
 async def test_do_close_falls_through_when_algo_but_not_yet_filled(monkeypatch):
   rec = await _algo_signal()
   await store.set_execution_intent(
-    rec["id"], intent_id="manual:x:0", status="armed", revision=0,
+    rec["id"], intent_id="manual:x:0", status="requested", revision=0,
   )
+  await store.set_execution_status(rec["id"], "pending")
   request_close = AsyncMock()
   monkeypatch.setattr(manual_execution, "request_close", request_close)
 
@@ -202,11 +203,12 @@ async def test_do_sl_defers_to_broker_when_algo_and_filled(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_do_cancel_defers_to_broker_when_algo_and_armed(monkeypatch):
+async def test_do_cancel_defers_to_broker_when_algo_and_pending(monkeypatch):
   rec = await _algo_signal()
   await store.set_execution_intent(
-    rec["id"], intent_id="manual:x:1", status="armed", revision=0,
+    rec["id"], intent_id="manual:x:1", status="requested", revision=0,
   )
+  await store.set_execution_status(rec["id"], "pending")
   request_cancel = AsyncMock()
   monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
   cancel_mock = AsyncMock()
@@ -228,6 +230,28 @@ async def test_do_cancel_falls_through_when_algo_and_already_filled(monkeypatch)
   rec = await _algo_signal()
   await store.set_execution_fill(
     rec["id"], broker_position_id=555, broker_fill_price=4100.0,
+  )
+  request_cancel = AsyncMock()
+  monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
+
+  result = await trade_ops.do_cancel({"sid": rec["id"], "symbol": "XAU"})
+
+  request_cancel.assert_not_awaited()
+  assert result.get("pending") is None
+  row = await store.get_manual_signal(rec["id"])
+  assert row["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_do_cancel_falls_through_when_algo_and_still_requested(monkeypatch):
+  # Regression for the real production bug: before C# confirms the limit
+  # order is actually live at the broker (execution_status transitions
+  # "requested" -> "pending" via the "limit_placed" event), there is no
+  # broker-side pending order to cancel yet, so this intentionally stays a
+  # Postgres-only cancel rather than deferring.
+  rec = await _algo_signal()
+  await store.set_execution_intent(
+    rec["id"], intent_id="manual:x:2", status="requested", revision=0,
   )
   request_cancel = AsyncMock()
   monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
