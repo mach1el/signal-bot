@@ -817,11 +817,20 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
     structures={"M30": SimpleNamespace(bias="up")},
     frames={"M5": _frame()},
     regime=None,
+    analysis=SimpleNamespace(per_tf={}),
   )
   monkeypatch.setattr(
     scanner,
     "build_context",
     lambda symbol, tf, frames, settings, htf_order: ctx,
+  )
+  monkeypatch.setattr(scanner, "cache_analysis", lambda *_args: None)
+  monkeypatch.setattr(
+    scanner,
+    "build_map",
+    lambda *_args, **_kwargs: MarketMap(
+      [], 4000.0, None, None, None, "up", "M30",
+    ),
   )
   results = [
     scanner.DetectionResult(
@@ -875,7 +884,7 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_forming_cards_force_opposing_suppression_without_trimming_digest(
+async def test_actionable_digest_keeps_decisive_opposing_winner(
   monkeypatch,
 ):
   client = redis_state.get_client()
@@ -934,8 +943,8 @@ async def test_forming_cards_force_opposing_suppression_without_trimming_digest(
     ["M30"],
   )
 
-  assert execution_digest == [buy, sell]
-  assert conflicts == []
+  assert execution_digest == [buy]
+  assert conflicts[0]["outcome"] == "stronger_kept"
   assert sent == [buy]
   assert notify.await_count == 1
 
@@ -1686,7 +1695,9 @@ def test_opposite_direction_conflict_with_equal_confluence_drops_both(monkeypatc
   assert conflicts[0]["outcome"] == "both_dropped"
 
 
-def test_demo_eval_preserves_opposite_direction_structural_matches(monkeypatch):
+def test_demo_eval_does_not_preserve_ambiguous_opposing_actionable_matches(
+  monkeypatch,
+):
   monkeypatch.setattr(
     scanner.settings, "auto_trade_track_all_structural_matches", True,
   )
@@ -1702,8 +1713,8 @@ def test_demo_eval_preserves_opposite_direction_structural_matches(monkeypatch):
 
   selected, conflicts = scanner._suppress_overlaps([buy, sell])
 
-  assert {item.direction for item in selected} == {"BUY", "SELL"}
-  assert conflicts == []
+  assert selected == []
+  assert conflicts[0]["outcome"] == "both_dropped"
 
 
 def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):

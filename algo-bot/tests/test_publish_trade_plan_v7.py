@@ -18,10 +18,12 @@ import time
 import pandas as pd
 import pytest
 
+from app.analysis.market_map import MapEntry, MarketMap
 from app.autotrade import worker
 from app.autotrade.setup_lifecycle import (
   ARMED_WAITING_TRIGGER,
   CONFIRMED,
+  INVALIDATED,
   PLAN_PUBLISHED,
   create_setup,
   load_setup,
@@ -100,6 +102,19 @@ def _m1_trigger_bar(
   }, index=index)
 
 
+def _market_map(*entries: MapEntry) -> MarketMap:
+  return MarketMap(
+    entries=list(entries),
+    price=4089.0,
+    eq=None,
+    box_low=None,
+    box_high=None,
+    bias="up",
+    bias_tf="H1",
+    actionable_entries=list(entries),
+  )
+
+
 @pytest.mark.asyncio
 async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
   client = redis_state.get_client()
@@ -137,6 +152,106 @@ async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
   assert await read_plan_state(client, plan_id) == "published"
   record = await load_setup(client, "match-v7-1")
   assert record.state == PLAN_PUBLISHED
+
+
+@pytest.mark.asyncio
+async def test_final_v7_gate_rejects_same_opposing_major_geometry_as_scanner():
+  client = redis_state.get_client()
+  match = _match(
+    match_id="match-v7-opposing-major",
+    thesis_id="thesis-v7-opposing-major",
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4089.0,
+    ts=1719999600,
+    fresh=True,
+    bid=4088.9,
+    ask=4089.1,
+  )
+  market_map = _market_map(MapEntry(
+    "sell",
+    4089.2,
+    4095.0,
+    4089,
+    4095,
+    "major",
+    ["supply"],
+    13.0,
+  ))
+
+  await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    market_map=market_map,
+  )
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    frames={"M1": _m1_trigger_bar()},
+    market_map=market_map,
+  )
+
+  assert plan_id is None
+  assert (await load_setup(client, match.match_id)).state == INVALIDATED
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  gate = await client.hgetall(
+    "auto_trade:gate_reject:XAU:v7_opposing_major_no_room"
+  )
+  assert int(gate["count"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
+  client = redis_state.get_client()
+  match = _match(
+    match_id="match-v7-target-cap",
+    thesis_id="thesis-v7-target-cap",
+    structure_swing=4087.5,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4089.0,
+    ts=1719999600,
+    fresh=True,
+    bid=4088.9,
+    ask=4089.1,
+  )
+  market_map = _market_map(MapEntry(
+    "sell",
+    4096.0,
+    4098.0,
+    4096,
+    4098,
+    "zone",
+    ["supply"],
+    10.0,
+  ))
+
+  await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    market_map=market_map,
+  )
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    frames={"M1": _m1_trigger_bar()},
+    market_map=market_map,
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert len(plan.targets) == 1
 
 
 @pytest.mark.asyncio
