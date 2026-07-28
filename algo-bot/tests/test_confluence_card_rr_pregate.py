@@ -10,7 +10,9 @@ import pandas as pd
 import pytest
 
 from app.analysis import scanner
+from app.analysis.actionability import resolve_actionability
 from app.analysis.confluence_zone import confluence_setup_id
+from app.analysis.market_map import MarketMap
 from app.analysis.types import Zone
 from app.autotrade import delivery, worker
 from app.autotrade.setup_lifecycle import (
@@ -137,7 +139,7 @@ async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
   result = merged[0]
   assert result.setup == "Supply Zone Reaction"
   assert result.confluence_tags == ("key_level", "supply")
-  assert result.confluence == 2
+  assert result.confluence == 4
   monkeypatch.setattr(
     scanner.settings,
     "auto_trade_strategy_match_enabled",
@@ -249,7 +251,7 @@ async def test_distinct_same_side_zones_still_form_two_cards(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_opposing_sides_at_same_price_are_not_merged_or_card_suppressed(
+async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
   monkeypatch,
 ):
   client = redis_state.get_client()
@@ -272,7 +274,28 @@ async def test_opposing_sides_at_same_price_are_not_merged_or_card_suppressed(
 
   assert len(merged) == 2
   assert {item.direction for item in merged} == {"BUY", "SELL"}
-  matches = [_build_one(item, ctx) for item in merged]
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=merged,
+    market_map=MarketMap([], 4100.5, None, None, None, "range", "M30"),
+    context=ctx,
+    atr=2.0,
+    pip_size=0.1,
+    cfg=scanner.settings,
+  )
+  assert resolution.observed == tuple(merged)
+  assert resolution.actionable == ()
+  assert resolution.conflicts[0]["outcome"] == "both_dropped"
+
+  match = await scanner._sync_strategy_match(
+    client,
+    "XAU",
+    "M5",
+    "2026-07-28T12:10:00+00:00",
+    ctx,
+    list(resolution.actionable),
+  )
+  assert match is None
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9003))
@@ -282,15 +305,16 @@ async def test_opposing_sides_at_same_price_are_not_merged_or_card_suppressed(
     "XAU",
     "M5",
     ctx,
-    merged,
+    list(resolution.actionable),
     notify,
     ["M30"],
-    execution_match=matches[0],
-    execution_matches=matches,
+    execution_match=None,
+    execution_matches=[],
   )
 
-  assert len(cards) == 2
-  assert notify.await_count == 2
+  assert cards == []
+  notify.assert_not_awaited()
+  assert [key async for key in client.scan_iter("analysis:setup:*")] == []
 
 
 @pytest.mark.asyncio
@@ -321,6 +345,14 @@ async def test_reward_risk_pre_gate_suppresses_card_and_confirmation(
     scanner,
     "_load_market_context_for_symbol",
     AsyncMock(return_value=(ctx, frames)),
+  )
+  ctx.analysis = SimpleNamespace(per_tf={})
+  monkeypatch.setattr(
+    scanner,
+    "build_map",
+    lambda *_args, **_kwargs: MarketMap(
+      [], 4100.5, None, None, None, "down", "M30",
+    ),
   )
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9004))
 

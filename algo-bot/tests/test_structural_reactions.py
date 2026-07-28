@@ -145,6 +145,7 @@ def test_key_level_support_buy_and_resistance_sell():
   assert buy.setup == "Key Level Reaction"
   assert buy.direction == "BUY"
   assert buy.structural_source == "key_level"
+  assert buy.key_level_role == "support"
 
   sell_df = _sell_rejection_df()
   resistance = Level(107, "resistance", touches=3, strength=3)
@@ -153,6 +154,33 @@ def test_key_level_support_buy_and_resistance_sell():
   )
   assert sell is not None
   assert sell.direction == "SELL"
+  assert sell.key_level_role == "resistance"
+
+
+def test_generic_key_level_remains_ambiguous_raw_observation():
+  result = detectors.key_level_reaction(_ctx(
+    _buy_rejection_df(),
+    bias="down",
+    levels=[Level(105, "reaction", touches=3, strength=3)],
+  ))
+
+  assert result is not None
+  assert result.key_level_role == "ambiguous"
+
+
+def test_accepted_resistance_break_is_not_key_level_reaction():
+  df = _df([
+    (100, 101, 98, 100, 100),
+    (101, 108, 100, 107, 100),
+    (107, 109, 103, 104, 100),
+    (104, 108, 102, 107, 100),
+    (106, 110, 101, 109, 100),
+  ])
+  resistance = Level(105, "resistance", touches=3, strength=3)
+
+  assert detectors.key_level_reaction(
+    _ctx(df, bias="up", levels=[resistance]),
+  ) is None
 
 
 def test_session_level_pdl_buy_and_pdh_sell():
