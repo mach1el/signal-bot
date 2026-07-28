@@ -12,6 +12,7 @@ import pytest
 
 from app.autotrade.setup_lifecycle import (
   ARMED,
+  ARMED_WAITING_TRIGGER,
   CONFIRMED,
   CONSUMED,
   DISCOVERED,
@@ -55,7 +56,8 @@ async def test_full_valid_transition_path_reaches_consumed():
   await create_setup(client, setup_id="setup-2", thesis_id="thesis-2", symbol="XAU")
 
   path = [
-    WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT, PLAN_PUBLISHED, ARMED, CONSUMED,
+    WATCHING, TOUCHED, FORMING, CONFIRMED, ARMED_WAITING_TRIGGER,
+    PLAN_BUILT, PLAN_PUBLISHED, ARMED, CONSUMED,
   ]
   for state in path:
     record, changed = await transition_setup(client, "setup-2", state)
@@ -93,6 +95,26 @@ async def test_illegal_transition_is_rejected():
 
 
 @pytest.mark.asyncio
+async def test_confirmed_cannot_skip_the_m1_trigger_wait():
+  # M1 candlestick trigger (P3): CONFIRMED must not jump straight to
+  # PLAN_BUILT - it has to wait in ARMED_WAITING_TRIGGER first, so a plan
+  # can only ever be built at the moment a trigger actually fires.
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="setup-4b", thesis_id="thesis-4b", symbol="XAU")
+  await transition_setup(client, "setup-4b", WATCHING)
+  await transition_setup(client, "setup-4b", TOUCHED)
+  await transition_setup(client, "setup-4b", FORMING)
+  await transition_setup(client, "setup-4b", CONFIRMED)
+
+  with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
+    await transition_setup(client, "setup-4b", PLAN_BUILT)
+
+  record, changed = await transition_setup(client, "setup-4b", ARMED_WAITING_TRIGGER)
+  assert changed is True
+  assert record.state == ARMED_WAITING_TRIGGER
+
+
+@pytest.mark.asyncio
 async def test_cannot_re_confirm_an_already_planned_setup():
   # This is the "old confirmations must not create new plans repeatedly"
   # requirement: once a setup has moved past CONFIRMED, the graph has no
@@ -103,6 +125,7 @@ async def test_cannot_re_confirm_an_already_planned_setup():
   await transition_setup(client, "setup-5", TOUCHED)
   await transition_setup(client, "setup-5", FORMING)
   await transition_setup(client, "setup-5", CONFIRMED)
+  await transition_setup(client, "setup-5", ARMED_WAITING_TRIGGER)
   await transition_setup(client, "setup-5", PLAN_BUILT)
 
   with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
