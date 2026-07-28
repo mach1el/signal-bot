@@ -3744,6 +3744,90 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task BeStopOutAfterTp2ReportsAchievedTargetAndSlReason()
+  {
+    // TP1 + TP2 booked, protective stop trailed to BE, then broker SL hits.
+    // Close-reason lookup may stay Unknown, but exit-at-stop after booked
+    // targets must not read as "unconfirmed" / diluted VWAP Total.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var state = Assert.Single(store.Positions.Values);
+    var positionId = state.PositionId;
+    Assert.Equal(new[] { 30, 60, 90, 120, 200 }, state.TargetsPips.ToArray());
+
+    // Book TP1 (~30p) — moves protective stop to BE+buffer.
+    await engine.ObserveSpotAsync(
+      new SpotPrice(
+        "XAU",
+        state.EntryPrice + 3.1m,
+        state.EntryPrice + 3.3m,
+        now.ToUnixTimeSeconds()
+      ),
+      cts.Token
+    );
+    await WaitUntilAsync(() =>
+      store.Events.Count(item => item.Type == "take_profit") >= 1
+    );
+    state = Assert.Single(store.Positions.Values);
+    Assert.Equal(1, state.NextTargetIndex);
+    Assert.NotNull(state.CurrentStopLoss);
+
+    // Book TP2 (~60p).
+    await engine.ObserveSpotAsync(
+      new SpotPrice(
+        "XAU",
+        state.EntryPrice + 6.1m,
+        state.EntryPrice + 6.3m,
+        now.ToUnixTimeSeconds()
+      ),
+      cts.Token
+    );
+    await WaitUntilAsync(() =>
+      store.Events.Count(item => item.Type == "take_profit") >= 2
+    );
+    state = Assert.Single(store.Positions.Values);
+    Assert.Equal(2, state.NextTargetIndex);
+    var beStop = Assert.NotNull(state.CurrentStopLoss);
+
+    // Remaining runner disappears at the BE stop; order-type lookup fails.
+    client.PositionCloseReasonToReturn = PositionCloseReason.Unknown;
+    client.PositionCloseExecutionPriceToReturn = beStop;
+    client.RemovePosition(positionId);
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("stop loss / take profit", closed.Message);
+    Assert.DoesNotContain("unconfirmed", closed.Message);
+    // Highest booked target is TP2 = 60, not the VWAP diluted by BE residual.
+    Assert.Equal(60m, closed.GroupRealizedPips);
+    var result = Assert.Single(
+      store.Events,
+      item => item.Type == "group_result"
+    );
+    Assert.Equal(60m, result.GroupRealizedPips);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task FullTakeProfitCloseNeverRecordsZoneCooldown()
   {
     // A clean TP full-close untracks the position itself (ProcessTargetsAsync)
@@ -5250,9 +5334,9 @@ public sealed partial class AutoTradeEngineTests
     public int? FailLimitOrderCall { get; init; }
     public int? FailMarketOrderCall { get; init; }
     public int? FailCancelCall { get; init; }
-    public PositionCloseReason PositionCloseReasonToReturn { get; init; } =
+    public PositionCloseReason PositionCloseReasonToReturn { get; set; } =
       PositionCloseReason.Unknown;
-    public decimal? PositionCloseExecutionPriceToReturn { get; init; }
+    public decimal? PositionCloseExecutionPriceToReturn { get; set; }
     public List<long> PositionCloseReasonLookups { get; } = [];
     public List<long> PositionCloseOpenedAtTimestamps { get; } = [];
     public Task<PositionCloseLookup> DeterminePositionCloseReasonAsync(
