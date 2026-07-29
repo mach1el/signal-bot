@@ -4,10 +4,13 @@ Prompt P4).
 
 from __future__ import annotations
 
+import asyncio
+import os
 from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
+from redis.asyncio import Redis
 
 from app.autotrade import setup_card
 from app.autotrade.setup_lifecycle import (
@@ -299,3 +302,172 @@ async def test_load_forming_card_reads_legacy_scalar_format(monkeypatch):
   card = await setup_card.load_forming_card(client, "setup-7")
 
   assert card == {"chat_id": 999, "message_id": 12345}
+
+
+@pytest.mark.asyncio
+async def test_identical_status_edit_is_a_local_successful_noop():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-identical")
+  status = "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor"
+  text = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    status,
+    "🔴 <b>SELL · Trendline Reaction</b>",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-identical",
+    chat_id=123,
+    message_id=7001,
+    text=text,
+  )
+  await setup_card.save_forming_card_status(
+    client,
+    "setup-identical",
+    status,
+    state="plan_published",
+  )
+  edits = []
+
+  async def edit_fn(chat_id, message_id, updated):
+    edits.append((chat_id, message_id, updated))
+
+  assert await setup_card.edit_forming_card_status(
+    client,
+    "setup-identical",
+    status,
+    state="plan_published",
+    edit_fn=edit_fn,
+  )
+  assert edits == []
+
+
+@pytest.mark.asyncio
+async def test_not_modified_status_edit_is_treated_as_success():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-not-modified")
+  await setup_card.save_forming_card(
+    client,
+    "setup-not-modified",
+    chat_id=123,
+    message_id=7002,
+    text="\n".join([
+      "🔎 <b>XAU M5 · SETUP FORMING</b>",
+      "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+      "🔴 <b>SELL · Trendline Reaction</b>",
+    ]),
+  )
+
+  async def edit_fn(chat_id, message_id, updated):
+    raise TelegramBadRequest(
+      method=None,
+      message="Bad Request: message is not modified",
+    )
+
+  assert await setup_card.edit_forming_card_status(
+    client,
+    "setup-not-modified",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    state="plan_published",
+    edit_fn=edit_fn,
+  )
+  card = await setup_card.load_forming_card(client, "setup-not-modified")
+  assert card is not None
+  assert "PLAN PUBLISHED" in card["text"]
+
+
+@pytest.mark.asyncio
+async def test_card_status_is_monotonic_after_plan_publication():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-monotonic")
+  await setup_card.save_forming_card(
+    client,
+    "setup-monotonic",
+    chat_id=123,
+    message_id=7003,
+    text="\n".join([
+      "🔎 <b>XAU M5 · SETUP FORMING</b>",
+      "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+      "🔴 <b>SELL · Trendline Reaction</b>",
+    ]),
+  )
+
+  async def edit_fn(chat_id, message_id, updated):
+    return None
+
+  updates = [
+    ("queued", "🟡 <b>QUEUED</b> · worker acknowledgement pending"),
+    ("preflight", "🟡 <b>PREFLIGHT</b> · dynamic execution checks in progress"),
+    (
+      "plan_published",
+      "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    ),
+    (
+      "waiting_retest",
+      "🟠 <b>WAITING RETEST</b> · executable quote is outside the zone",
+    ),
+    ("queued", "🟡 <b>QUEUED</b> · worker acknowledgement pending"),
+  ]
+  for state, status in updates:
+    assert await setup_card.edit_forming_card_status(
+      client,
+      "setup-monotonic",
+      status,
+      state=state,
+      edit_fn=edit_fn,
+    )
+
+  snapshot = await setup_card.load_forming_card_status_snapshot(
+    client,
+    "setup-monotonic",
+  )
+  assert snapshot is not None
+  assert snapshot.state == "plan_published"
+  card = await setup_card.load_forming_card(client, "setup-monotonic")
+  assert card is not None
+  assert "PLAN PUBLISHED" in card["text"]
+  assert "WAITING RETEST" not in card["text"]
+
+
+@pytest.mark.real_redis
+@pytest.mark.asyncio
+async def test_real_redis_concurrent_card_status_keeps_highest_priority():
+  configured = os.getenv("REAL_REDIS_URL")
+  if not configured:
+    pytest.fail("REAL_REDIS_URL is required")
+  source = configured.rsplit("/", 1)[0]
+  client = Redis.from_url(f"{source}/12", decode_responses=True)
+  await client.flushdb()
+  setup_id = "real-redis-monotonic"
+  try:
+    await asyncio.gather(
+      setup_card.save_forming_card_status(
+        client,
+        setup_id,
+        "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+        state="queued",
+      ),
+      setup_card.save_forming_card_status(
+        client,
+        setup_id,
+        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+        state="plan_published",
+      ),
+      setup_card.save_forming_card_status(
+        client,
+        setup_id,
+        "🟠 <b>WAITING RETEST</b> · executable quote is outside the zone",
+        state="waiting_retest",
+      ),
+    )
+
+    snapshot = await setup_card.load_forming_card_status_snapshot(
+      client,
+      setup_id,
+    )
+    assert snapshot is not None
+    assert snapshot.state == "plan_published"
+    assert snapshot.priority == 100
+  finally:
+    await client.flushdb()
+    await client.aclose()

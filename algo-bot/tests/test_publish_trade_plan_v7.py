@@ -43,7 +43,12 @@ from app.autotrade.setup_lifecycle import (
   transition_setup,
 )
 from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
-from app.autotrade.trade_plan_stream import read_plan_state, read_trade_plan
+from app.autotrade.trade_plan_stream import (
+  plan_key,
+  plan_state_key,
+  read_plan_state,
+  read_trade_plan,
+)
 from app.autotrade.trend import RegimeInfo
 from app.persistence import redis_state
 
@@ -365,7 +370,99 @@ async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
 
   assert await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
-  ) is None
+  ) == plan_id
+  assert await client.xlen(worker.settings.auto_trade_trade_plan_stream) == 1
+
+
+@pytest.mark.asyncio
+async def test_publication_result_reconciles_durable_v7_plan_when_local_is_none():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="d870ddc73b268fcb2feaa14a891c2108",
+    thesis_id="thesis-d870ddc73b268fcb2feaa14a891c2108",
+    direction="SELL",
+    entry_low=4045.36521,
+    entry_high=4047.14248,
+    current_price=4045.56,
+  )
+  plan_id = worker._v7_plan_id(match)
+  await client.set(
+    plan_key(plan_id),
+    '{"version":7,"plan_id":"' + plan_id + '"}',
+    ex=3600,
+  )
+  await client.set(plan_state_key(plan_id), "published", ex=3600)
+
+  result = await worker._strategy_publication_result(client, match, None)
+
+  assert result.status == "published"
+  assert result.candidate_id == plan_id
+
+
+@pytest.mark.asyncio
+async def test_rejected_plan_state_wins_over_retained_plan_payload():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="rejected-v7-replay",
+    thesis_id="rejected-v7-thesis",
+  )
+  plan_id = worker._v7_plan_id(match)
+  await client.set(plan_key(plan_id), '{"version":7}', ex=3600)
+  await client.set(plan_state_key(plan_id), "rejected", ex=3600)
+
+  result = await worker._strategy_publication_result(client, match, None)
+
+  assert result.status == "terminal_reject"
+  assert result.reason_code == "rejected"
+  assert result.candidate_id is None
+
+
+@pytest.mark.asyncio
+async def test_published_setup_skips_later_opposing_zone_preflight():
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="published-opposing-replay",
+    thesis_id="published-opposing-thesis",
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4038.51,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4038.41,
+    ask=4038.61,
+  )
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  )
+  assert plan_id is not None
+
+  preflight = await worker._preflight_strategy_intent(
+    client,
+    _intent_for_match(match),
+    match,
+    spot=spot,
+    regime=RegimeInfo("trend", "down", 2, 1.0, True, None),
+    htf_zones=[],
+    htf_levels=[],
+    market_map=_market_map(MapEntry(
+      "buy",
+      4037.0,
+      4041.0,
+      4037,
+      4041,
+      "major",
+      ["demand"],
+      20.0,
+      contains_price=True,
+    )),
+    frames={},
+  )
+
+  assert preflight.executable
+  assert preflight.reason_code == "existing_v7_plan"
+  assert preflight.measured["plan_id"] == plan_id
+  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
   assert await client.xlen(worker.settings.auto_trade_trade_plan_stream) == 1
 
 

@@ -13,6 +13,7 @@ import pytest
 from app.autotrade.setup_lifecycle import (
   ARMED,
   ARMED_WAITING_TRIGGER,
+  CANCELLED,
   CONFIRMED,
   CONSUMED,
   DISCOVERED,
@@ -20,6 +21,7 @@ from app.autotrade.setup_lifecycle import (
   INVALIDATED,
   PLAN_BUILT,
   PLAN_PUBLISHED,
+  READY_EVENT_ENQUEUED,
   TOUCHED,
   WATCHING,
   SetupLifecycleError,
@@ -30,7 +32,17 @@ from app.autotrade.setup_lifecycle import (
   release_active_thesis,
   transition_setup,
 )
+from app.autotrade.worker import terminal_state_for_preflight_failure
 from app.persistence import redis_state
+
+
+def test_terminal_preflight_failure_mapping_never_invalidates_post_plan_states():
+  assert terminal_state_for_preflight_failure(DISCOVERED) == INVALIDATED
+  assert terminal_state_for_preflight_failure(READY_EVENT_ENQUEUED) == INVALIDATED
+  assert terminal_state_for_preflight_failure(PLAN_BUILT) == CANCELLED
+  assert terminal_state_for_preflight_failure(PLAN_PUBLISHED) is None
+  assert terminal_state_for_preflight_failure(ARMED) is None
+  assert terminal_state_for_preflight_failure(CONSUMED) is None
 
 
 @pytest.mark.asyncio

@@ -134,6 +134,27 @@ public sealed class TradePlanV7ContractTests
   }
 
   [Theory]
+  [MemberData(nameof(ValidPlanNames))]
+  public void SharedValidPlanUsesProductionSourceGeneratedMetadata(string name)
+  {
+    var plan = JsonSerializer.Deserialize(
+      ValidPlan(name).ToJsonString(),
+      AutoTradeJsonContext.Default.TradePlan
+    );
+
+    Assert.NotNull(plan);
+    Assert.Equal(7, plan!.Version);
+    Assert.NotEmpty(plan.Targets);
+    TradePlanValidator.Validate(plan);
+  }
+
+  [Fact]
+  public void ProductionV7ContractSelfTestPasses()
+  {
+    TradePlanJson.AssertContractAvailable();
+  }
+
+  [Theory]
   [MemberData(nameof(InvalidPlanNames))]
   public void SharedInvalidPlanIsRejected(string name)
   {

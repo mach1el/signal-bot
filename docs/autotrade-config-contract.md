@@ -24,6 +24,14 @@ See `docs/adr-trade-plan-v7-boundary.md` for the full rationale.
 Do not flip this value without a corresponding, deliberate deployment step —
 it is not a per-request toggle.
 
+`CTRADER_EXPECTED_BROKER` is the market-data account guard. The feed resolves
+the authorized account immediately after OAuth account authorization and must
+match this broker before symbol lookup, historical backfill, spot streaming or
+trendbar subscription. Production sets both `CTRADER_EXPECTED_BROKER` and
+`AUTO_TRADE_EXPECTED_BROKER` to `fpmarkets`, so scanner data and order
+execution cannot silently use different brokers when one access token grants
+multiple cTrader accounts.
+
 ```text
 AUTO_TRADE_PROFILE
 AUTO_TRADE_ENABLED

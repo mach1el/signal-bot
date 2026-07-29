@@ -425,11 +425,20 @@ async def test_reward_risk_pre_gate_suppresses_card_and_confirmation(
   setup_keys = [key async for key in client.scan_iter("analysis:setup:*")]
   assert setup_keys == []
   status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
-  assert status["eligibility_gated"][0]["reason"] == "rr_pre_gate"
+  assert (
+    status["eligibility_gated"][0]["reason"]
+    == "policy_reward_risk_insufficient"
+  )
   records = await client.lrange(scanner._detect_log_key("XAU", "M5"), 0, 0)
   logged = json.loads(records[0])
-  assert logged["entries"][0]["outcome"] == "rr_pre_gate"
-  assert logged["entries"][0]["reason"] == "rr_pre_gate"
+  assert (
+    logged["entries"][0]["outcome"]
+    == "policy_reward_risk_insufficient"
+  )
+  assert (
+    logged["entries"][0]["reason"]
+    == "policy_reward_risk_insufficient"
+  )
 
 
 async def _confirm(client, match: StrategyMatch) -> None:

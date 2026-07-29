@@ -30,9 +30,12 @@ from app.autotrade.strategy_match_ready import (
 from app.autotrade.route_outcome import route_outcome_key
 from app.autotrade.setup_lifecycle import (
   INVALIDATED,
+  PLAN_PUBLISHED,
   active_thesis_key,
+  load_setup,
   transition_setup,
 )
+from app.autotrade.setup_card import load_forming_card_status_snapshot
 from app.autotrade.trade_plan_stream import read_trade_plan
 from app.autotrade.trend import RegimeInfo, TrendDecision
 from app.persistence import redis_state
@@ -278,6 +281,15 @@ async def test_m1_before_m5_ready_event_publishes_without_another_m1(
 
   await _scan(client, notify, _reaction(now), now)
   assert await client.xlen(_plan_count_key()) == 0
+  queued_match = worker.StrategyMatch.from_json(
+    await client.get(strategy_match_key("XAU")),
+  )
+  assert queued_match is not None
+  queued_route = json.loads(
+    await client.get(route_outcome_key("XAU", queued_match.match_id)),
+  )
+  assert queued_route["status"] == "queued"
+  assert queued_route["reason_code"] == "strategy_match_ready_enqueued"
 
   consume_once = getattr(worker, "_consume_strategy_match_ready_once", None)
   assert consume_once is not None, "no durable scanner -> worker wake-up exists"
@@ -291,11 +303,22 @@ async def test_m1_before_m5_ready_event_publishes_without_another_m1(
   route = json.loads(
     await client.get(route_outcome_key("XAU", match.match_id)),
   )
+  plan_id = worker._v7_plan_id(match)
+  assert route["status"] == "candidate_published"
+  assert route["candidate_id"] == plan_id
+  assert route["winner_intent_id"] == f"strategy:{match.match_id}"
   assert route["measured"]["event_id"]
   assert route["measured"]["scanner_event_ts"] == str(now)
   assert route["measured"]["ready_event_ts"] <= (
     route["measured"]["worker_received_ts"]
   )
+  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
+  card_status = await load_forming_card_status_snapshot(
+    client,
+    match.match_id,
+  )
+  assert card_status is not None
+  assert card_status.state == "plan_published"
 
 
 @pytest.mark.asyncio

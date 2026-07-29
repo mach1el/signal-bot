@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -605,6 +606,49 @@ async def test_one_cycle_owner_allows_only_one_distinct_candidate():
   assert sum(item.published for item in results) == 1
   assert await client.xlen("auto_trade:test:cycle") == 1
   assert sum(item.status == "conflict" for item in results) == 11
+
+
+@pytest.mark.asyncio
+async def test_ranked_v7_publication_persists_full_cycle_owner_record():
+  client = redis_state.get_client()
+  intent = replace(
+    _intent("strategy:setup-v7-owner", direction="SELL"),
+    match_id="setup-v7-owner",
+  )
+  calls = 0
+
+  async def publisher(_intent):
+    nonlocal calls
+    calls += 1
+    return CandidatePublicationResult.published("v7:setup-v7-owner")
+
+  first = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="m1-owner-cycle",
+    ordered=(intent,),
+    publisher=publisher,
+  )
+  second = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="m1-owner-cycle",
+    ordered=(intent,),
+    publisher=publisher,
+  )
+
+  assert first.status == "published"
+  assert second.status == "cycle_conflict"
+  assert calls == 1
+  owner = json.loads(await client.get(
+    autonomous_cycle_owner_key("XAU", "m1-owner-cycle"),
+  ))
+  assert owner["symbol"] == "XAU"
+  assert owner["cycle_id"] == "m1-owner-cycle"
+  assert owner["intent_id"] == intent.intent_id
+  assert owner["setup_id"] == intent.match_id
+  assert owner["plan_id"] == "v7:setup-v7-owner"
+  assert owner["published_at"] > 0
 
 
 @pytest.mark.asyncio

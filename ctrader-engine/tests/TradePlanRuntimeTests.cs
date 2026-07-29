@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ApexVoid.CTraderFeed;
+using StackExchange.Redis;
 
 namespace CTraderFeed.Tests;
 
@@ -181,7 +182,7 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task LegacyV6ModeNeverReadsTheV7Stream()
+  public void LegacyV6ModeNeverReadsTheV7Stream()
   {
     var store = new FakeV7Store();
     store.EnqueuePlan(PlanJson());
@@ -235,6 +236,8 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
     );
     Assert.Single(first.TrackedStates);
+    Assert.Null(store.Value("execution:plan:v7:plan-1"));
+    Assert.NotNull(store.Value("execution:plan_recovery:v7:plan-1"));
 
     // Simulate a restart: brand new runtime instance, same backing store.
     var second = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
@@ -263,6 +266,163 @@ public sealed class TradePlanRuntimeTests
 
     Assert.Single(client.MarketOrders);
     Assert.Single(runtime.TrackedStates);
+  }
+
+  [Fact]
+  public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillArms()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan("""{"version":7,"plan_id":"v7:broken","targets":[]}""");
+    store.EnqueuePlan(PlanJson(planId: "v7:after-broken"));
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      new FakeV7TradingClient(),
+      Symbol,
+      new SpotPrice("XAU", 4080.0m, 4080.2m, 1),
+      CancellationToken.None
+    );
+
+    Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
+    Assert.Equal("armed", store.Value("execution:plan_state:v7:after-broken"));
+    Assert.Equal("2-0", store.TradePlanCursor);
+    Assert.Single(runtime.TrackedStates);
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_armed"));
+  }
+
+  [Fact]
+  public async Task TransientRejectionPersistenceFailureLeavesCursorForRetry()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan("""{"version":7,"plan_id":"v7:broken","targets":[]}""");
+    store.FailSetOnce("execution:plan_rejection:1-0");
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+    );
+
+    Assert.Equal("0-0", store.TradePlanCursor);
+    Assert.Null(store.Value("execution:plan_rejection:1-0"));
+
+    await runtime.PollAsync(
+      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+    );
+
+    Assert.Equal("1-0", store.TradePlanCursor);
+    Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_retry"));
+  }
+
+  [Fact]
+  public async Task RealRedisConsumesPythonFixtureAfterMalformedEntry()
+  {
+    var configured = Environment.GetEnvironmentVariable("REAL_REDIS_URL")
+      ?? throw new InvalidOperationException("REAL_REDIS_URL is required");
+    var sourceUri = new Uri(configured);
+    var redisUrl = (
+      $"{sourceUri.Scheme}://{sourceUri.Host}:{sourceUri.Port}/13"
+    );
+    await using var store =
+      await StackExchangeRedisSeriesCommands.ConnectAsync(redisUrl);
+    var options = ConfigurationOptions.Parse(
+      $"{sourceUri.Host}:{sourceUri.Port},defaultDatabase=13,abortConnect=false"
+    );
+    options.AllowAdmin = true;
+    await using var mux = await ConnectionMultiplexer.ConnectAsync(options);
+    var db = mux.GetDatabase();
+    var prepublishedPlanId = Environment.GetEnvironmentVariable(
+      "REAL_REDIS_PREPUBLISHED_V7_PLAN_ID"
+    );
+    var stream = string.IsNullOrWhiteSpace(prepublishedPlanId)
+      ? "execution:trade_plans:p0-real"
+      : "execution:trade_plans";
+    RedisValue malformedId;
+    if (string.IsNullOrWhiteSpace(prepublishedPlanId))
+    {
+      await db.ExecuteAsync("FLUSHDB");
+      malformedId = await db.StreamAddAsync(
+        stream,
+        [new NameValueEntry(
+          "payload",
+          """{"version":7,"plan_id":"v7:bad"}"""
+        )]
+      );
+      var payload = PythonContractFixture("market_watch_buy");
+      await db.StreamAddAsync(
+        stream,
+        [new NameValueEntry("payload", payload)]
+      );
+      prepublishedPlanId = "plan-001";
+    }
+    else
+    {
+      var existing = await db.StreamRangeAsync(stream, count: 1);
+      malformedId = Assert.Single(existing).Id;
+    }
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options() with { TradePlanStream = stream },
+      store,
+      () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_100),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+    );
+
+    Assert.Equal(
+      "armed",
+      await store.GetStringAsync(
+        $"execution:plan_state:{prepublishedPlanId}", CancellationToken.None
+      )
+    );
+    Assert.NotNull(await store.GetStringAsync(
+      $"execution:plan_rejection:{malformedId}",
+      CancellationToken.None
+    ));
+    Assert.Single(runtime.TrackedStates);
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_armed"));
+    await db.ExecuteAsync("FLUSHDB");
+  }
+
+  private static string PythonContractFixture(string name)
+  {
+    var directory = new DirectoryInfo(AppContext.BaseDirectory);
+    while (directory is not null)
+    {
+      var path = Path.Combine(
+        directory.FullName,
+        "contracts",
+        "autotrade",
+        "trade-plan-v7.json"
+      );
+      if (File.Exists(path))
+      {
+        using var fixture = JsonDocument.Parse(File.ReadAllText(path));
+        foreach (var item in fixture.RootElement
+          .GetProperty("valid_plans").EnumerateArray())
+        {
+          if (item.GetProperty("name").GetString() == name)
+          {
+            return item.GetProperty("plan").GetRawText();
+          }
+        }
+      }
+      directory = directory.Parent;
+    }
+    throw new FileNotFoundException("Python TradePlan V7 fixture not found");
   }
 
   private sealed class FakeV7TradingClient : ICTraderTradeClient
@@ -323,13 +483,19 @@ public sealed class TradePlanRuntimeTests
   private sealed class FakeV7Store : IAutoTradeStore
   {
     private readonly Dictionary<string, string> _strings = new();
-    private readonly Queue<TradeStreamEntry> _stream = new();
+    private readonly List<TradeStreamEntry> _stream = [];
+    private readonly HashSet<string> _failSetOnce = [];
     private int _nextStreamId = 1;
 
     public List<AutoTradeEvent> Events { get; } = [];
 
     public void EnqueuePlan(string json) =>
-      _stream.Enqueue(new TradeStreamEntry($"{_nextStreamId++}-0", json));
+      _stream.Add(new TradeStreamEntry($"{_nextStreamId++}-0", json));
+
+    public string TradePlanCursor => _tradePlanCursor;
+    public string? Value(string key) =>
+      _strings.TryGetValue(key, out var value) ? value : null;
+    public void FailSetOnce(string key) => _failSetOnce.Add(key);
 
     public Task<string> GetCursorAsync(CancellationToken ct) => Task.FromResult("0-0");
     public Task SetCursorAsync(string cursor, CancellationToken ct) => Task.CompletedTask;
@@ -350,6 +516,10 @@ public sealed class TradePlanRuntimeTests
 
     public Task SetStringAsync(string key, string value, CancellationToken ct)
     {
+      if (_failSetOnce.Remove(key))
+      {
+        throw new IOException($"transient write failure for {key}");
+      }
       _strings[key] = value;
       return Task.CompletedTask;
     }
@@ -376,12 +546,13 @@ public sealed class TradePlanRuntimeTests
       string stream, string afterId, int count, CancellationToken ct
     )
     {
-      var results = new List<TradeStreamEntry>();
-      while (_stream.Count > 0 && results.Count < count)
-      {
-        results.Add(_stream.Dequeue());
-      }
-      return Task.FromResult<IReadOnlyList<TradeStreamEntry>>(results);
+      var after = int.Parse(afterId.Split('-')[0]);
+      return Task.FromResult<IReadOnlyList<TradeStreamEntry>>(
+        _stream
+          .Where(entry => int.Parse(entry.Id.Split('-')[0]) > after)
+          .Take(count)
+          .ToArray()
+      );
     }
 
     public Task PublishAutoTradeEventAsync(

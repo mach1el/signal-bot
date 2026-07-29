@@ -182,7 +182,8 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
   assert second == []
   notify.assert_awaited_once()
   text = notify.await_args.args[0]
-  assert "XAU M5 · SETUP FORMING" in text
+  assert "XAU M5 · MARKET OBSERVATION" in text
+  assert "SETUP FORMING" not in text
   assert "ANALYSIS ONLY" in text
   assert "BUY · Trend Pullback" in text
   assert "Trigger close:</b> <b>4,103</b>" in text
@@ -190,10 +191,7 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
   assert "Key level:</b> <b>4,100</b>" in text
   assert "HTF bias:</b> up (M30)" in text
   assert "rejection at support" in text
-  assert (
-    "<code>gold buy entry zone (4098-4102) / sl SL / "
-    "tp TP1/TP2/TP3 / setup trend-pullback ***</code>"
-  ) in text
+  assert "Copy draft" not in text
   assert "+90 pips" not in text
   assert notify.await_args.kwargs == {"chat_id": 4242}
   assert await client.get(
@@ -757,7 +755,8 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
 
   assert sent == [results[0]]
   text = notify.await_args.args[0]
-  assert text.count("SETUP FORMING") == 1
+  assert text.count("MARKET OBSERVATION") == 1
+  assert "SETUP FORMING" not in text
   assert "Snap-Back" in text
   assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) == "1"
@@ -1966,9 +1965,11 @@ def _card_result(structural_id: str = "demand-1") -> "scanner.DetectionResult":
 
 
 @pytest.mark.asyncio
-async def test_one_forming_card_per_setup_posts_once_then_edits(monkeypatch):
+async def test_one_forming_card_per_setup_identical_redetection_is_noop(
+  monkeypatch,
+):
   # One forming card per setup (P4): re-detection of the same setup_id
-  # edits the existing card - it never posts a second one.
+  # retains the existing card without an identical Telegram edit.
   client = redis_state.get_client()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   sent_texts = []
@@ -2004,8 +2005,7 @@ async def test_one_forming_card_per_setup_posts_once_then_edits(monkeypatch):
   )
 
   assert len(sent_texts) == 1
-  assert len(edited) == 1
-  assert edited[0][:2] == (4242, 9001)
+  assert edited == []
 
 
 @pytest.mark.asyncio

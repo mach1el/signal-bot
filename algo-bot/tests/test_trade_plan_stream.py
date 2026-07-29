@@ -7,11 +7,14 @@ when the C# TradePlanExecutionEngine actually consumes this stream).
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
+from redis.asyncio import Redis
 
 from app.autotrade.trade_plan import TradePlan
 from app.autotrade.trade_plan_stream import (
+  plan_dedup_key,
   plan_key,
   plan_state_key,
   publish_trade_plan,
@@ -91,3 +94,46 @@ async def test_publishing_never_touches_the_v6_candidate_stream():
   await publish_trade_plan(client, plan)
 
   assert await client.xlen("auto_trade:candidates") == 0
+
+
+@pytest.mark.asyncio
+async def test_dedup_tombstone_prevents_republish_after_payload_expiry():
+  client = redis_state.get_client()
+  plan = _plan(plan_id="plan-stream-durable-dedup")
+
+  first = await publish_trade_plan(client, plan)
+  await client.delete(
+    plan_key(plan.plan_id),
+    plan_state_key(plan.plan_id),
+  )
+  second = await publish_trade_plan(client, plan)
+
+  assert first != "existing"
+  assert second == "existing"
+  assert await client.xlen("execution:trade_plans") == 1
+  assert await client.exists(plan_dedup_key(plan.plan_id))
+  assert await client.ttl(plan_dedup_key(plan.plan_id)) >= 86_000
+
+
+@pytest.mark.real_redis
+@pytest.mark.asyncio
+async def test_real_redis_plan_dedup_survives_payload_deletion():
+  configured = os.getenv("REAL_REDIS_URL")
+  if not configured:
+    pytest.fail("REAL_REDIS_URL is required")
+  source = configured.rsplit("/", 1)[0]
+  client = Redis.from_url(f"{source}/11", decode_responses=True)
+  await client.flushdb()
+  plan = _plan(plan_id="real-plan-dedup")
+  try:
+    first = await publish_trade_plan(client, plan)
+    await client.delete(plan_key(plan.plan_id), plan_state_key(plan.plan_id))
+    second = await publish_trade_plan(client, plan)
+
+    assert first != "existing"
+    assert second == "existing"
+    assert await client.xlen("execution:trade_plans") == 1
+    assert await client.ttl(plan_dedup_key(plan.plan_id)) >= 86_000
+  finally:
+    await client.flushdb()
+    await client.aclose()

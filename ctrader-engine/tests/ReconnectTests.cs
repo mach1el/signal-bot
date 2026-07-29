@@ -87,6 +87,39 @@ public sealed class ReconnectTests
   }
 
   [Fact]
+  public async Task BrokerMismatchStopsFeedBeforeBackfillOrSubscription()
+  {
+    using var temp = new TempHeartbeat();
+    var client = new FakeCTraderClient
+    {
+      FeedAccount = new TradingAccountSnapshot(
+        123,
+        IsLive: false,
+        PermissionScope: "ScopeTrade",
+        AccessRights: "FullAccess",
+        AccountType: "Hedged",
+        BrokerName: "IC Markets AU",
+        Balance: 1_000m
+      ),
+    };
+    var runner = new FeedRunner(
+      TestOptions(temp.Path) with { ExpectedBroker = "fpmarkets" },
+      () => client,
+      new RecordingSink(),
+      new HealthFile(temp.Path)
+    );
+
+    var error = await Assert.ThrowsAsync<InvalidOperationException>(
+      () => runner.RunOneSessionAsync(CancellationToken.None)
+    );
+
+    Assert.Contains("does not match CTRADER_EXPECTED_BROKER", error.Message);
+    Assert.Equal(0, client.ResolveCount);
+    Assert.Equal(0, client.BackfillCount);
+    Assert.Equal(0, client.SubscribeCount);
+  }
+
+  [Fact]
   public async Task AutoTradeFaultDoesNotCancelFeedAndBarStillReachesSink()
   {
     using var temp = new TempHeartbeat();
@@ -340,7 +373,8 @@ public sealed class ReconnectTests
       RefreshTokenFile: "/tmp/ctrader-token.json",
       RequestTimeout: TimeSpan.FromSeconds(1),
       TokenRefreshLead: TimeSpan.FromDays(5),
-      TokenCheckInterval: TimeSpan.FromHours(6)
+      TokenCheckInterval: TimeSpan.FromHours(6),
+      ExpectedBroker: "Fusion"
     );
 
   private static AutoTradeOptions AutoOptions() => new(
@@ -396,6 +430,15 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
   public Exception? RefreshException { get; init; }
   public int RefreshCount { get; private set; }
   public SymbolInfo Symbol { get; init; } = new("XAU", "XAUUSD", 7, 2);
+  public TradingAccountSnapshot FeedAccount { get; init; } = new(
+    123,
+    IsLive: false,
+    PermissionScope: "ScopeTrade",
+    AccessRights: "FullAccess",
+    AccountType: "Hedged",
+    BrokerName: "Fusion Markets",
+    Balance: 1_000m
+  );
 
   public Task ConnectAndAuthorizeAsync(CancellationToken cancellationToken)
   {
@@ -410,6 +453,10 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
       ? Task.CompletedTask
       : Task.FromException(RefreshException);
   }
+
+  public Task<TradingAccountSnapshot> GetFeedAccountAsync(
+    CancellationToken cancellationToken
+  ) => Task.FromResult(FeedAccount);
 
   public Task<SymbolInfo> ResolveSymbolAsync(CancellationToken cancellationToken)
   {
