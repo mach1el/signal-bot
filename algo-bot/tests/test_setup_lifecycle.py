@@ -8,8 +8,11 @@ an explicit condition, and one-active-TradePlan-per-thesis claiming.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from app.autotrade import setup_lifecycle
 from app.autotrade.setup_lifecycle import (
   ARMED,
   ARMED_WAITING_TRIGGER,
@@ -25,6 +28,7 @@ from app.autotrade.setup_lifecycle import (
   TOUCHED,
   WATCHING,
   SetupLifecycleError,
+  SetupTransitionConflict,
   claim_active_thesis,
   create_setup,
   load_setup,
@@ -32,8 +36,37 @@ from app.autotrade.setup_lifecycle import (
   release_active_thesis,
   transition_setup,
 )
-from app.autotrade.worker import terminal_state_for_preflight_failure
+from app.autotrade.worker import (
+  parse_cycle_owner_intent_id,
+  terminal_state_for_preflight_failure,
+)
 from app.persistence import redis_state
+
+
+def test_parse_cycle_owner_intent_id_extracts_from_json_payload():
+  """P1-5: publish_ranked_cycle stores the cycle owner as a JSON object -
+  winner_intent_id must be the parsed intent_id, not the raw blob.
+  """
+  raw = (
+    b'{"symbol":"XAU","cycle_id":"1722168600","intent_id":"strategy:abc",'
+    b'"setup_id":"abc","plan_id":"v7:abc","published_at":1722168600}'
+  )
+  assert parse_cycle_owner_intent_id(raw) == "strategy:abc"
+
+
+def test_parse_cycle_owner_intent_id_falls_back_for_legacy_scalar_values():
+  assert parse_cycle_owner_intent_id(b"strategy:legacy-owner") == (
+    "strategy:legacy-owner"
+  )
+  assert parse_cycle_owner_intent_id("strategy:legacy-owner") == (
+    "strategy:legacy-owner"
+  )
+
+
+def test_parse_cycle_owner_intent_id_handles_missing_and_malformed_values():
+  assert parse_cycle_owner_intent_id(None) is None
+  assert parse_cycle_owner_intent_id(b"{not valid json") == "{not valid json"
+  assert parse_cycle_owner_intent_id(b'{"cycle_id":"1"}') == '{"cycle_id":"1"}'
 
 
 def test_terminal_preflight_failure_mapping_never_invalidates_post_plan_states():
@@ -226,3 +259,66 @@ async def test_release_active_thesis_is_a_no_op_for_a_non_owner():
   )
 
   assert still_owned_by_a is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_transitions_from_a_stale_read_never_silently_overwrite(
+  monkeypatch,
+):
+  """P0-3: two workers racing the same setup_id from the same source state
+  must not both believe their stale read is still current - the loser must
+  see SetupTransitionConflict, never a silent last-write-wins clobber.
+
+  Exercises transition_setup's real compare-and-set path (the Lua script
+  under real Redis, the equivalent Python fallback under fakeredis) by
+  using asyncio.Event to force a slow reader's write to land AFTER a fast
+  competing transition has already moved the setup somewhere else.
+  """
+  client = redis_state.get_client()
+  await create_setup(client, setup_id="cas-race", thesis_id="t1", symbol="XAU")
+  await transition_setup(client, "cas-race", WATCHING)
+
+  real_load_setup = setup_lifecycle.load_setup
+  first_read_done = asyncio.Event()
+  second_may_proceed = asyncio.Event()
+  read_count = {"n": 0}
+
+  async def delayed_load_setup(client_, setup_id):
+    record = await real_load_setup(client_, setup_id)
+    if setup_id == "cas-race":
+      read_count["n"] += 1
+      if read_count["n"] == 1:
+        first_read_done.set()
+        await second_may_proceed.wait()
+    return record
+
+  monkeypatch.setattr(setup_lifecycle, "load_setup", delayed_load_setup)
+
+  async def slow_transition():
+    return await transition_setup(
+      client, "cas-race", TOUCHED, reason_code="slow",
+    )
+
+  async def fast_transition():
+    await first_read_done.wait()
+    result = await transition_setup(
+      client, "cas-race", INVALIDATED, reason_code="fast",
+    )
+    second_may_proceed.set()
+    return result
+
+  slow_task = asyncio.create_task(slow_transition())
+  fast_task = asyncio.create_task(fast_transition())
+
+  fast_record, fast_changed = await fast_task
+  assert fast_changed is True
+  assert fast_record.state == INVALIDATED
+
+  with pytest.raises(SetupTransitionConflict):
+    await slow_task
+
+  final = await load_setup(client, "cas-race")
+  assert final.state == INVALIDATED, (
+    "the slow, stale-read transition must never have overwritten the "
+    "faster competing transition's result"
+  )

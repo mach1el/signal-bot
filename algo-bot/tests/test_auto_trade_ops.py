@@ -5,6 +5,7 @@ import pytest
 from aiogram.exceptions import TelegramBadRequest
 
 from app.autotrade import delivery
+from app.autotrade.strategy_match_ready import save_ready_consumer_health
 from app.persistence import redis_state, store
 
 
@@ -1245,6 +1246,35 @@ async def test_pause_resume_and_status(monkeypatch):
   assert "auto trader" not in text.lower()
   await delivery.set_auto_trade_paused(False)
   assert await client.get("auto_trade:paused") is None
+
+
+@pytest.mark.asyncio
+async def test_status_warns_when_ready_consumer_is_degraded(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+  await save_ready_consumer_health(
+    client, state="degraded_retrying", consumer="worker-1", retry_count=3,
+    last_error="ConnectionError",
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Ready consumer" in text
+  assert "degraded_retrying" in text
+  assert "retry 3" in text
+
+
+@pytest.mark.asyncio
+async def test_status_is_silent_when_ready_consumer_is_healthy(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+  await save_ready_consumer_health(client, state="ready", consumer="worker-1")
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Ready consumer" not in text
 
 
 @pytest.mark.asyncio

@@ -2103,3 +2103,72 @@ async def test_structure_invalidation_deletes_card_for_tracked_setup(monkeypatch
   record = await load_setup(client, "p4-setup-3")
   assert record.state == "invalidated"
   assert await setup_card_module.load_forming_card(client, "p4-setup-3") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+  "handoff_state",
+  ["ready_event_enqueued", "worker_acknowledged"],
+)
+async def test_structure_invalidation_covers_the_durable_handoff_states(
+  monkeypatch, handoff_state,
+):
+  """P1-1: a setup sitting in the durable CONFIRMED -> READY_EVENT_ENQUEUED
+  -> WORKER_ACKNOWLEDGED -> ARMED_WAITING_TRIGGER handoff window must still
+  be invalidated and have its card cleared if structure breaks while it
+  waits - this window can span real wall-clock time (a worker round trip
+  through the ready stream), not just an instant.
+  """
+  from app.autotrade.setup_lifecycle import (
+    CONFIRMED,
+    create_setup,
+    load_setup,
+    transition_setup,
+  )
+  from app.autotrade import setup_card as setup_card_module
+
+  client = redis_state.get_client()
+  setup_id = f"p4-setup-handoff-{handoff_state}"
+  await create_setup(
+    client, setup_id=setup_id, thesis_id="thesis-handoff", symbol="XAU",
+  )
+  for state in ("watching", "touched", "forming", CONFIRMED, handoff_state):
+    await transition_setup(client, setup_id, state)
+  await setup_card_module.save_forming_card(
+    client, setup_id, chat_id=4242, message_id=7778,
+  )
+  await client.set(
+    f"scanner:setup:active_band:XAU:M5:test-bucket-{handoff_state}",
+    json.dumps({
+      "setup": "Demand Zone Reaction",
+      "direction": "BUY",
+      "zone_low": 4099.5,
+      "zone_high": 4100.5,
+      "confluence": 3,
+      "match_id": setup_id,
+    }),
+    ex=3600,
+  )
+  deleted = []
+
+  async def delete_fn(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  monkeypatch.setattr(scanner, "delete_scanner_message", delete_fn)
+  standalone_calls = []
+
+  async def notify(text, **kwargs):
+    standalone_calls.append(text)
+    return SimpleNamespace(message_id=1)
+
+  df = pd.DataFrame({
+    "open": [4095.0], "high": [4095.5], "low": [4094.5], "close": [4095.0],
+  }, index=pd.date_range("2026-07-10", periods=1, freq="5min", tz="UTC"))
+
+  await scanner._check_setup_invalidations(client, "XAU", "M5", df, notify, atr=1.0)
+
+  assert deleted == [(4242, 7778)]
+  assert standalone_calls == []
+  record = await load_setup(client, setup_id)
+  assert record.state == "invalidated"
+  assert await setup_card_module.load_forming_card(client, setup_id) is None

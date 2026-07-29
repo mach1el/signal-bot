@@ -269,6 +269,40 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task DuplicateClaimOnALaterPollNeverResubmitsAnAlreadyFilledPlan()
+  {
+    // P1-3: a duplicate claim (same plan_id, owner already us) arriving
+    // AFTER the plan has already progressed past Armed - not within the
+    // same poll cycle DuplicatePlanIsClaimedOnceAndNeverDoubleSubmitted
+    // covers, where the second entry is overwritten before it is ever
+    // evaluated. Falling through to a fresh Armed state here used to
+    // resurrect an already-filled plan and submit a second broker order.
+    var store = new FakeV7Store();
+    var planJson = PlanJson();
+    store.EnqueuePlan(planJson);
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    Assert.Single(client.MarketOrders);
+    Assert.Equal(TradePlanRuntimeStage.Open, runtime.TrackedStates.Single().Stage);
+
+    // The same plan_id is redelivered on the stream (eg. a retried publish,
+    // or a cursor replay) and picked up on a LATER poll cycle, after the
+    // order already filled.
+    store.EnqueuePlan(planJson);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 2), CancellationToken.None
+    );
+
+    Assert.Single(client.MarketOrders);
+    Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Open, runtime.TrackedStates.Single().Stage);
+  }
+
+  [Fact]
   public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillArms()
   {
     var store = new FakeV7Store();
