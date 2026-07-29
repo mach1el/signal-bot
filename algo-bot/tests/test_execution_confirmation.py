@@ -12,7 +12,6 @@ from app.autotrade.execution_confirmation import (
   confirmation_policy_for,
   deterministic_episode_id,
   executable_quote_in_zone,
-  executable_within_distance,
   load_execution_confirmation,
   save_execution_confirmation,
 )
@@ -72,7 +71,7 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert policy.m5_authoritative is True
   assert policy.m1_required_on_retest is False
   assert policy.allow_same_cycle_publish is True
-  assert policy.require_quote_inside_zone is False
+  assert policy.require_quote_inside_zone is True
 
   missing = confirmation_policy_for(
     replace(_match(), confirmation_bar_ts=None),
@@ -95,8 +94,8 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert non_reaction.reaction_family is False
   assert non_reaction.m5_authoritative is False
   assert non_reaction.m1_required_on_retest is False
-  assert non_reaction.allow_same_cycle_publish is True
-  assert non_reaction.reason_code == "distance_proximity"
+  assert non_reaction.allow_same_cycle_publish is False
+  assert non_reaction.reason_code == "non_reaction_m1_required"
 
 
 @pytest.mark.parametrize(
@@ -126,28 +125,19 @@ def test_executable_zone_membership_uses_side_aware_quote(
   assert evidence.executable_quote == quote
 
 
-@pytest.mark.parametrize(
-  ("quote", "distance_pips", "eligible"),
-  (
-    (4036.86, 15.0, True),
-    (4032.36, 60.0, False),
-  ),
-)
-def test_execute_or_retest_uses_distance_to_nearest_zone_edge(
-  quote, distance_pips, eligible,
-):
+def test_distance_is_telemetry_and_never_overrides_zone_membership():
   evidence = executable_quote_in_zone(
     "SELL",
-    quote,
-    quote + 0.2,
+    4036.86,
+    4037.06,
     4038.36,
     4042.09,
     0.0,
     pip_size=0.1,
   )
 
-  assert evidence.distance_pips == pytest.approx(distance_pips)
-  assert executable_within_distance(evidence, 40.0) is eligible
+  assert evidence.distance_pips == pytest.approx(15.0)
+  assert evidence.inside is False
 
 
 def test_episode_id_is_deterministic_and_changes_on_new_zone_entry():
@@ -202,19 +192,18 @@ def test_retest_trigger_validity_window_is_conservative_and_validated():
     )
 
 
-def test_distance_confluence_and_actionability_defaults_are_aligned():
+def test_entry_contract_and_executor_anti_chase_are_separate():
   configured = Settings(_env_file=None)
 
-  assert configured.auto_trade_execute_max_distance_pips == 40.0
   assert configured.auto_trade_max_entry_distance_pips == 40.0
+  assert configured.auto_trade_entry_contract_tolerance_pips == 3.0
   assert configured.zone_merge_max_width == 6.0
   assert configured.scanner_actionability_gate_enabled is False
   assert configured.key_level_role_ambiguity_gate_enabled is False
   assert configured.range_context_disagreement_gate_enabled is False
 
-  with pytest.raises(ValidationError, match="must be equal and positive"):
+  with pytest.raises(ValidationError, match="must be positive"):
     Settings(
       _env_file=None,
-      AUTO_TRADE_EXECUTE_MAX_DISTANCE_PIPS=40,
-      auto_trade_max_entry_distance_pips=10,
+      auto_trade_max_entry_distance_pips=0,
     )

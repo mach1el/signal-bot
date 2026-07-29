@@ -637,7 +637,8 @@ def test_scanner_card_never_claims_ready_before_worker(monkeypatch):
     execution_match=None,
   )
 
-  assert "Algo bot CHECKING" in ready
+  assert "QUEUED" in ready
+  assert "CHECKING" not in ready
   assert "Algo bot READY" not in ready
   assert "ANALYSIS ONLY" in blocked
   assert "Algo bot BLOCKED" not in blocked
