@@ -102,10 +102,36 @@ def test_default_detectors_exclude_zone_reaction():
     "key_level_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
-    "session_level_reaction",
-    "trendline_reaction",
   ):
     assert required in names
+
+
+def test_live_registry_is_limited_to_the_three_supported_families():
+  """L (required): the autonomous detector registry contains only the
+  supported analysis pipeline - key level/supply/demand/order block/FVG
+  (folded into Zone Reaction) and Range Edge Scalp. No live entries for
+  any of the unrequested strategy families this refactor removes.
+  """
+  names = {item.__name__ for item in detectors.DEFAULT_DETECTORS}
+
+  assert names == {
+    "key_level_reaction",
+    "demand_zone_reaction",
+    "supply_zone_reaction",
+    "range_edge_scalp",
+  }
+  for removed in (
+    "trendline_reaction",
+    "session_level_reaction",
+    "box_breakout",
+    "trend_pullback",
+    "break_retest",
+    "momentum_ride",
+    "fade_scalp",
+    "snap_back",
+    "zone_reaction",
+  ):
+    assert removed not in names, f"{removed} must not be in the live registry"
 
 
 def test_demand_zone_reaction_buy():
