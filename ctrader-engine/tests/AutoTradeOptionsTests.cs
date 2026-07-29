@@ -5,6 +5,22 @@ namespace CTraderFeed.Tests;
 public sealed class AutoTradeOptionsTests
 {
   [Fact]
+  public void EntryDistanceDefaultsToPlannerAuthorizationEnvelope()
+  {
+    const string key = "AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS";
+    var previous = Environment.GetEnvironmentVariable(key);
+    Environment.SetEnvironmentVariable(key, null);
+    try
+    {
+      Assert.Equal(40, AutoTradeOptions.FromEnvironment().MaxEntryDistancePips);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(key, previous);
+    }
+  }
+
+  [Fact]
   public void CanonicalMappedZoneOptionAcceptsEqualAliasAndRejectsConflict()
   {
     Environment.SetEnvironmentVariable("AUTO_TRADE_MAPPED_ZONE_ENABLED", "false");

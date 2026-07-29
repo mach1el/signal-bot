@@ -3065,6 +3065,33 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoRequiresExplicitAnalysisBypassContract()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      bypassAnalysisGates: false
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "rejected");
+
+    Assert.Empty(client.Orders);
+    Assert.Empty(client.LimitOrders);
+    Assert.Contains(store.Events, item =>
+      item.ReasonCode == "manual_algo_bypass_contract_missing"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoMissingStopRejectsWithoutKillingSession()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -5381,7 +5408,8 @@ public sealed partial class AutoTradeEngineTests
     int confluence = 1,
     string? regime = null,
     decimal? opposingZoneLow = null,
-    decimal? opposingZoneHigh = null
+    decimal? opposingZoneHigh = null,
+    bool bypassAnalysisGates = true
   ) => JsonSerializer.Serialize(new
   {
     version = 3,
@@ -5390,6 +5418,7 @@ public sealed partial class AutoTradeEngineTests
     timeframe = "M1",
     setup,
     mode = "manual_algo",
+    bypass_analysis_gates = bypassAnalysisGates,
     direction,
     trigger_ts = "1000",
     created_at = createdAt,

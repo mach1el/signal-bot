@@ -120,6 +120,8 @@ def _cfg(
   *,
   guard_mode: str = "balanced",
   profile: str = "conservative",
+  actionability_gate: bool = True,
+  role_ambiguity_gate: bool = True,
 ) -> SimpleNamespace:
   return SimpleNamespace(
     scanner_conflict_overlap=0.5,
@@ -128,6 +130,8 @@ def _cfg(
     auto_trade_structural_guard_mode=guard_mode,
     auto_trade_profile=profile,
     auto_trade_opposing_barrier_atr=0.5,
+    scanner_actionability_gate_enabled=actionability_gate,
+    key_level_role_ambiguity_gate_enabled=role_ambiguity_gate,
   )
 
 
@@ -170,6 +174,41 @@ def test_buy_under_overlapping_sell_major_is_observation_only(
   assert decision.measured["planned_entry_price"] == pytest.approx(4045.95)
   assert decision.measured["opposing_low"] == pytest.approx(4046.0)
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.73)
+
+
+def test_target_room_drop_is_observed_when_actionability_gate_is_off():
+  buy = _result(
+    "BUY",
+    4041.67,
+    4046.73,
+    quality=3,
+    current_price=4045.95,
+  )
+  market_map = _map(
+    _entry("sell", 4046.0, 4055.0, tier="major"),
+    price=4045.95,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=False),
+  )
+
+  assert len(resolution.actionable) == 1
+  assert resolution.actionable[0].structural_id == buy.structural_id
+  assert resolution.actionable[0].direction == "BUY"
+  assert resolution.gated == ()
+  decision = next(
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "opposing_major_no_room"
+  )
+  assert decision.hard_block is False
+  assert decision.allowed is True
 
 
 def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
@@ -295,6 +334,35 @@ def test_generic_key_level_without_acceptance_is_ambiguous():
   )
 
   assert decision.role == ROLE_AMBIGUOUS
+
+
+def test_role_ambiguity_is_observed_not_dropped_by_default():
+  result = _result(
+    "BUY",
+    99.5,
+    100.5,
+    setup="Key Level Reaction",
+    role=ROLE_AMBIGUOUS,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[result],
+    market_map=_map(price=100.0),
+    context=SimpleNamespace(htf_bias="up"),
+    atr=1.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=False, role_ambiguity_gate=False),
+  )
+
+  assert resolution.actionable == (result,)
+  assert resolution.gated == ()
+  decision = next(
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "key_level_role_ambiguous"
+  )
+  assert decision.hard_block is False
+  assert decision.allowed is True
 
 
 def test_key_level_explicit_role_and_accepted_break_are_deterministic():
@@ -534,6 +602,12 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
   monkeypatch.setattr(scanner.settings, "scanner_htf", "H1,M15")
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 0)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_actionability_gate_enabled", True,
+  )
+  monkeypatch.setattr(
+    scanner.settings, "key_level_role_ambiguity_gate_enabled", True,
+  )
   monkeypatch.setattr(
     scanner,
     "_load_market_context_for_symbol",
