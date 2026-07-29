@@ -58,7 +58,11 @@ async def test_one_card_per_setup_posts_once_then_edits():
     (123, 9001, "forming v3"),
   ]
   card = await setup_card.load_forming_card(client, "setup-1")
-  assert card == {"chat_id": 123, "message_id": 9001}
+  assert card == {
+    "chat_id": 123,
+    "message_id": 9001,
+    "text": "forming v3",
+  }
 
 
 @pytest.mark.asyncio
@@ -79,7 +83,84 @@ async def test_edit_failure_falls_back_to_a_fresh_post():
 
   assert new_id == 8888
   card = await setup_card.load_forming_card(client, "setup-2")
-  assert card == {"chat_id": 123, "message_id": 8888}
+  assert card == {
+    "chat_id": 123,
+    "message_id": 8888,
+    "text": "forming v2",
+  }
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_status_replaces_only_the_card_status_line():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-status")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+    "🔴 <b>SELL · Supply Zone Reaction</b>",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-status",
+    chat_id=123,
+    message_id=9876,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  changed = await setup_card.edit_forming_card_status(
+    client,
+    "setup-status",
+    "🟠 <b>WAITING RETEST</b> · executable quote is outside the zone",
+    edit_fn=edit_fn,
+  )
+
+  assert changed
+  assert edited[0][0:2] == (123, 9876)
+  assert "WAITING RETEST" in edited[0][2]
+  assert "Supply Zone Reaction" in edited[0][2]
+  card = await setup_card.load_forming_card(client, "setup-status")
+  assert card is not None
+  assert card["text"] == edited[0][2]
+
+
+@pytest.mark.asyncio
+async def test_status_snapshot_wins_when_worker_finishes_before_card_post():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-race")
+  await setup_card.save_forming_card_status(
+    client,
+    "setup-race",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+  )
+  sent = []
+
+  async def send_fn(text, **kwargs):
+    sent.append(text)
+    return SimpleNamespace(message_id=6789)
+
+  async def edit_fn(chat_id, message_id, text):
+    raise AssertionError("new card should be posted, not edited")
+
+  await setup_card.post_or_edit_forming_card(
+    client,
+    "setup-race",
+    "\n".join([
+      "🔎 <b>XAU M5 · SETUP FORMING</b>",
+      "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+      "🔴 <b>SELL · Supply Zone Reaction</b>",
+    ]),
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+
+  assert len(sent) == 1
+  assert "PLAN PUBLISHED" in sent[0]
+  assert "QUEUED" not in sent[0]
 
 
 @pytest.mark.asyncio
@@ -108,6 +189,11 @@ async def test_terminal_setup_is_never_re_carded():
 async def test_kill_setup_card_deletes_and_clears_storage():
   client = redis_state.get_client()
   await setup_card.save_forming_card(client, "setup-4", chat_id=123, message_id=5555)
+  await setup_card.save_forming_card_status(
+    client,
+    "setup-4",
+    "🟠 WAITING RETEST",
+  )
   deleted = []
 
   async def delete_fn(chat_id, message_id):
@@ -123,6 +209,7 @@ async def test_kill_setup_card_deletes_and_clears_storage():
 
   assert deleted == [(123, 5555)]
   assert await setup_card.load_forming_card(client, "setup-4") is None
+  assert await setup_card.load_forming_card_status(client, "setup-4") is None
 
 
 @pytest.mark.asyncio
@@ -153,6 +240,11 @@ async def test_kill_setup_card_falls_back_to_terminal_edit_when_delete_fails():
 @pytest.mark.asyncio
 async def test_kill_setup_card_is_a_noop_with_no_stored_card():
   client = redis_state.get_client()
+  await setup_card.save_forming_card_status(
+    client,
+    "setup-does-not-exist",
+    "🟡 PREFLIGHT",
+  )
   calls = []
 
   async def delete_fn(chat_id, message_id):
@@ -167,6 +259,13 @@ async def test_kill_setup_card_is_a_noop_with_no_stored_card():
   )
 
   assert calls == []
+  assert (
+    await setup_card.load_forming_card_status(
+      client,
+      "setup-does-not-exist",
+    )
+    is None
+  )
 
 
 @pytest.mark.asyncio

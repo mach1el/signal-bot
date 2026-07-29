@@ -176,7 +176,7 @@ def test_buy_under_overlapping_sell_major_is_observation_only(
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.73)
 
 
-def test_target_room_drop_is_observed_when_actionability_gate_is_off():
+def test_target_room_is_static_block_even_when_legacy_gate_is_off():
   buy = _result(
     "BUY",
     4041.67,
@@ -199,16 +199,64 @@ def test_target_room_drop_is_observed_when_actionability_gate_is_off():
     cfg=_cfg(actionability_gate=False),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.actionable[0].structural_id == buy.structural_id
-  assert resolution.actionable[0].direction == "BUY"
-  assert resolution.gated == ()
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
   decision = next(
     decision for _item, decision in resolution.decisions
     if decision.reason_code == "opposing_major_no_room"
   )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert decision.hard_block is True
+  assert decision.allowed is False
+
+
+def test_invalid_geometry_is_always_analysis_only():
+  result = _result("BUY", 4100.0, 4101.0)
+  result = replace(
+    result,
+    entry_zone=replace(result.entry_zone, top=float("nan")),
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[result],
+    market_map=_map(price=4100.5),
+    context=SimpleNamespace(htf_bias="up"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=False, role_ambiguity_gate=False),
+  )
+
+  assert resolution.actionable == ()
+  assert resolution.gated[0][1].reason_code == "invalid_geometry"
+  assert resolution.gated[0][1].hard_block
+
+
+def test_tier_c_is_rejected_by_typed_static_pre_gate():
+  result = _result(
+    "SELL",
+    4100.0,
+    4102.0,
+    quality=0,
+    current_price=4101.0,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="down",
+    indicators={"M5": SimpleNamespace(atr=pd.Series([2.0]))},
+    structures={"M5": SimpleNamespace(scalp_range=None)},
+    regime=SimpleNamespace(kind="trend"),
+  )
+
+  eligible, measured = scanner._reward_risk_pre_gate(
+    "XAU",
+    "M5",
+    "2026-07-28T12:10:00+00:00",
+    ctx,
+    result,
+  )
+
+  assert not eligible
+  assert measured["static_rejection_reason"] == "tier_c_analysis_only"
 
 
 def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
@@ -336,7 +384,7 @@ def test_generic_key_level_without_acceptance_is_ambiguous():
   assert decision.role == ROLE_AMBIGUOUS
 
 
-def test_role_ambiguity_is_observed_not_dropped_by_default():
+def test_role_ambiguity_is_static_block_even_when_legacy_gate_is_off():
   result = _result(
     "BUY",
     99.5,
@@ -355,14 +403,14 @@ def test_role_ambiguity_is_observed_not_dropped_by_default():
     cfg=_cfg(actionability_gate=False, role_ambiguity_gate=False),
   )
 
-  assert resolution.actionable == (result,)
-  assert resolution.gated == ()
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
   decision = next(
     decision for _item, decision in resolution.decisions
     if decision.reason_code == "key_level_role_ambiguous"
   )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
 def test_key_level_explicit_role_and_accepted_break_are_deterministic():
@@ -627,8 +675,10 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
     notify=notify,
   )
 
-  assert sent == []
-  notify.assert_not_awaited()
+  assert len(sent) == 1
+  notify.assert_awaited_once()
+  assert "ANALYSIS ONLY" in notify.await_args.args[0]
+  assert "CHECKING" not in notify.await_args.args[0]
   assert await client.get(strategy_match_key("XAU")) is None
   assert await client.get(strategy_matches_key("XAU")) is None
   assert [key async for key in client.scan_iter("analysis:setup:*")] == []

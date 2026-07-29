@@ -6,9 +6,9 @@ a mock of the publish call - so a regression here means the live runtime
 stopped publishing, not just that a function was called with the right args.
 
 Formed setups publish as soon as the side-aware executable quote is inside or
-within the configured distance envelope. Far setups persist WAITING_RETEST.
+inside the configured entry contract. Outside setups persist WAITING_RETEST.
 M1 is optional timing evidence: a fresh trigger anchors the stop wick, while
-its absence never blocks a distance-eligible setup.
+its absence never blocks a setup whose executable quote is inside the zone.
 """
 
 from __future__ import annotations
@@ -20,6 +20,11 @@ import pandas as pd
 import pytest
 
 from app.analysis.market_map import MapEntry, MarketMap
+from app.analysis.execution_eligibility import (
+  EXECUTION_ELIGIBILITY_VERSION,
+  STATIC_ELIGIBLE,
+  ExecutionEligibility,
+)
 from app.autotrade import worker
 from app.autotrade.arbitration import ExecutionIntent
 from app.autotrade.execution_confirmation import (
@@ -44,6 +49,28 @@ from app.persistence import redis_state
 
 
 pytestmark = pytest.mark.no_database
+
+
+def _eligibility(
+  *,
+  direction: str,
+  entry_low: float,
+  entry_high: float,
+  planned_entry: float,
+) -> ExecutionEligibility:
+  return ExecutionEligibility(
+    version=EXECUTION_ELIGIBILITY_VERSION,
+    allowed=True,
+    state=STATIC_ELIGIBLE,
+    reason_code="static_eligible",
+    message="scanner static eligibility passed",
+    hard_block=False,
+    direction=direction,
+    entry_low=entry_low,
+    entry_high=entry_high,
+    planned_entry_price=planned_entry,
+    calculated_at=int(time.time()),
+  )
 
 
 def _match(**overrides) -> StrategyMatch:
@@ -82,6 +109,15 @@ def _match(**overrides) -> StrategyMatch:
     thesis_id="thesis-v7-1",
   )
   base.update(overrides)
+  base.setdefault(
+    "execution_eligibility",
+    _eligibility(
+      direction=str(base["direction"]),
+      entry_low=float(base["entry_low"]),
+      entry_high=float(base["entry_high"]),
+      planned_entry=float(base["current_price"]),
+    ),
+  )
   return StrategyMatch(**base)
 
 
@@ -97,6 +133,29 @@ async def _confirm_setup(client, match: StrategyMatch) -> None:
   )
   for state in ("watching", "touched", "forming", CONFIRMED):
     record, _changed = await transition_setup(client, match.match_id, state)
+
+
+async def _publish_nonreaction_after_m1(
+  client,
+  spot,
+  match,
+  **kwargs,
+):
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    **kwargs,
+  ) is None
+  return await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    frames={"M1": _m1_trigger_bar()},
+    **kwargs,
+  )
 
 
 def _m1_trigger_bar(
@@ -219,12 +278,15 @@ def _intent_for_match(match: StrategyMatch) -> ExecutionIntent:
 
 
 @pytest.mark.asyncio
-async def test_confirmed_setup_uses_optional_m1_trigger_as_stop_anchor():
+async def test_nonreaction_setup_arms_then_uses_next_m1_as_stop_anchor():
   client = redis_state.get_client()
   match = _match()
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
+  ) is None
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
   )
@@ -246,7 +308,7 @@ async def test_confirmed_setup_uses_optional_m1_trigger_as_stop_anchor():
 
 
 @pytest.mark.asyncio
-async def test_confirmed_setup_within_distance_publishes_without_m1():
+async def test_nonreaction_setup_arms_and_waits_for_m1():
   client = redis_state.get_client()
   match = _match(
     match_id="near-no-m1",
@@ -254,25 +316,21 @@ async def test_confirmed_setup_within_distance_publishes_without_m1():
   )
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(
-    price=4091.5,
+    price=4089.5,
     ts=int(time.time()),
     fresh=True,
-    bid=4091.4,
-    ask=4091.5,
+    bid=4089.4,
+    ask=4089.5,
   )
 
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
   )
 
-  assert plan_id is not None
-  plan = await read_trade_plan(client, plan_id)
-  assert plan is not None
-  assert plan.provenance.confirmation_source == "distance_proximity"
-  assert plan.stop.source != "m1_trigger_wick"
-  assert await client.hget(
-    "auto_trade:metrics:XAU", "v7_plan_published",
-  ) == "1"
+  assert plan_id is None
+  assert (await load_setup(client, match.match_id)).state == (
+    ARMED_WAITING_TRIGGER
+  )
 
 
 @pytest.mark.asyncio
@@ -710,7 +768,7 @@ async def test_reaction_missing_confirmation_metadata_fails_closed():
 
 
 @pytest.mark.asyncio
-async def test_far_waits_then_executes_at_ten_pips_without_m1():
+async def test_far_waits_then_executes_only_on_zone_reentry_without_m1():
   client = redis_state.get_client()
   match = _reaction_match(
     match_id="trigger-left-zone",
@@ -741,11 +799,11 @@ async def test_far_waits_then_executes_at_ten_pips_without_m1():
   assert waiting.phase == WAITING_RETEST
 
   returned = worker.AutoTradeSpot(
-    price=4042.90,
+    price=4043.90,
     ts=start + 60,
     fresh=True,
-    bid=4042.80,
-    ask=4043.00,
+    bid=4043.80,
+    ask=4044.00,
   )
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", returned, match,
@@ -798,7 +856,7 @@ async def test_midpoint_inside_does_not_override_executable_quote_outside(
 
 
 @pytest.mark.asyncio
-async def test_final_v7_gate_rejects_same_opposing_major_geometry_as_scanner():
+async def test_final_v7_gate_labels_new_opposing_major_as_context_change():
   client = redis_state.get_client()
   match = _match(
     match_id="match-v7-opposing-major",
@@ -843,9 +901,17 @@ async def test_final_v7_gate_rejects_same_opposing_major_geometry_as_scanner():
   assert (await load_setup(client, match.match_id)).state == INVALIDATED
   assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
   gate = await client.hgetall(
-    "auto_trade:gate_reject:XAU:v7_opposing_major_no_room"
+    "auto_trade:gate_reject:XAU:v7_context_changed_target_room"
   )
   assert int(gate["count"]) == 1
+  assert await client.hget(
+    "auto_trade:metrics:XAU",
+    "context_changed_revalidation_blocked",
+  ) == "1"
+  assert await client.hget(
+    "auto_trade:metrics:XAU:context_changed_revalidation_blocked",
+    "reason=context_changed_target_room",
+  ) == "1"
 
 
 @pytest.mark.asyncio
@@ -875,11 +941,19 @@ async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
     10.0,
   ))
 
+  assert await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    market_map=market_map,
+  ) is None
   plan_id = await worker._publish_trade_plan_v7(
     client,
     "XAU",
     spot,
     match,
+    frames={"M1": _m1_trigger_bar()},
     market_map=market_map,
   )
 
@@ -902,7 +976,11 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
-  plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  plan_id = await _publish_nonreaction_after_m1(
+    client,
+    spot,
+    match,
+  )
 
   assert plan_id is not None
   record = await load_setup(client, "match-v7-2")
@@ -916,15 +994,15 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
 
   first_match = _match(match_id="match-v7-3a", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, first_match)
-  first_plan_id = await worker._publish_trade_plan_v7(
-    client, "XAU", spot, first_match,
+  first_plan_id = await _publish_nonreaction_after_m1(
+    client, spot, first_match,
   )
   assert first_plan_id is not None
 
   second_match = _match(match_id="match-v7-3b", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, second_match)
-  second_plan_id = await worker._publish_trade_plan_v7(
-    client, "XAU", spot, second_match,
+  second_plan_id = await _publish_nonreaction_after_m1(
+    client, spot, second_match,
   )
 
   assert second_plan_id is None
@@ -950,7 +1028,7 @@ async def test_setup_not_confirmed_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_non_qualifying_m1_bar_does_not_block_distance_eligible_setup():
+async def test_nonreaction_non_qualifying_m1_bar_stays_armed():
   client = redis_state.get_client()
   match = _match(match_id="match-v7-5", thesis_id="thesis-v7-5")
   await _confirm_setup(client, match)
@@ -967,10 +1045,6 @@ async def test_non_qualifying_m1_bar_does_not_block_distance_eligible_setup():
     client, "XAU", spot, match, frames={"M1": flat_bar},
   )
 
-  assert plan_id is not None
+  assert plan_id is None
   record = await load_setup(client, "match-v7-5")
-  assert record.state == PLAN_PUBLISHED
-  plan = await read_trade_plan(client, plan_id)
-  assert plan is not None
-  assert plan.provenance.confirmation_source == "distance_proximity"
-  assert plan.stop.source != "m1_trigger_wick"
+  assert record.state == ARMED_WAITING_TRIGGER
