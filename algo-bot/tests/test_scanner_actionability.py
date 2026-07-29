@@ -22,7 +22,11 @@ from app.analysis.key_level_role import (
 )
 from app.analysis.market_map import MapEntry, MarketMap
 from app.analysis.types import Zone
-from app.autotrade.execution_policy import classify_guard_severity
+from app.autotrade.execution_policy import (
+  ExecutionPolicy,
+  ExecutionPolicyEvaluation,
+  classify_guard_severity,
+)
 from app.autotrade.structural_target_room import evaluate_structural_target_room
 from app.autotrade.strategy_match import (
   strategy_match_key,
@@ -257,6 +261,76 @@ def test_tier_c_is_rejected_by_typed_static_pre_gate():
 
   assert not eligible
   assert measured["static_rejection_reason"] == "tier_c_analysis_only"
+
+
+@pytest.mark.parametrize("reason_code", [
+  "policy_zone_too_wide",
+  "entry_inside_opposing_zone",
+  "policy_regime_not_permitted",
+  "protective_stop_unavailable",
+])
+def test_static_pre_gate_honors_full_policy_denial_with_sufficient_rr(
+  monkeypatch,
+  reason_code,
+):
+  result = _result(
+    "BUY",
+    4098.0,
+    4100.0,
+    quality=3,
+    current_price=4099.5,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    frames={"M5": pd.DataFrame({"close": [4099.5]})},
+    indicators={"M5": SimpleNamespace(atr=pd.Series([2.0]))},
+    structures={"M5": SimpleNamespace(scalp_range=None)},
+    regime=SimpleNamespace(kind="trend"),
+  )
+  policy = ExecutionPolicy(
+    family="supply_demand",
+    min_confluence=2,
+    max_entry_drift_atr=1.0,
+    max_entry_drift_pips=20.0,
+    max_zone_width_atr=1.0,
+    min_target_room_atr=0.5,
+    min_reward_risk=1.0,
+    risk_multiplier=1.0,
+    order_type_preference="either",
+    permitted_regimes=("trend",),
+  )
+  monkeypatch.setattr(
+    scanner,
+    "evaluate_execution_policy",
+    lambda *_args, **_kwargs: ExecutionPolicyEvaluation(
+      allowed=False,
+      reason_code=reason_code,
+      message="entry zone exceeds policy width",
+      terminal=True,
+      measured={
+        "reward_risk": 3.0,
+        "min_reward_risk": 1.0,
+        "planned_stop_price": 4093.5,
+        "zone_width": 6.5,
+      },
+      policy=policy,
+    ),
+  )
+
+  eligible, measured = scanner._reward_risk_pre_gate(
+    "XAU",
+    "M5",
+    "2026-07-28T12:10:00+00:00",
+    ctx,
+    result,
+  )
+
+  assert not eligible
+  assert measured["reward_risk"] == 3.0
+  assert measured["policy_reason_code"] == reason_code
+  assert measured["policy_message"] == "entry zone exceeds policy width"
+  assert measured["policy_hard_block"] is True
 
 
 def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
@@ -678,6 +752,9 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
   assert len(sent) == 1
   notify.assert_awaited_once()
   assert "ANALYSIS ONLY" in notify.await_args.args[0]
+  assert "MARKET OBSERVATION" in notify.await_args.args[0]
+  assert "SETUP FORMING" not in notify.await_args.args[0]
+  assert "Copy draft" not in notify.await_args.args[0]
   assert "CHECKING" not in notify.await_args.args[0]
   assert await client.get(strategy_match_key("XAU")) is None
   assert await client.get(strategy_matches_key("XAU")) is None

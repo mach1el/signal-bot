@@ -168,10 +168,11 @@ JSON, without re-arming or duplicating an order.
 
 In priority order:
 
-1. Build a genuine cross-language end-to-end integration test (real or
-   faithfully-faked Redis shared between a Python publisher process and a
-   C# consumer process, plus a fake broker) - the strongest remaining proof
-   gap, even though both halves are independently well-tested.
+1. Extend the real-Redis cross-language contract proof into a continuously
+   deployed smoke test. The repository now verifies Python publication and
+   the production C# source-generated consumer against the shared V7 fixture,
+   including malformed-then-valid recovery, but CI does not connect to a real
+   cTrader broker.
 2. Market Map `entries`/`actionable_entries` -> `display_entries`/
    `strategy_zones` rename, as its own reviewable change.
 3. P2/P3: repurpose or fully remove the private M1 range gate and trend
