@@ -197,6 +197,63 @@ async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
   assert "Key Level + Supply · Supply Zone Reaction" in sent_texts[0]
 
 
+def test_six_price_same_side_cluster_merges_before_ambiguity_gate(monkeypatch):
+  ctx = _ctx(price=4103.0, atr=2.0)
+  raw = [
+    _result(
+      setup="Key Level Reaction", direction="SELL",
+      low=4100.0, high=4101.5, structural_id="key-six",
+      source="key_level", kind="resistance", confluence=5,
+    ),
+    _result(
+      setup="Supply Zone Reaction", direction="SELL",
+      low=4102.2, high=4103.5, structural_id="supply-six",
+      source="supply_demand", kind="supply", confluence=4,
+    ),
+    _result(
+      setup="Supply Zone Reaction", direction="SELL",
+      low=4104.2, high=4106.0, structural_id="ob-six",
+      source="order_block", kind="ob", confluence=3,
+    ),
+  ]
+  monkeypatch.setattr(scanner.settings, "zone_merge_max_width", 6.0)
+  monkeypatch.setattr(
+    scanner.settings, "scanner_actionability_gate_enabled", False,
+  )
+  monkeypatch.setattr(
+    scanner.settings, "key_level_role_ambiguity_gate_enabled", False,
+  )
+
+  merged = scanner._merge_detection_confluence(
+    "XAU", "M5", raw, atr=2.0,
+  )
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=merged,
+    market_map=MarketMap(
+      entries=[],
+      price=4103.0,
+      eq=None,
+      box_low=None,
+      box_high=None,
+      bias="down",
+      bias_tf="H1",
+      actionable_entries=[],
+    ),
+    context=ctx,
+    atr=2.0,
+    pip_size=0.1,
+    cfg=scanner.settings,
+  )
+
+  assert len(merged) == 1
+  assert merged[0].entry_zone.low == 4100.0
+  assert merged[0].entry_zone.high == 4106.0
+  assert merged[0].confluence_tags == ("key_level", "ob", "supply")
+  assert resolution.actionable == tuple(merged)
+  assert resolution.gated == ()
+
+
 @pytest.mark.asyncio
 async def test_distinct_same_side_zones_still_form_two_cards(monkeypatch):
   client = redis_state.get_client()

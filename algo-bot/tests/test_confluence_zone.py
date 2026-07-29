@@ -20,6 +20,9 @@ from app.analysis.confluence_zone import (
 from app.persistence import redis_state
 
 
+pytestmark = pytest.mark.no_database
+
+
 def _member(member_id, side, low, high, kind, score=5.0) -> ConfluenceMember:
   return ConfluenceMember(member_id, side, low, high, kind, score)
 

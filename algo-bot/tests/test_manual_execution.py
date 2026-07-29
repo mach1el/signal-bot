@@ -165,6 +165,7 @@ async def test_reconcile_events_loop_is_a_no_op_when_disabled():
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_manual_intent_bypasses_worker_strategy_gates(
   monkeypatch,
 ):
@@ -200,6 +201,7 @@ async def test_manual_intent_bypasses_worker_strategy_gates(
   assert len(candidates) == 1
   candidate = json.loads(candidates[0][1]["payload"])
   assert candidate["mode"] == "manual_algo"
+  assert candidate["bypass_analysis_gates"] is True
   sent.assert_not_awaited()
 
 

@@ -12,11 +12,15 @@ from app.autotrade.execution_confirmation import (
   confirmation_policy_for,
   deterministic_episode_id,
   executable_quote_in_zone,
+  executable_within_distance,
   load_execution_confirmation,
   save_execution_confirmation,
 )
 from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
 from app.persistence import redis_state
+
+
+pytestmark = pytest.mark.no_database
 from app.core.config import Settings
 
 
@@ -66,8 +70,9 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert policy.reaction_family is True
   assert policy.metadata_valid is True
   assert policy.m5_authoritative is True
-  assert policy.m1_required_on_retest is True
+  assert policy.m1_required_on_retest is False
   assert policy.allow_same_cycle_publish is True
+  assert policy.require_quote_inside_zone is False
 
   missing = confirmation_policy_for(
     replace(_match(), confirmation_bar_ts=None),
@@ -89,6 +94,9 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   )
   assert non_reaction.reaction_family is False
   assert non_reaction.m5_authoritative is False
+  assert non_reaction.m1_required_on_retest is False
+  assert non_reaction.allow_same_cycle_publish is True
+  assert non_reaction.reason_code == "distance_proximity"
 
 
 @pytest.mark.parametrize(
@@ -116,6 +124,30 @@ def test_executable_zone_membership_uses_side_aware_quote(
   assert evidence.inside is inside
   assert evidence.quote_side == quote_side
   assert evidence.executable_quote == quote
+
+
+@pytest.mark.parametrize(
+  ("quote", "distance_pips", "eligible"),
+  (
+    (4036.86, 15.0, True),
+    (4032.36, 60.0, False),
+  ),
+)
+def test_execute_or_retest_uses_distance_to_nearest_zone_edge(
+  quote, distance_pips, eligible,
+):
+  evidence = executable_quote_in_zone(
+    "SELL",
+    quote,
+    quote + 0.2,
+    4038.36,
+    4042.09,
+    0.0,
+    pip_size=0.1,
+  )
+
+  assert evidence.distance_pips == pytest.approx(distance_pips)
+  assert executable_within_distance(evidence, 40.0) is eligible
 
 
 def test_episode_id_is_deterministic_and_changes_on_new_zone_entry():
@@ -167,4 +199,22 @@ def test_retest_trigger_validity_window_is_conservative_and_validated():
     Settings(
       _env_file=None,
       AUTO_TRADE_RETEST_TRIGGER_VALIDITY_BARS=0,
+    )
+
+
+def test_distance_confluence_and_actionability_defaults_are_aligned():
+  configured = Settings(_env_file=None)
+
+  assert configured.auto_trade_execute_max_distance_pips == 40.0
+  assert configured.auto_trade_max_entry_distance_pips == 40.0
+  assert configured.zone_merge_max_width == 6.0
+  assert configured.scanner_actionability_gate_enabled is False
+  assert configured.key_level_role_ambiguity_gate_enabled is False
+  assert configured.range_context_disagreement_gate_enabled is False
+
+  with pytest.raises(ValidationError, match="must be equal and positive"):
+    Settings(
+      _env_file=None,
+      AUTO_TRADE_EXECUTE_MAX_DISTANCE_PIPS=40,
+      auto_trade_max_entry_distance_pips=10,
     )

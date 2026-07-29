@@ -5,10 +5,10 @@ Redis client (same fakeredis-backed client the rest of the suite uses) - not
 a mock of the publish call - so a regression here means the live runtime
 stopped publishing, not just that a function was called with the right args.
 
-Non-reaction setups preserve P3's arm-then-M1 flow. Scanner-confirmed
-structural reactions may publish in the first call while executable bid/ask
-remains in-zone; a reaction that already left requires a fresh M1 trigger from
-its persisted retest episode.
+Formed setups publish as soon as the side-aware executable quote is inside or
+within the configured distance envelope. Far setups persist WAITING_RETEST.
+M1 is optional timing evidence: a fresh trigger anchors the stop wick, while
+its absence never blocks a distance-eligible setup.
 """
 
 from __future__ import annotations
@@ -23,9 +23,7 @@ from app.analysis.market_map import MapEntry, MarketMap
 from app.autotrade import worker
 from app.autotrade.arbitration import ExecutionIntent
 from app.autotrade.execution_confirmation import (
-  IN_ZONE_WAITING_M1,
   PUBLISHED,
-  TRIGGER_PRICE_LEFT_ZONE,
   WAITING_RETEST,
   load_execution_confirmation,
 )
@@ -43,6 +41,9 @@ from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
 from app.autotrade.trade_plan_stream import read_plan_state, read_trade_plan
 from app.autotrade.trend import RegimeInfo
 from app.persistence import redis_state
+
+
+pytestmark = pytest.mark.no_database
 
 
 def _match(**overrides) -> StrategyMatch:
@@ -218,24 +219,12 @@ def _intent_for_match(match: StrategyMatch) -> ExecutionIntent:
 
 
 @pytest.mark.asyncio
-async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
+async def test_confirmed_setup_uses_optional_m1_trigger_as_stop_anchor():
   client = redis_state.get_client()
   match = _match()
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
-  # First call: CONFIRMED -> ARMED_WAITING_TRIGGER, no plan yet.
-  armed_plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
-  assert armed_plan_id is None
-  armed_record = await load_setup(client, "match-v7-1")
-  assert armed_record.state == ARMED_WAITING_TRIGGER
-
-  # Still armed, no M1 data at all: stays armed, still no plan.
-  still_waiting = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
-  assert still_waiting is None
-  assert (await load_setup(client, "match-v7-1")).state == ARMED_WAITING_TRIGGER
-
-  # Qualifying M1 candle: publishes exactly now, stop anchored to the wick.
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
   )
@@ -254,6 +243,36 @@ async def test_confirmed_setup_arms_and_publishes_only_at_m1_trigger():
   assert await read_plan_state(client, plan_id) == "published"
   record = await load_setup(client, "match-v7-1")
   assert record.state == PLAN_PUBLISHED
+
+
+@pytest.mark.asyncio
+async def test_confirmed_setup_within_distance_publishes_without_m1():
+  client = redis_state.get_client()
+  match = _match(
+    match_id="near-no-m1",
+    thesis_id="near-no-m1-thesis",
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4091.5,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4091.4,
+    ask=4091.5,
+  )
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match,
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.provenance.confirmation_source == "distance_proximity"
+  assert plan.stop.source != "m1_trigger_wick"
+  assert await client.hget(
+    "auto_trade:metrics:XAU", "v7_plan_published",
+  ) == "1"
 
 
 @pytest.mark.asyncio
@@ -348,11 +367,11 @@ async def test_confirmed_trendline_sell_below_zone_waits_for_fresh_retest():
   )
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(
-    price=4040.78,
+    price=4037.88,
     ts=int(time.time()),
     fresh=True,
-    bid=4040.68,
-    ask=4040.88,
+    bid=4037.78,
+    ask=4037.98,
   )
 
   assert await worker._publish_trade_plan_v7(
@@ -386,11 +405,11 @@ async def test_outer_preflight_routes_outside_reaction_to_waiting_retest(
     structural_zone_high=4046.16,
   )
   spot = worker.AutoTradeSpot(
-    price=4040.78,
+    price=4037.88,
     ts=int(time.time()),
     fresh=True,
-    bid=4040.68,
-    ask=4040.88,
+    bid=4037.78,
+    ask=4037.98,
   )
   intent = _intent_for_match(match)
   monkeypatch.setattr(worker.settings, "auto_trade_strategy_match_enabled", True)
@@ -488,11 +507,11 @@ async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
   await _confirm_setup(client, match)
   outside_ts = int(time.time())
   outside = worker.AutoTradeSpot(
-    price=4040.78,
+    price=4037.88,
     ts=outside_ts,
     fresh=True,
-    bid=4040.68,
-    ask=4040.88,
+    bid=4037.78,
+    ask=4037.98,
   )
   assert await worker._publish_trade_plan_v7(
     client, "XAU", outside, match,
@@ -540,7 +559,7 @@ async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
     entry_low=4038.36,
     entry_high=4042.09,
     current_price=4045.0,
-    structure_swing=4038.5,
+    structure_swing=4035.0,
     structural_kind="support",
     htf_bias="up",
     structural_zone_id="buy-retest-zone",
@@ -550,11 +569,11 @@ async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
   await _confirm_setup(client, match)
   start = int(time.time())
   outside = worker.AutoTradeSpot(
-    price=4044.9,
+    price=4048.0,
     ts=start,
     fresh=True,
-    bid=4044.8,
-    ask=4045.0,
+    bid=4047.9,
+    ask=4048.1,
   )
   assert await worker._publish_trade_plan_v7(
     client, "XAU", outside, match,
@@ -588,14 +607,11 @@ async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("phase_before_expiry", ("waiting_retest", "in_zone"))
-async def test_reaction_expiry_is_terminal_in_every_waiting_phase(
-  phase_before_expiry,
-):
+async def test_reaction_expiry_is_terminal_while_waiting_retest():
   client = redis_state.get_client()
   match = _reaction_match(
-    match_id=f"expiry-{phase_before_expiry}",
-    thesis_id=f"expiry-thesis-{phase_before_expiry}",
+    match_id="expiry-waiting-retest",
+    thesis_id="expiry-waiting-retest-thesis",
     strategy="Trendline Reaction",
     family="trendline",
     reaction_type="rejection_choch",
@@ -603,32 +619,20 @@ async def test_reaction_expiry_is_terminal_in_every_waiting_phase(
     entry_high=4046.16,
     current_price=4040.68,
     structure_swing=4049.0,
-    structural_zone_id=f"expiry-zone-{phase_before_expiry}",
+    structural_zone_id="expiry-zone-waiting-retest",
     structural_zone_low=4043.80,
     structural_zone_high=4046.16,
   )
   await _confirm_setup(client, match)
   start = int(time.time())
   outside = worker.AutoTradeSpot(
-    price=4040.78, ts=start, fresh=True, bid=4040.68, ask=4040.88,
+    price=4037.88, ts=start, fresh=True, bid=4037.78, ask=4037.98,
   )
   await worker._publish_trade_plan_v7(client, "XAU", outside, match)
-  latest_spot = outside
-  if phase_before_expiry == "in_zone":
-    latest_spot = worker.AutoTradeSpot(
-      price=4044.60,
-      ts=start + 60,
-      fresh=True,
-      bid=4044.50,
-      ask=4044.70,
-    )
-    await worker._publish_trade_plan_v7(
-      client, "XAU", latest_spot, match,
-    )
 
   expired = replace(match, expires_at=int(time.time()) - 1)
   assert await worker._publish_trade_plan_v7(
-    client, "XAU", latest_spot, expired,
+    client, "XAU", outside, expired,
   ) is None
   assert (await load_setup(client, match.match_id)).state == EXPIRED
   state = await load_execution_confirmation(client, match.match_id)
@@ -706,7 +710,7 @@ async def test_reaction_missing_confirmation_metadata_fails_closed():
 
 
 @pytest.mark.asyncio
-async def test_trigger_missed_after_quote_left_is_consumed_and_new_episode_required():
+async def test_far_waits_then_executes_at_ten_pips_without_m1():
   client = redis_state.get_client()
   match = _reaction_match(
     match_id="trigger-left-zone",
@@ -727,85 +731,41 @@ async def test_trigger_missed_after_quote_left_is_consumed_and_new_episode_requi
   await _confirm_setup(client, match)
   start = int(time.time())
   outside = worker.AutoTradeSpot(
-    price=4040.78, ts=start, fresh=True, bid=4040.68, ask=4040.88,
+    price=4037.88, ts=start, fresh=True, bid=4037.78, ask=4037.98,
   )
-  await worker._publish_trade_plan_v7(client, "XAU", outside, match)
+  assert await worker._publish_trade_plan_v7(
+    client, "XAU", outside, match,
+  ) is None
+  waiting = await load_execution_confirmation(client, match.match_id)
+  assert waiting is not None
+  assert waiting.phase == WAITING_RETEST
 
-  entered = worker.AutoTradeSpot(
-    price=4044.60,
+  returned = worker.AutoTradeSpot(
+    price=4042.90,
     ts=start + 60,
     fresh=True,
-    bid=4044.50,
-    ask=4044.70,
+    bid=4042.80,
+    ask=4043.00,
   )
-  assert await worker._publish_trade_plan_v7(
-    client, "XAU", entered, match,
-  ) is None
-  episode_a = await load_execution_confirmation(client, match.match_id)
-  assert episode_a is not None
-  assert episode_a.phase == IN_ZONE_WAITING_M1
-  repeated_inside = worker.AutoTradeSpot(
-    price=4044.65,
-    ts=start + 61,
-    fresh=True,
-    bid=4044.55,
-    ask=4044.75,
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", returned, match,
   )
-  assert await worker._publish_trade_plan_v7(
-    client, "XAU", repeated_inside, match,
-  ) is None
-  repeated_episode = await load_execution_confirmation(
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.provenance.confirmation_source == "m5_authoritative"
+  assert (await load_execution_confirmation(
     client, match.match_id,
-  )
-  assert repeated_episode is not None
-  assert repeated_episode.episode_id == episode_a.episode_id
-
-  left = worker.AutoTradeSpot(
-    price=4040.78,
-    ts=start + 120,
-    fresh=True,
-    bid=4040.68,
-    ask=4040.88,
-  )
-  assert await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    left,
-    match,
-    frames={"M1": _sell_retest_bar(start + 60)},
-  ) is None
-  missed = await load_execution_confirmation(client, match.match_id)
-  assert missed is not None
-  assert missed.phase == TRIGGER_PRICE_LEFT_ZONE
-  assert missed.trigger_consumed is True
-
-  reentered = worker.AutoTradeSpot(
-    price=4044.60,
-    ts=start + 180,
-    fresh=True,
-    bid=4044.50,
-    ask=4044.70,
-  )
-  assert await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    reentered,
-    match,
-    frames={"M1": _sell_retest_bar(start + 60)},
-  ) is None
-  episode_b = await load_execution_confirmation(client, match.match_id)
-  assert episode_b is not None
-  assert episode_b.phase == IN_ZONE_WAITING_M1
-  assert episode_b.episode_id != episode_a.episode_id
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  )).phase == PUBLISHED
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
   ("direction", "bid", "ask"),
   (
-    ("SELL", 4037.90, 4040.00),
-    ("BUY", 4040.00, 4042.40),
+    ("SELL", 4033.90, 4040.00),
+    ("BUY", 4040.00, 4046.20),
   ),
 )
 async def test_midpoint_inside_does_not_override_executable_quote_outside(
@@ -915,19 +875,11 @@ async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
     10.0,
   ))
 
-  await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    spot,
-    match,
-    market_map=market_map,
-  )
   plan_id = await worker._publish_trade_plan_v7(
     client,
     "XAU",
     spot,
     match,
-    frames={"M1": _m1_trigger_bar()},
     market_map=market_map,
   )
 
@@ -950,10 +902,7 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
 
-  await worker._publish_trade_plan_v7(client, "XAU", spot, match)
-  plan_id = await worker._publish_trade_plan_v7(
-    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
-  )
+  plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
 
   assert plan_id is not None
   record = await load_setup(client, "match-v7-2")
@@ -967,17 +916,15 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
 
   first_match = _match(match_id="match-v7-3a", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, first_match)
-  await worker._publish_trade_plan_v7(client, "XAU", spot, first_match)
   first_plan_id = await worker._publish_trade_plan_v7(
-    client, "XAU", spot, first_match, frames={"M1": _m1_trigger_bar()},
+    client, "XAU", spot, first_match,
   )
   assert first_plan_id is not None
 
   second_match = _match(match_id="match-v7-3b", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, second_match)
-  await worker._publish_trade_plan_v7(client, "XAU", spot, second_match)
   second_plan_id = await worker._publish_trade_plan_v7(
-    client, "XAU", spot, second_match, frames={"M1": _m1_trigger_bar()},
+    client, "XAU", spot, second_match,
   )
 
   assert second_plan_id is None
@@ -1003,13 +950,11 @@ async def test_setup_not_confirmed_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_non_qualifying_m1_bar_does_not_publish():
+async def test_non_qualifying_m1_bar_does_not_block_distance_eligible_setup():
   client = redis_state.get_client()
   match = _match(match_id="match-v7-5", thesis_id="thesis-v7-5")
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
-  await worker._publish_trade_plan_v7(client, "XAU", spot, match)
-
   # A tiny, symmetric doji sitting inside the zone with no directional wick,
   # body, or close - qualifies for none of the six patterns.
   index = pd.date_range("2026-07-22 14:45", periods=1, freq="1min", tz="UTC")
@@ -1022,6 +967,10 @@ async def test_non_qualifying_m1_bar_does_not_publish():
     client, "XAU", spot, match, frames={"M1": flat_bar},
   )
 
-  assert plan_id is None
+  assert plan_id is not None
   record = await load_setup(client, "match-v7-5")
-  assert record.state == ARMED_WAITING_TRIGGER
+  assert record.state == PLAN_PUBLISHED
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.provenance.confirmation_source == "distance_proximity"
+  assert plan.stop.source != "m1_trigger_wick"
