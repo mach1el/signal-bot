@@ -128,8 +128,7 @@ def _cfg(
   role_ambiguity_gate: bool = True,
 ) -> SimpleNamespace:
   return SimpleNamespace(
-    scanner_conflict_overlap=0.5,
-    scanner_conflict_margin=1.0,
+    contested_corridor_gap_atr=0.5,
     auto_trade_allow_counter_bias=True,
     auto_trade_structural_guard_mode=guard_mode,
     auto_trade_profile=profile,
@@ -350,12 +349,20 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
   assert resolution.observed == (buy, sell)
   assert resolution.actionable == ()
   assert {item[1].reason_code for item in resolution.gated} == {
-    "opposing_conflict_ambiguous",
+    "contested_corridor",
   }
-  assert resolution.conflicts[0]["outcome"] == "both_dropped"
+  assert resolution.conflicts[0]["outcome"] == "contested_corridor"
 
 
-def test_decisive_side_is_only_provisional_and_still_needs_room():
+def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
+  """P0 zone/M1 simplification: this used to prove the higher-confluence
+  side survives ("decisive side") and only then needs to clear a separate
+  room check. That behavior is deleted, not weakened - a contested
+  corridor is never resolved by score, regardless of how large the
+  confluence gap is or whether one side would otherwise have had map
+  room. Neither side even reaches the room check (see resolve_actionability:
+  once an index is gated, the room-check loop skips it entirely).
+  """
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
   no_room = _map(
@@ -375,12 +382,16 @@ def test_decisive_side_is_only_provisional_and_still_needs_room():
 
   assert resolution.actionable == ()
   reasons = {decision.reason_code for _item, decision in resolution.gated}
-  assert "opposing_conflict_weaker" in reasons
-  assert "opposing_major_no_room" in reasons
-  assert resolution.conflicts[0]["outcome"] == "stronger_kept"
+  assert reasons == {"contested_corridor"}
+  assert "opposing_major_no_room" not in reasons
+  assert resolution.conflicts[0]["outcome"] == "contested_corridor"
 
 
-def test_decisive_side_with_room_remains_actionable():
+def test_distant_map_room_does_not_rescue_an_overlapping_pair():
+  """A separate, distant Market Map entry does not matter - the
+  observed_results themselves fully overlap each other, which is what the
+  contested-corridor rule actually looks at.
+  """
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
 
@@ -397,10 +408,51 @@ def test_decisive_side_with_room_remains_actionable():
     cfg=_cfg(),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.actionable[0].direction == "BUY"
-  assert resolution.actionable[0].target_cap_pips == pytest.approx(70)
-  assert resolution.gated[0][1].reason_code == "opposing_conflict_weaker"
+  assert resolution.actionable == ()
+  assert resolution.gated[0][1].reason_code == "contested_corridor"
+
+
+def test_nearby_non_overlapping_bands_still_form_a_contested_corridor():
+  """The original reported incident: two bands that merely touch/sit
+  close together (zero overlap, small gap) - not the >=50% overlap the
+  old scanner_conflict_overlap ratio required - must still be treated as
+  one contested corridor, not two independent opportunities.
+  """
+  buy = _result("BUY", 4001.0, 4007.0, quality=3)
+  sell = _result("SELL", 4007.0, 4019.0, quality=2)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy, sell],
+    market_map=_map(price=4005.0),
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.actionable == ()
+  assert {item[1].reason_code for item in resolution.gated} == {
+    "contested_corridor",
+  }
+
+
+def test_bands_well_separated_beyond_the_gap_threshold_are_not_contested():
+  buy = _result("BUY", 4001.0, 4003.0, quality=3)
+  sell = _result("SELL", 4050.0, 4052.0, quality=2)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy, sell],
+    market_map=_map(price=4002.0),
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  reasons = {decision.reason_code for _item, decision in resolution.gated}
+  assert "contested_corridor" not in reasons
 
 
 @pytest.mark.parametrize(

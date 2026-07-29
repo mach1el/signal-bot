@@ -890,16 +890,25 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_actionable_digest_keeps_decisive_opposing_winner(
+async def test_digest_results_no_longer_resolves_opposing_direction_conflicts(
   monkeypatch,
 ):
+  """P0 zone/M1 simplification: _digest_results delegates to
+  _suppress_overlaps, which is now same-direction-only - cross-side
+  contested-corridor resolution moved entirely to
+  actionability.py::resolve_actionability, called earlier in the real
+  scanner pipeline (see _handle_event, where reward_risk_eligible_results
+  is already filtered through actionability.actionable before ever
+  reaching _digest_results). Calling _digest_results directly with a raw,
+  unfiltered opposing pair - bypassing that upstream gate, as this test
+  does on purpose - now keeps both, proving the responsibility genuinely
+  moved rather than silently vanishing.
+  """
   client = redis_state.get_client()
   notify = AsyncMock()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
   monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
   monkeypatch.setattr(
     scanner.settings, "auto_trade_track_all_structural_matches", True,
   )
@@ -939,21 +948,11 @@ async def test_actionable_digest_keeps_decisive_opposing_winner(
   )
 
   execution_digest, conflicts = scanner._digest_results([buy, sell])
-  sent = await scanner._notify_digest_once(
-    client,
-    "XAU",
-    "M5",
-    ctx,
-    execution_digest,
-    notify,
-    ["M30"],
-  )
 
-  assert execution_digest == [buy]
-  assert conflicts[0]["outcome"] == "stronger_kept"
-  assert sent == [buy]
-  # No execution_match/execution_matches passed in - no card can be sent.
-  notify.assert_not_awaited()
+  assert len(execution_digest) == 2
+  assert buy in execution_digest
+  assert sell in execution_digest
+  assert conflicts == []
 
 
 @pytest.mark.asyncio
@@ -1673,17 +1672,25 @@ async def test_scanner_missing_spot_keeps_fallback_without_warning(monkeypatch, 
 
 # --- B1: opposite-direction conflicts ---------------------------------------
 
-def test_opposite_direction_conflict_with_decisive_margin_keeps_stronger(
+def test_suppress_overlaps_no_longer_resolves_opposing_direction_conflicts(
   monkeypatch,
 ):
+  """P0 zone/M1 simplification: _suppress_overlaps used to re-run its own
+  opposing-direction confluence-margin tiebreak (numbers below are lifted
+  straight from the 22 Jul 2026 incident this originally regression-
+  tested), duplicating what actionability.py::resolve_actionability's
+  contested-corridor rule already resolves earlier in the same request.
+  That responsibility has moved entirely upstream - see
+  test_scanner_actionability.py's contested-corridor tests for the
+  authoritative behavior. This proves _suppress_overlaps itself is now
+  same-direction-only: an opposing overlapping pair both survive this
+  specific function untouched (same-direction dedup is unaffected).
+  """
   monkeypatch.setattr(
     scanner.settings, "auto_trade_track_all_structural_matches", False,
   )
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
-  # Numbers lifted straight from the 22 Jul 2026 incident: overlap ratio 1.0.
   strong = scanner.DetectionResult(
-    "Box Breakout", "BUY", 4121.5,
+    "Demand Zone Reaction", "BUY", 4121.5,
     Zone(4121.22, 4126.14, "demand"), 4123.0, 3, ["HTF bias up"],
   )
   weak = scanner.DetectionResult(
@@ -1693,61 +1700,12 @@ def test_opposite_direction_conflict_with_decisive_margin_keeps_stronger(
 
   selected, conflicts = scanner._suppress_overlaps([strong, weak])
 
-  assert selected == [strong]
-  assert len(conflicts) == 1
-  assert conflicts[0]["outcome"] == "stronger_kept"
-  assert conflicts[0]["a"]["setup"] == "Box Breakout"
-  assert conflicts[0]["b"]["setup"] == "Range Edge Scalp"
-
-
-def test_opposite_direction_conflict_with_equal_confluence_drops_both(monkeypatch):
-  monkeypatch.setattr(
-    scanner.settings, "auto_trade_track_all_structural_matches", False,
-  )
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
-  a = scanner.DetectionResult(
-    "Box Breakout", "BUY", 4121.5,
-    Zone(4121.22, 4126.14, "demand"), 4123.0, 2, ["HTF bias up"],
-  )
-  b = scanner.DetectionResult(
-    "Range Edge Scalp", "SELL", 4123.5,
-    Zone(4122.24, 4124.73, "supply"), 4123.0, 2, ["HTF bias down"],
-  )
-
-  selected, conflicts = scanner._suppress_overlaps([a, b])
-
-  assert selected == []
-  assert len(conflicts) == 1
-  assert conflicts[0]["outcome"] == "both_dropped"
-
-
-def test_demo_eval_does_not_preserve_ambiguous_opposing_actionable_matches(
-  monkeypatch,
-):
-  monkeypatch.setattr(
-    scanner.settings, "auto_trade_track_all_structural_matches", True,
-  )
-  monkeypatch.setattr(scanner.settings, "auto_trade_allow_counter_bias", True)
-  buy = scanner.DetectionResult(
-    "Demand Reaction", "BUY", 4121.5,
-    Zone(4121.22, 4126.14, "demand"), 4123.0, 3, ["local demand"],
-  )
-  sell = scanner.DetectionResult(
-    "Supply Reaction", "SELL", 4123.5,
-    Zone(4122.24, 4124.73, "supply"), 4123.0, 3, ["local supply"],
-  )
-
-  selected, conflicts = scanner._suppress_overlaps([buy, sell])
-
-  assert selected == []
-  assert conflicts[0]["outcome"] == "both_dropped"
+  assert selected == [strong, weak]
+  assert conflicts == []
 
 
 def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):
   monkeypatch.setattr(scanner.settings, "alert_overlap_suppress", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
   strong = scanner.DetectionResult(
     "Snap-Back", "SELL", 4094.0,
     Zone(4094, 4096, "supply", score=13), 4090.0, 3, ["HTF bias down"],
