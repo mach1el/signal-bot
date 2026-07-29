@@ -23,6 +23,7 @@ from app.autotrade.setup_lifecycle import (
   load_setup,
   transition_setup,
 )
+from app.autotrade.route_outcome import record_route_outcome, route_outcome_key
 from app.autotrade.strategy_match import StrategyMatch
 from app.autotrade.trade_plan_builder import TradePlanBuildRejected
 from app.persistence import redis_state
@@ -559,3 +560,107 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
   assert deleted == [(4242, 9005)]
   assert sent_messages == []
   assert await client.get(delivery._forming_message_key(setup_id)) is None
+
+
+@pytest.mark.asyncio
+async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
+  """P0-8: reaction_confirmation_handoff must not be the permanent final
+  route reason for a setup that is durably WAITING_RETEST.
+
+  worker.py's preflight pass writes route_outcome with
+  reason_code="reaction_confirmation_handoff" every cycle a reaction stays
+  outside its zone (see the handoff branch feeding _preflight_decision),
+  intending _publish_trade_plan_v7's own confirmation-phase persist to
+  immediately correct it back to the durable "waiting_retest_entry_zone"
+  reason. That correction used to only fire on the one-time
+  WORKER_ACKNOWLEDGED -> ARMED_WAITING_TRIGGER transition tick - on every
+  later cycle nothing re-persisted it, so the stale intermediate reason
+  became the permanent last word in route_outcome. This reproduces a
+  second cycle (setup already ARMED_WAITING_TRIGGER, still outside its
+  zone) after simulating the preflight pass's stale overwrite, and asserts
+  the durable reason wins back.
+  """
+  client = redis_state.get_client()
+  zone_id = "merged-zone-repeat-wait"
+  setup_id = confluence_setup_id(zone_id, "BUY")
+  match = StrategyMatch(
+    version=1,
+    match_id=setup_id,
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="1722168600",
+    issued_at=1722168600,
+    expires_at=2_000_000_000,
+    strategy="Demand Zone Reaction",
+    strategy_mode="with_bias",
+    direction="BUY",
+    key_level=4100.5,
+    entry_low=4100.0,
+    entry_high=4101.0,
+    current_price=4095.0,
+    confluence=3,
+    reasons=("demand reaction",),
+    atr=2.0,
+    structure_swing=4090.0,
+    targets_pips=(30,),
+    family="supply_demand",
+    structural_source="supply_demand",
+    zone_id=zone_id,
+    confluence_zone_id=zone_id,
+    structural_zone_id=zone_id,
+    structural_zone_low=4100.0,
+    structural_zone_high=4101.0,
+    touch_bar_ts="1722168300",
+    confirmation_bar_ts="1722168600",
+    reaction_type="strong_reclaim",
+    structural_kind="demand",
+    structural_timeframe="M5",
+    htf_bias="up",
+    regime_kind="trend",
+    thesis_id="thesis-repeat-wait",
+  )
+  await _confirm(client, match)
+
+  # Quote well below the entry zone on both cycles - execution stays
+  # ineligible throughout, so the setup remains WAITING_RETEST.
+  spot = worker.AutoTradeSpot(
+    price=4095.0, ts=1722168600, fresh=True, bid=4094.9, ask=4095.1,
+  )
+
+  first = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  assert first is None
+  record = await load_setup(client, setup_id)
+  assert record.state == ARMED_WAITING_TRIGGER
+
+  outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
+  assert json.loads(outcome_raw)["reason_code"] == "waiting_retest_entry_zone"
+
+  # Simulate the next cycle's preflight pass, which runs BEFORE
+  # _publish_trade_plan_v7 and unconditionally records the transient
+  # handoff reason for any reaction still outside its zone.
+  await record_route_outcome(
+    client, match,
+    stage="preflight",
+    status="waiting",
+    reason_code="reaction_confirmation_handoff",
+    message="reaction is outside its entry contract and must wait",
+    publish_status=False,
+  )
+  outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
+  assert json.loads(outcome_raw)["reason_code"] == "reaction_confirmation_handoff"
+
+  second = await worker._publish_trade_plan_v7(
+    client, "XAU", worker.AutoTradeSpot(
+      price=4095.0, ts=1722168660, fresh=True, bid=4094.9, ask=4095.1,
+    ),
+    match,
+  )
+  assert second is None
+  record = await load_setup(client, setup_id)
+  assert record.state == ARMED_WAITING_TRIGGER, "still waiting, not terminal"
+
+  outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
+  assert json.loads(outcome_raw)["reason_code"] == "waiting_retest_entry_zone", (
+    "the durable waiting reason must win back over the stale "
+    "reaction_confirmation_handoff left by the same cycle's preflight pass"
+  )
