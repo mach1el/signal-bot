@@ -5567,6 +5567,10 @@ public sealed partial class AutoTradeEngineTests
       CancellationToken cancellationToken
     ) => Task.FromResult(Grants);
 
+    public Task<TradingAccountSnapshot> GetFeedAccountAsync(
+      CancellationToken cancellationToken
+    ) => Task.FromResult(Account);
+
     // Pre-submit fault injection: this is read after the candidate is claimed
     // but before any broker mutation, so a failure here is a safe retry.
     public Func<int, bool>? FailAccountCall { get; init; }

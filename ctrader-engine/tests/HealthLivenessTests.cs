@@ -76,7 +76,8 @@ public sealed class HealthLivenessTests
       RefreshTokenFile: "/tmp/ctrader-token.json",
       RequestTimeout: TimeSpan.FromSeconds(1),
       TokenRefreshLead: TimeSpan.FromDays(5),
-      TokenCheckInterval: TimeSpan.FromHours(6)
+      TokenCheckInterval: TimeSpan.FromHours(6),
+      ExpectedBroker: "Fusion"
     );
 
   private static void TouchStale(string path, DateTime stale)

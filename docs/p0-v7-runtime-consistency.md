@@ -64,6 +64,9 @@ Additional consistency defects:
 - V7 cycle publication did not persist the complete winning owner record.
 - The C# recovery copy reused Python's short-lived plan key, accidentally
   removing its TTL.
+- Feed broker identity was only validated after backfill/subscription when the
+  auto-trade task started, allowing a multi-broker token to expose scanner data
+  before executor broker validation.
 
 ## 3. Production Log Replay
 
@@ -132,6 +135,10 @@ M5 scanner full-policy pass
 
 Duplicate M1/ready/recovery work resolves the same plan and cannot append a
 second stream entry.
+
+Before symbol resolution, backfill or subscription, the feed now verifies the
+configured account and `CTRADER_EXPECTED_BROKER`. Production pins both feed
+and execution to FP Markets account `47977211`.
 
 ## 5. C# JSON Source Generation
 
@@ -255,6 +262,8 @@ no order-style copy draft. Executable matches retain the one-card setup flow.
   per-message durability, acknowledgements, recovery copy and structured logs.
 - `ctrader-engine/src/AutoTradeEngine.cs`: startup self-test and bounded V7
   consumer recovery.
+- `ctrader-engine/src/FeedRunner.cs`, `FeedOptions.cs`, `BrokerIdentity.cs`:
+  fail-closed FP Markets account validation before market-data ingestion.
 - `ctrader-engine/src/CTraderFeed.csproj`: compatible Native-AOT/single-file
   production properties.
 - Python and C# test files: incident, concurrency, real-Redis, malformed,
@@ -279,7 +288,7 @@ C# focused V7:
 26 passed
 
 C# full:
-548 passed
+549 passed
 
 C# Release build:
 Build succeeded. 0 Warning(s), 0 Error(s)
@@ -330,6 +339,8 @@ boundary without placing a cTrader order.
 - Existing card scalar values are read and upgraded on the next status write.
 - Existing V7 payloads gain a dedup tombstone on their next publication retry.
 - New acknowledgement, rejection and recovery keys are created lazily.
+- Deploy config must set `CTRADER_EXPECTED_BROKER=fpmarkets`; the field
+  defaults to `AUTO_TRADE_EXPECTED_BROKER` for local backward compatibility.
 - C# falls back to the old plan key when restoring pre-change runtime state,
   then writes future recovery copies to the dedicated key.
 - Deploy Python and C# from the same commit so source contract and lifecycle
