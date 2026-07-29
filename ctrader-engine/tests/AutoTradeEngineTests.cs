@@ -4748,6 +4748,54 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task TransientSessionFaultPublishesDegradedRetryingNotFatal()
+  {
+    // P1-6: a Redis/network/broker transient error is actively retried by
+    // FeedRunner.RunAutoTradeSafelyAsync - HandleSessionFaultAsync must not
+    // report "fatal" for something that is, by construction, about to be
+    // retried. Only a genuine config/contract incompatibility is fatal.
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+
+    await engine.HandleSessionFaultAsync(
+      new IOException("simulated transient redis failure"), CancellationToken.None
+    );
+
+    var readiness = JsonDocument.Parse(
+      store.Values[AutoTradeConfigHealth.ReadinessKey]
+    ).RootElement;
+    Assert.False(readiness.GetProperty("ready").GetBoolean());
+    Assert.Equal("degraded_retrying", readiness.GetProperty("state").GetString());
+    Assert.Empty(readiness.GetProperty("fatal").EnumerateArray());
+    Assert.Contains(
+      readiness.GetProperty("warnings").EnumerateArray(),
+      item => item.GetString() == "broker_or_redis_connection"
+    );
+  }
+
+  [Fact]
+  public async Task ConfigurationSessionFaultStillPublishesFatal()
+  {
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var engine = new AutoTradeEngine(DemoEvalOptions(), store, () => Now, _ => { });
+
+    await engine.HandleSessionFaultAsync(
+      new AutoTradeConfigurationException("Auto trade disabled: config mismatch"),
+      CancellationToken.None
+    );
+
+    var readiness = JsonDocument.Parse(
+      store.Values[AutoTradeConfigHealth.ReadinessKey]
+    ).RootElement;
+    Assert.False(readiness.GetProperty("ready").GetBoolean());
+    Assert.Equal("fatal", readiness.GetProperty("state").GetString());
+    Assert.Contains(
+      readiness.GetProperty("fatal").EnumerateArray(),
+      item => item.GetString() == "service_initialization"
+    );
+  }
+
+  [Fact]
   public async Task WarningDoesNotCreateOrChangeLifecycleState()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
