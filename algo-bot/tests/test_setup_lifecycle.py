@@ -36,8 +36,37 @@ from app.autotrade.setup_lifecycle import (
   release_active_thesis,
   transition_setup,
 )
-from app.autotrade.worker import terminal_state_for_preflight_failure
+from app.autotrade.worker import (
+  parse_cycle_owner_intent_id,
+  terminal_state_for_preflight_failure,
+)
 from app.persistence import redis_state
+
+
+def test_parse_cycle_owner_intent_id_extracts_from_json_payload():
+  """P1-5: publish_ranked_cycle stores the cycle owner as a JSON object -
+  winner_intent_id must be the parsed intent_id, not the raw blob.
+  """
+  raw = (
+    b'{"symbol":"XAU","cycle_id":"1722168600","intent_id":"strategy:abc",'
+    b'"setup_id":"abc","plan_id":"v7:abc","published_at":1722168600}'
+  )
+  assert parse_cycle_owner_intent_id(raw) == "strategy:abc"
+
+
+def test_parse_cycle_owner_intent_id_falls_back_for_legacy_scalar_values():
+  assert parse_cycle_owner_intent_id(b"strategy:legacy-owner") == (
+    "strategy:legacy-owner"
+  )
+  assert parse_cycle_owner_intent_id("strategy:legacy-owner") == (
+    "strategy:legacy-owner"
+  )
+
+
+def test_parse_cycle_owner_intent_id_handles_missing_and_malformed_values():
+  assert parse_cycle_owner_intent_id(None) is None
+  assert parse_cycle_owner_intent_id(b"{not valid json") == "{not valid json"
+  assert parse_cycle_owner_intent_id(b'{"cycle_id":"1"}') == '{"cycle_id":"1"}'
 
 
 def test_terminal_preflight_failure_mapping_never_invalidates_post_plan_states():
