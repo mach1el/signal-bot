@@ -227,6 +227,48 @@ public sealed class ReconnectTests
   }
 
   [Fact]
+  public async Task TransientAutoTradeFaultRetriesWithinTheSameFeedSession()
+  {
+    using var temp = new TempHeartbeat();
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FaultAutoTradeStore
+    {
+      OnEvent = tradeEvent =>
+      {
+        if (tradeEvent.Type == "ready")
+        {
+          cts.Cancel();
+        }
+      },
+    };
+    var client = new FakeCTraderClient
+    {
+      TradingAccountException = new IOException("temporary account-list failure"),
+      TradingAccountFailuresRemaining = 1,
+    };
+    var runner = new FeedRunner(
+      TestOptions(temp.Path),
+      () => client,
+      new RecordingSink(),
+      new HealthFile(temp.Path),
+      _ => TimeSpan.Zero,
+      autoTrade: new AutoTradeEngine(AutoOptions(), store, log: _ => { }),
+      delay: (duration, cancellationToken) =>
+        duration >= TimeSpan.FromHours(1)
+          ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+          : Task.CompletedTask
+    );
+
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(
+      () => runner.RunOneSessionAsync(cts.Token)
+    );
+
+    Assert.Equal(2, client.TradingAccountRequests);
+    Assert.Single(store.Events, item => item.Type == "service_error");
+    Assert.Single(store.Events, item => item.Type == "ready");
+  }
+
+  [Fact]
   public async Task ProactiveRefreshFailureKeepsFeedSessionAlive()
   {
     using var temp = new TempHeartbeat();
@@ -426,6 +468,7 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
   public IReadOnlyList<RawTrendbar> Live { get; init; } = [];
   public IReadOnlyList<TradingAccountGrant> Grants { get; init; } = [new(123, false)];
   public Exception? TradingAccountException { get; init; }
+  public int? TradingAccountFailuresRemaining { get; set; }
   public int TradingAccountRequests { get; private set; }
   public Exception? RefreshException { get; init; }
   public int RefreshCount { get; private set; }
@@ -541,9 +584,21 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
   )
   {
     TradingAccountRequests++;
-    return TradingAccountException is not null
-      ? Task.FromException<TradingAccountSnapshot>(TradingAccountException)
-      : Task.FromResult(new TradingAccountSnapshot(
+    if (
+      TradingAccountException is not null
+      && (
+        TradingAccountFailuresRemaining is null
+        || TradingAccountFailuresRemaining > 0
+      )
+    )
+    {
+      if (TradingAccountFailuresRemaining is not null)
+      {
+        TradingAccountFailuresRemaining--;
+      }
+      return Task.FromException<TradingAccountSnapshot>(TradingAccountException);
+    }
+    return Task.FromResult(new TradingAccountSnapshot(
         123,
         IsLive: false,
         PermissionScope: "ScopeTrade",
@@ -579,6 +634,7 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
 internal sealed class FaultAutoTradeStore : IAutoTradeStore
 {
   public List<AutoTradeEvent> Events { get; } = [];
+  public Action<AutoTradeEvent>? OnEvent { get; init; }
   public int CandidateReads { get; private set; }
 
   public Task<string> GetCursorAsync(CancellationToken cancellationToken) =>
@@ -689,6 +745,7 @@ internal sealed class FaultAutoTradeStore : IAutoTradeStore
   )
   {
     Events.Add(tradeEvent);
+    OnEvent?.Invoke(tradeEvent);
     return Task.CompletedTask;
   }
 
