@@ -749,13 +749,14 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
     notify=notify,
   )
 
-  assert len(sent) == 1
-  notify.assert_awaited_once()
-  assert "ANALYSIS ONLY" in notify.await_args.args[0]
-  assert "MARKET OBSERVATION" in notify.await_args.args[0]
-  assert "SETUP FORMING" not in notify.await_args.args[0]
-  assert "Copy draft" not in notify.await_args.args[0]
-  assert "CHECKING" not in notify.await_args.args[0]
+  # Non-negotiable Telegram requirement: an opposing_major_no_room
+  # observation has no executable StrategyMatch and must never reach
+  # Telegram - not even as an ANALYSIS ONLY / MARKET OBSERVATION card.
+  # (This incident used to still get one via the now-removed
+  # `notification_results = digest or analysis_only_results` fallback,
+  # which is why `sent` is now correctly empty rather than length 1.)
+  assert sent == []
+  notify.assert_not_awaited()
   assert await client.get(strategy_match_key("XAU")) is None
   assert await client.get(strategy_matches_key("XAU")) is None
   assert [key async for key in client.scan_iter("analysis:setup:*")] == []

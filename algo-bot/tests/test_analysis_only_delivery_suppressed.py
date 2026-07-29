@@ -1,0 +1,253 @@
+"""Required regression tests A and B for the zone/M1 simplification refactor
+(see docs/p0-simple-zone-m1-baseline-map.md).
+
+A. Every representative analysis-only/rejection reason produces zero
+   Telegram sends, zero forming cards, zero lifecycle records, zero ready
+   events, zero plans - while telemetry (scanner:last_tick, detect log,
+   metrics) remains fully populated.
+
+B. The exact `notification_results = digest or analysis_only_results`
+   fallback this branch deleted must never reappear: an empty digest with
+   one or more analysis-only results present must never substitute those
+   results into the notification path.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pandas as pd
+import pytest
+
+from app.analysis import scanner
+from app.analysis.actionability import ActionabilityDecision, ActionabilityResolution
+from app.analysis.detectors import DetectionResult
+from app.analysis.types import Zone
+from app.autotrade.multi_match import strategy_matches_key
+from app.autotrade.strategy_match import strategy_match_key
+from app.autotrade.strategy_match_ready import READY_STREAM
+from app.persistence import redis_state
+
+
+pytestmark = pytest.mark.no_database
+
+
+def _frame() -> pd.DataFrame:
+  index = pd.date_range("2026-07-28 12:00", periods=3, freq="5min", tz="UTC")
+  return pd.DataFrame({
+    "open": [4100.0, 4100.5, 4101.0],
+    "high": [4101.0, 4101.5, 4101.8],
+    "low": [4099.0, 4099.5, 4100.2],
+    "close": [4100.5, 4101.0, 4101.5],
+    "volume": [100.0, 100.0, 100.0],
+  }, index=index)
+
+
+def _result(reason_code: str) -> DetectionResult:
+  return DetectionResult(
+    setup="Zone Reaction",
+    direction="BUY",
+    key_level=4100.0,
+    entry_zone=Zone(4099.0, 4101.0, "demand"),
+    current_price=4100.5,
+    confluence=2,
+    reasons=[f"fixture: {reason_code}"],
+    structural_source="supply_demand",
+    structural_id=f"fixture:{reason_code}",
+  )
+
+
+def _gated_resolution(result: DetectionResult, reason_code: str) -> ActionabilityResolution:
+  decision = ActionabilityDecision(
+    allowed=False,
+    reason_code=reason_code,
+    message=f"fixture rejection: {reason_code}",
+    hard_block=True,
+    measured={"reason_code": reason_code},
+  )
+  return ActionabilityResolution(
+    observed=(result,),
+    actionable=(),
+    gated=((result, decision),),
+    decisions=((result, decision),),
+    conflicts=(),
+  )
+
+
+REPRESENTATIVE_REASONS = [
+  "key_level_role_ambiguous",
+  "opposing_conflict_ambiguous",
+  "opposing_entry_contained",
+  "opposing_major_no_room",
+  "policy_zone_too_wide",
+  "policy_target_room_insufficient",
+  "rr_pre_gate",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason_code", REPRESENTATIVE_REASONS)
+async def test_analysis_only_reason_produces_zero_telegram_effects(
+  monkeypatch, reason_code,
+):
+  client = redis_state.get_client()
+  symbol, tf = "XAU", "M5"
+  result = _result(reason_code)
+
+  monkeypatch.setattr(scanner.settings, "scanner_symbols", symbol)
+  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", tf)
+  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(
+    scanner,
+    "resolve_actionability",
+    lambda **_kwargs: _gated_resolution(result, reason_code),
+  )
+  monkeypatch.setattr(
+    scanner,
+    "_load_market_context_for_symbol",
+    AsyncMock(return_value=(
+      SimpleNamespace(
+        tf=tf, htf_bias="up", frames={tf: _frame()},
+        structures={"M30": SimpleNamespace(bias="up")},
+        regime=SimpleNamespace(kind="trend"),
+        spot_price=4100.5, analysis=SimpleNamespace(per_tf={}),
+      ),
+      {tf: _frame()},
+    )),
+  )
+  monkeypatch.setattr(
+    scanner, "build_map", lambda *_a, **_k: scanner.MarketMap(
+      [], 4100.5, None, None, None, "up", "M30",
+    ),
+  )
+  notify = AsyncMock()
+  edit = AsyncMock()
+
+  sent = await scanner._handle_event(
+    f"{symbol}:{tf}:2026-07-28T12:10:00+00:00",
+    client=client,
+    detectors=[lambda _ctx: result],
+    notify=notify,
+    edit=edit,
+  )
+
+  # Zero Telegram sends of any kind.
+  notify.assert_not_awaited()
+  edit.assert_not_awaited()
+  assert sent == []
+
+  # Zero forming card / forming status projections.
+  assert [
+    key async for key in client.scan_iter(match="auto_trade:forming_message:*")
+  ] == []
+  assert [
+    key async for key in client.scan_iter(match="auto_trade:forming_status:*")
+  ] == []
+
+  # Zero setup lifecycle records, zero ready events, zero plans.
+  assert [key async for key in client.scan_iter(match="analysis:setup:*")] == []
+  assert await client.xlen(READY_STREAM) == 0
+  assert [key async for key in client.scan_iter(match="execution:plan:*")] == []
+  assert await client.get(strategy_match_key(symbol)) is None
+  assert await client.get(strategy_matches_key(symbol)) is None
+
+  # Telemetry must still exist and reflect the observation.
+  import json
+  status_raw = await client.get(f"scanner:last_tick:{symbol}:{tf}")
+  assert status_raw is not None
+  status = json.loads(status_raw)
+  assert status["observed_count"] == 1
+  assert status["actionable_count"] == 0
+  assert status["actionability_gated"][0]["reason_code"] == reason_code
+  logs = await client.lrange(scanner._detect_log_key(symbol, tf), 0, 0)
+  assert logs, "detect log must still record the observation"
+
+
+@pytest.mark.asyncio
+async def test_empty_digest_never_substitutes_analysis_only_results(monkeypatch):
+  """B: the exact deleted fallback must never reappear.
+
+  Arrange digest = [] (nothing executable) and multiple analysis-only
+  results gated for different reasons; assert none of them ever reach
+  notify()/edit() via a substitution fallback.
+  """
+  client = redis_state.get_client()
+  symbol, tf = "XAU", "M5"
+  results = [_result("policy_zone_too_wide"), _result("source_level_exhausted")]
+
+  monkeypatch.setattr(scanner.settings, "scanner_symbols", symbol)
+  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", tf)
+  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+
+  def _resolution(**_kwargs) -> ActionabilityResolution:
+    gated = tuple(
+      (r, ActionabilityDecision(
+        allowed=False, reason_code=r.reasons[0], message="fixture",
+        hard_block=True, measured={},
+      ))
+      for r in results
+    )
+    return ActionabilityResolution(
+      observed=tuple(results), actionable=(), gated=gated,
+      decisions=gated, conflicts=(),
+    )
+
+  monkeypatch.setattr(scanner, "resolve_actionability", _resolution)
+  monkeypatch.setattr(
+    scanner,
+    "_load_market_context_for_symbol",
+    AsyncMock(return_value=(
+      SimpleNamespace(
+        tf=tf, htf_bias="up", frames={tf: _frame()},
+        structures={"M30": SimpleNamespace(bias="up")},
+        regime=SimpleNamespace(kind="trend"),
+        spot_price=4100.5, analysis=SimpleNamespace(per_tf={}),
+      ),
+      {tf: _frame()},
+    )),
+  )
+  monkeypatch.setattr(
+    scanner, "build_map", lambda *_a, **_k: scanner.MarketMap(
+      [], 4100.5, None, None, None, "up", "M30",
+    ),
+  )
+  notify = AsyncMock()
+
+  # A source (not a real detector) that returns BOTH fixture results, so
+  # the empty-digest / non-empty-analysis-only-results shape from the spec
+  # is reproduced exactly: digest ends up [], analysis-only results are
+  # non-empty.
+  sent = await scanner._handle_event(
+    f"{symbol}:{tf}:2026-07-28T12:20:00+00:00",
+    client=client,
+    detectors=[lambda _ctx: results[0], lambda _ctx: results[1]],
+    notify=notify,
+  )
+
+  notify.assert_not_awaited()
+  assert sent == []
+
+
+def test_notification_fallback_source_is_deleted():
+  """Guards against the fallback being silently reintroduced later - the
+  behavioral test above proves the effect, this proves the specific
+  variable is never assigned anywhere in source (AST-based, so an
+  explanatory code comment mentioning the deleted pattern by name doesn't
+  false-positive this check).
+  """
+  import ast
+  import inspect
+
+  tree = ast.parse(inspect.getsource(scanner))
+  assigned_names = {
+    target.id
+    for node in ast.walk(tree)
+    if isinstance(node, ast.Assign)
+    for target in node.targets
+    if isinstance(target, ast.Name)
+  }
+  assert "analysis_only_results" not in assigned_names
+  assert "notification_results" not in assigned_names

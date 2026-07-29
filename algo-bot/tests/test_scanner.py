@@ -180,20 +180,11 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
 
   assert first == [result]
   assert second == []
-  notify.assert_awaited_once()
-  text = notify.await_args.args[0]
-  assert "XAU M5 · MARKET OBSERVATION" in text
-  assert "SETUP FORMING" not in text
-  assert "ANALYSIS ONLY" in text
-  assert "BUY · Trend Pullback" in text
-  assert "Trigger close:</b> <b>4,103</b>" in text
-  assert "Entry zone:</b> <b>4,098–4,102</b>" in text
-  assert "Key level:</b> <b>4,100</b>" in text
-  assert "HTF bias:</b> up (M30)" in text
-  assert "rejection at support" in text
-  assert "Copy draft" not in text
-  assert "+90 pips" not in text
-  assert notify.await_args.kwargs == {"chat_id": 4242}
+  # Non-negotiable Telegram requirement: this detection has no resolvable
+  # execution_match, so it must never reach Telegram - not even as a
+  # MARKET OBSERVATION/ANALYSIS ONLY card. Detection-level dedup (first ==
+  # [result], second == []) is unaffected and still exercised above.
+  notify.assert_not_awaited()
   assert await client.get(
     "scanner:alerted:XAU:M5:Trend Pullback:4100"
   ) == "1"
@@ -239,6 +230,19 @@ async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
     current_price=4112.0,
     confluence=2,
     reasons=["HTF bias up", "fresh"],
+  )
+  # A card is only ever sent for a resolvable execution_match now - stand
+  # in a minimal match so this test can still verify which notifier
+  # _handle_event defaults to, independent of match-resolution mechanics.
+  match = SimpleNamespace(
+    strategy="Trend Pullback",
+    match_id="dedicated-notifier-test",
+    confluence_zone_id=None,
+    structural_zone_id=None,
+    direction="BUY",
+  )
+  monkeypatch.setattr(
+    scanner, "_sync_strategy_match", AsyncMock(return_value=match),
   )
 
   sent = await scanner._handle_event(
@@ -754,10 +758,10 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
   )
 
   assert sent == [results[0]]
-  text = notify.await_args.args[0]
-  assert text.count("MARKET OBSERVATION") == 1
-  assert "SETUP FORMING" not in text
-  assert "Snap-Back" in text
+  # No resolvable execution_match for any of these - the digest-level
+  # winner is still correctly picked (sent == [results[0]]) but must never
+  # reach Telegram.
+  notify.assert_not_awaited()
   assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[2])) is None
@@ -872,7 +876,9 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
     for item in results[:2]
   ]
   assert all(item.confluence_zone_id for item in sent)
-  assert notify.await_count == 2
+  # sync_strategy_match resolves to None here - no execution_match, so no
+  # card can be sent regardless of how many candidates the card cap keeps.
+  notify.assert_not_awaited()
   sync_strategy_match.assert_awaited_once()
   execution_digest = sync_strategy_match.await_args.args[5]
   assert len(execution_digest) == len(results)
@@ -946,7 +952,8 @@ async def test_actionable_digest_keeps_decisive_opposing_winner(
   assert execution_digest == [buy]
   assert conflicts[0]["outcome"] == "stronger_kept"
   assert sent == [buy]
-  assert notify.await_count == 1
+  # No execution_match/execution_matches passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1007,7 +1014,8 @@ async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
   )
   assert first_sent == [first]
   assert second_sent == []
-  assert notify.await_count == 1
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1296,9 +1304,9 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   assert first == [result_a]
   assert same_band == [result_b]
   assert far_band == [result_far]
-  assert notify.await_count == 3
-  first_text = notify.await_args_list[0].args[0]
-  assert "range-bound 4,097-4,110 (M5)" in first_text
+  # No execution_match resolvable for any of these detections - band-dedup
+  # key mechanics (asserted below) are unaffected; no card can be sent.
+  notify.assert_not_awaited()
   assert await client.get(scanner._band_dedup_key("XAU", result_a)) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", result_b)) == "1"
 
@@ -1319,7 +1327,7 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   )
 
   assert after_ttl == [result_b]
-  assert notify.await_count == 4
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1378,12 +1386,8 @@ async def test_box_breakout_second_alert_on_same_edge_is_band_deduped(monkeypatc
 
   assert first == [result]
   assert second == []
-  assert notify.await_count == 1
-  text = notify.await_args.args[0]
-  assert "box 4097-4110" in text
-  assert "accepted (2 closes)" in text
-  assert "measured +13.0" in text
-  assert "coil" in text
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1435,7 +1439,8 @@ async def test_band_dedup_preserves_a_different_structural_setup(monkeypatch):
   )
 
   assert sent == [second]
-  assert notify.await_count == 1
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1482,6 +1487,17 @@ async def test_scanner_uses_fresh_spot_for_context_and_live_render(monkeypatch):
       2,
       ["HTF bias up"],
     )
+
+  # A card is only ever sent for a resolvable execution_match now - this
+  # test is about live-spot rendering, not match resolution.
+  monkeypatch.setattr(
+    scanner,
+    "_sync_strategy_match",
+    AsyncMock(return_value=SimpleNamespace(
+      strategy="Trend Pullback", match_id="fresh-spot-test",
+      confluence_zone_id=None, structural_zone_id=None, direction="BUY",
+    )),
+  )
 
   await scanner._handle_event(
     "XAU:M5:1",
@@ -1539,6 +1555,17 @@ async def test_scanner_rejects_implausible_spot_and_still_fires(monkeypatch, cap
       2,
       ["HTF bias up"],
     )
+
+  # A card is only ever sent for a resolvable execution_match now - this
+  # test is about implausible-spot handling, not match resolution.
+  monkeypatch.setattr(
+    scanner,
+    "_sync_strategy_match",
+    AsyncMock(return_value=SimpleNamespace(
+      strategy="Trend Pullback", match_id="implausible-spot-test",
+      confluence_zone_id=None, structural_zone_id=None, direction="BUY",
+    )),
+  )
 
   caplog.set_level(logging.WARNING, logger="app.scanner")
   sent = await scanner._handle_event(
