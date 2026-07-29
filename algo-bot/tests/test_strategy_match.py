@@ -250,3 +250,60 @@ async def test_scanner_syncs_and_clears_strategy_match(monkeypatch):
     client, "XAU", "M5", "1784721600", _context(), [],
   ) is None
   assert await client.get(strategy_match_key("XAU")) is None
+
+
+def test_range_edge_identity_is_stable_across_bars_not_event_ts_derived():
+  """K (partial - identity): range_edge_scalp has no structural_id, so it
+  used to fall through to strategy_match_id, which folds in event_ts -
+  every re-detection of the same range edge got a brand new match_id.
+  Now it must resolve to the same identity across different event_ts
+  values, the same way confluence_zone_id already does for Zone Reaction.
+  """
+  scalp_range = _range()
+  result = _result("Range Edge Scalp", mode="range_scalp")
+
+  first, reason_a, _ = scanner._build_strategy_match(
+    "XAU", "M5", "1784721300", _context(scalp_range=scalp_range), [result],
+    now=NOW,
+  )
+  second, reason_b, _ = scanner._build_strategy_match(
+    "XAU", "M5", "1784724900", _context(scalp_range=scalp_range), [result],
+    now=NOW + 3600,
+  )
+
+  assert first is not None and reason_a is None
+  assert second is not None and reason_b is None
+  assert first.match_id == second.match_id
+
+
+def test_range_edges_get_distinct_identities_for_the_same_range():
+  """K: one range episode owns both edges, but each edge is its own setup
+  - a BUY-at-lower-edge match must never collide with a SELL-at-upper-edge
+  match for the same range.
+  """
+  scalp_range = _range()
+  buy_result = _result("Range Edge Scalp", mode="range_scalp")
+  sell_result = DetectionResult(
+    "Range Edge Scalp",
+    "SELL",
+    4122.0,
+    Zone(4121.8, 4122.2, "supply", score=8.0),
+    4121.9,
+    3,
+    ["upper barrier rejection"],
+    mode="range_scalp",
+    confirmation="wick_rejection",
+  )
+
+  buy_match, buy_reason, _ = scanner._build_strategy_match(
+    "XAU", "M5", "1784721300", _context(scalp_range=scalp_range),
+    [buy_result], now=NOW,
+  )
+  sell_match, sell_reason, _ = scanner._build_strategy_match(
+    "XAU", "M5", "1784721300", _context(scalp_range=scalp_range),
+    [sell_result], now=NOW,
+  )
+
+  assert buy_match is not None and buy_reason is None
+  assert sell_match is not None and sell_reason is None
+  assert buy_match.match_id != sell_match.match_id
