@@ -576,5 +576,8 @@ async def test_static_opposing_overlap_never_creates_executable_match_or_card(
     key async for key in client.scan_iter("analysis:setup:*")
   ] == []
   assert await client.xlen(_plan_count_key()) == 0
-  assert notify.await_count == 1
-  assert "ANALYSIS ONLY" in notify.await_args.args[0]
+  # Non-negotiable Telegram requirement: no executable StrategyMatch means
+  # no Telegram send at all - not even an ANALYSIS ONLY card (which this
+  # test used to expect via the now-removed
+  # `notification_results = digest or analysis_only_results` fallback).
+  notify.assert_not_awaited()

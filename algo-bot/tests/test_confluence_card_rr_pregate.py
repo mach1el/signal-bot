@@ -343,7 +343,7 @@ async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
   )
   assert resolution.observed == tuple(merged)
   assert resolution.actionable == ()
-  assert resolution.conflicts[0]["outcome"] == "both_dropped"
+  assert resolution.conflicts[0]["outcome"] == "contested_corridor"
 
   match = await scanner._sync_strategy_match(
     client,

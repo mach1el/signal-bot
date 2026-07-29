@@ -180,20 +180,11 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
 
   assert first == [result]
   assert second == []
-  notify.assert_awaited_once()
-  text = notify.await_args.args[0]
-  assert "XAU M5 · MARKET OBSERVATION" in text
-  assert "SETUP FORMING" not in text
-  assert "ANALYSIS ONLY" in text
-  assert "BUY · Trend Pullback" in text
-  assert "Trigger close:</b> <b>4,103</b>" in text
-  assert "Entry zone:</b> <b>4,098–4,102</b>" in text
-  assert "Key level:</b> <b>4,100</b>" in text
-  assert "HTF bias:</b> up (M30)" in text
-  assert "rejection at support" in text
-  assert "Copy draft" not in text
-  assert "+90 pips" not in text
-  assert notify.await_args.kwargs == {"chat_id": 4242}
+  # Non-negotiable Telegram requirement: this detection has no resolvable
+  # execution_match, so it must never reach Telegram - not even as a
+  # MARKET OBSERVATION/ANALYSIS ONLY card. Detection-level dedup (first ==
+  # [result], second == []) is unaffected and still exercised above.
+  notify.assert_not_awaited()
   assert await client.get(
     "scanner:alerted:XAU:M5:Trend Pullback:4100"
   ) == "1"
@@ -239,6 +230,19 @@ async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
     current_price=4112.0,
     confluence=2,
     reasons=["HTF bias up", "fresh"],
+  )
+  # A card is only ever sent for a resolvable execution_match now - stand
+  # in a minimal match so this test can still verify which notifier
+  # _handle_event defaults to, independent of match-resolution mechanics.
+  match = SimpleNamespace(
+    strategy="Trend Pullback",
+    match_id="dedicated-notifier-test",
+    confluence_zone_id=None,
+    structural_zone_id=None,
+    direction="BUY",
+  )
+  monkeypatch.setattr(
+    scanner, "_sync_strategy_match", AsyncMock(return_value=match),
   )
 
   sent = await scanner._handle_event(
@@ -754,10 +758,10 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
   )
 
   assert sent == [results[0]]
-  text = notify.await_args.args[0]
-  assert text.count("MARKET OBSERVATION") == 1
-  assert "SETUP FORMING" not in text
-  assert "Snap-Back" in text
+  # No resolvable execution_match for any of these - the digest-level
+  # winner is still correctly picked (sent == [results[0]]) but must never
+  # reach Telegram.
+  notify.assert_not_awaited()
   assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[2])) is None
@@ -872,7 +876,9 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
     for item in results[:2]
   ]
   assert all(item.confluence_zone_id for item in sent)
-  assert notify.await_count == 2
+  # sync_strategy_match resolves to None here - no execution_match, so no
+  # card can be sent regardless of how many candidates the card cap keeps.
+  notify.assert_not_awaited()
   sync_strategy_match.assert_awaited_once()
   execution_digest = sync_strategy_match.await_args.args[5]
   assert len(execution_digest) == len(results)
@@ -884,16 +890,25 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_actionable_digest_keeps_decisive_opposing_winner(
+async def test_digest_results_no_longer_resolves_opposing_direction_conflicts(
   monkeypatch,
 ):
+  """P0 zone/M1 simplification: _digest_results delegates to
+  _suppress_overlaps, which is now same-direction-only - cross-side
+  contested-corridor resolution moved entirely to
+  actionability.py::resolve_actionability, called earlier in the real
+  scanner pipeline (see _handle_event, where reward_risk_eligible_results
+  is already filtered through actionability.actionable before ever
+  reaching _digest_results). Calling _digest_results directly with a raw,
+  unfiltered opposing pair - bypassing that upstream gate, as this test
+  does on purpose - now keeps both, proving the responsibility genuinely
+  moved rather than silently vanishing.
+  """
   client = redis_state.get_client()
   notify = AsyncMock()
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
   monkeypatch.setattr(scanner.settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
   monkeypatch.setattr(
     scanner.settings, "auto_trade_track_all_structural_matches", True,
   )
@@ -933,20 +948,11 @@ async def test_actionable_digest_keeps_decisive_opposing_winner(
   )
 
   execution_digest, conflicts = scanner._digest_results([buy, sell])
-  sent = await scanner._notify_digest_once(
-    client,
-    "XAU",
-    "M5",
-    ctx,
-    execution_digest,
-    notify,
-    ["M30"],
-  )
 
-  assert execution_digest == [buy]
-  assert conflicts[0]["outcome"] == "stronger_kept"
-  assert sent == [buy]
-  assert notify.await_count == 1
+  assert len(execution_digest) == 2
+  assert buy in execution_digest
+  assert sell in execution_digest
+  assert conflicts == []
 
 
 @pytest.mark.asyncio
@@ -1007,7 +1013,8 @@ async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
   )
   assert first_sent == [first]
   assert second_sent == []
-  assert notify.await_count == 1
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1296,9 +1303,9 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   assert first == [result_a]
   assert same_band == [result_b]
   assert far_band == [result_far]
-  assert notify.await_count == 3
-  first_text = notify.await_args_list[0].args[0]
-  assert "range-bound 4,097-4,110 (M5)" in first_text
+  # No execution_match resolvable for any of these detections - band-dedup
+  # key mechanics (asserted below) are unaffected; no card can be sent.
+  notify.assert_not_awaited()
   assert await client.get(scanner._band_dedup_key("XAU", result_a)) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", result_b)) == "1"
 
@@ -1319,7 +1326,7 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   )
 
   assert after_ttl == [result_b]
-  assert notify.await_count == 4
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1378,12 +1385,8 @@ async def test_box_breakout_second_alert_on_same_edge_is_band_deduped(monkeypatc
 
   assert first == [result]
   assert second == []
-  assert notify.await_count == 1
-  text = notify.await_args.args[0]
-  assert "box 4097-4110" in text
-  assert "accepted (2 closes)" in text
-  assert "measured +13.0" in text
-  assert "coil" in text
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1435,7 +1438,8 @@ async def test_band_dedup_preserves_a_different_structural_setup(monkeypatch):
   )
 
   assert sent == [second]
-  assert notify.await_count == 1
+  # No execution_match passed in - no card can be sent.
+  notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1482,6 +1486,17 @@ async def test_scanner_uses_fresh_spot_for_context_and_live_render(monkeypatch):
       2,
       ["HTF bias up"],
     )
+
+  # A card is only ever sent for a resolvable execution_match now - this
+  # test is about live-spot rendering, not match resolution.
+  monkeypatch.setattr(
+    scanner,
+    "_sync_strategy_match",
+    AsyncMock(return_value=SimpleNamespace(
+      strategy="Trend Pullback", match_id="fresh-spot-test",
+      confluence_zone_id=None, structural_zone_id=None, direction="BUY",
+    )),
+  )
 
   await scanner._handle_event(
     "XAU:M5:1",
@@ -1539,6 +1554,17 @@ async def test_scanner_rejects_implausible_spot_and_still_fires(monkeypatch, cap
       2,
       ["HTF bias up"],
     )
+
+  # A card is only ever sent for a resolvable execution_match now - this
+  # test is about implausible-spot handling, not match resolution.
+  monkeypatch.setattr(
+    scanner,
+    "_sync_strategy_match",
+    AsyncMock(return_value=SimpleNamespace(
+      strategy="Trend Pullback", match_id="implausible-spot-test",
+      confluence_zone_id=None, structural_zone_id=None, direction="BUY",
+    )),
+  )
 
   caplog.set_level(logging.WARNING, logger="app.scanner")
   sent = await scanner._handle_event(
@@ -1646,17 +1672,25 @@ async def test_scanner_missing_spot_keeps_fallback_without_warning(monkeypatch, 
 
 # --- B1: opposite-direction conflicts ---------------------------------------
 
-def test_opposite_direction_conflict_with_decisive_margin_keeps_stronger(
+def test_suppress_overlaps_no_longer_resolves_opposing_direction_conflicts(
   monkeypatch,
 ):
+  """P0 zone/M1 simplification: _suppress_overlaps used to re-run its own
+  opposing-direction confluence-margin tiebreak (numbers below are lifted
+  straight from the 22 Jul 2026 incident this originally regression-
+  tested), duplicating what actionability.py::resolve_actionability's
+  contested-corridor rule already resolves earlier in the same request.
+  That responsibility has moved entirely upstream - see
+  test_scanner_actionability.py's contested-corridor tests for the
+  authoritative behavior. This proves _suppress_overlaps itself is now
+  same-direction-only: an opposing overlapping pair both survive this
+  specific function untouched (same-direction dedup is unaffected).
+  """
   monkeypatch.setattr(
     scanner.settings, "auto_trade_track_all_structural_matches", False,
   )
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
-  # Numbers lifted straight from the 22 Jul 2026 incident: overlap ratio 1.0.
   strong = scanner.DetectionResult(
-    "Box Breakout", "BUY", 4121.5,
+    "Demand Zone Reaction", "BUY", 4121.5,
     Zone(4121.22, 4126.14, "demand"), 4123.0, 3, ["HTF bias up"],
   )
   weak = scanner.DetectionResult(
@@ -1666,61 +1700,12 @@ def test_opposite_direction_conflict_with_decisive_margin_keeps_stronger(
 
   selected, conflicts = scanner._suppress_overlaps([strong, weak])
 
-  assert selected == [strong]
-  assert len(conflicts) == 1
-  assert conflicts[0]["outcome"] == "stronger_kept"
-  assert conflicts[0]["a"]["setup"] == "Box Breakout"
-  assert conflicts[0]["b"]["setup"] == "Range Edge Scalp"
-
-
-def test_opposite_direction_conflict_with_equal_confluence_drops_both(monkeypatch):
-  monkeypatch.setattr(
-    scanner.settings, "auto_trade_track_all_structural_matches", False,
-  )
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
-  a = scanner.DetectionResult(
-    "Box Breakout", "BUY", 4121.5,
-    Zone(4121.22, 4126.14, "demand"), 4123.0, 2, ["HTF bias up"],
-  )
-  b = scanner.DetectionResult(
-    "Range Edge Scalp", "SELL", 4123.5,
-    Zone(4122.24, 4124.73, "supply"), 4123.0, 2, ["HTF bias down"],
-  )
-
-  selected, conflicts = scanner._suppress_overlaps([a, b])
-
-  assert selected == []
-  assert len(conflicts) == 1
-  assert conflicts[0]["outcome"] == "both_dropped"
-
-
-def test_demo_eval_does_not_preserve_ambiguous_opposing_actionable_matches(
-  monkeypatch,
-):
-  monkeypatch.setattr(
-    scanner.settings, "auto_trade_track_all_structural_matches", True,
-  )
-  monkeypatch.setattr(scanner.settings, "auto_trade_allow_counter_bias", True)
-  buy = scanner.DetectionResult(
-    "Demand Reaction", "BUY", 4121.5,
-    Zone(4121.22, 4126.14, "demand"), 4123.0, 3, ["local demand"],
-  )
-  sell = scanner.DetectionResult(
-    "Supply Reaction", "SELL", 4123.5,
-    Zone(4122.24, 4124.73, "supply"), 4123.0, 3, ["local supply"],
-  )
-
-  selected, conflicts = scanner._suppress_overlaps([buy, sell])
-
-  assert selected == []
-  assert conflicts[0]["outcome"] == "both_dropped"
+  assert selected == [strong, weak]
+  assert conflicts == []
 
 
 def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):
   monkeypatch.setattr(scanner.settings, "alert_overlap_suppress", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_overlap", 0.5)
-  monkeypatch.setattr(scanner.settings, "scanner_conflict_margin", 1)
   strong = scanner.DetectionResult(
     "Snap-Back", "SELL", 4094.0,
     Zone(4094, 4096, "supply", score=13), 4090.0, 3, ["HTF bias down"],
