@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
+import pytest_asyncio
+from redis.asyncio import Redis
 
 from app.analysis.confluence_zone import confluence_zone_id
 from app.autotrade import zone_watch as zw
-from app.persistence import redis_state
 
 
-pytestmark = pytest.mark.no_database
+pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 
 
-@pytest.fixture
-def client():
-  return redis_state.get_client()
+@pytest_asyncio.fixture
+async def client():
+  url = os.getenv("REAL_REDIS_URL")
+  if not url:
+    pytest.skip("REAL_REDIS_URL is required for ZoneWatch CAS tests")
+  redis = Redis.from_url(url, decode_responses=True)
+  await redis.ping()
+  await redis.flushdb()
+  try:
+    yield redis
+  finally:
+    await redis.flushdb()
+    await redis.aclose()
 
 
 def _zone_id(low=4113.0, high=4116.0, tags=("supply",)) -> str:
