@@ -458,6 +458,142 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task StopKeepsRatchetingBeyondBreakEvenAsLaterTargetsClose()
+  {
+    // Before this fix, TradePlanRuntime moved the stop to BE after TP1 and
+    // then never touched it again - a position that ran all the way to
+    // TP3/TP4 sat protected at nothing more than BE, so a full reversal
+    // afterward gave back every pip TP2/TP3 had already banked. This proves
+    // the V6-equivalent ratchet (trail to the target two levels behind the
+    // one that just closed) now runs in the V7 path too.
+    var fiveTargets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
+        {"target_id": "TP2", "type": "absolute", "price": "4094.00", "close_ratio": "0.2"},
+        {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.2"},
+        {"target_id": "TP4", "type": "absolute", "price": "4098.00", "close_ratio": "0.2"},
+        {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan($$"""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Trend Pullback",
+        "strategy_family": "trend_pullback",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "H1",
+        "confirmation_timeframe": "M15",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "up",
+        "regime": "trend",
+        "reasons": ["htf_uptrend"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "zone-xau-4088-4090",
+        "kind": "demand",
+        "timeframe": "H1",
+        "low": "4088.10",
+        "high": "4090.00",
+        "invalidation_price": "4081.80"
+      },
+      "entry": {
+        "type": "market_watch",
+        "expires_at": 2000000000,
+        "zone_low": "4088.10",
+        "zone_high": "4090.00",
+        "activation": "quote_inside_zone",
+        "price_side": "ask",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "structure",
+        "structure_id": "zone-xau-4088-4090",
+        "reason": "protective stop plan"
+      },
+      "targets": {{fiveTargets}},
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "management": {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": false,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    Assert.Single(client.MarketOrders);
+
+    // TP1: BE move (fill 4089.0 + 6 ticks of 0.01 = 4089.06).
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
+    );
+    var afterTp1 = Assert.Single(runtime.TrackedStates);
+    Assert.True(afterTp1.BreakEvenApplied);
+    Assert.Equal(4089.06m, Assert.Single(client.StopAmendments).StopLoss);
+
+    // TP2: two levels back would be a target that doesn't exist yet (V6
+    // parity - ordinal 2 is a deliberate no-op) - no further amendment.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
+    );
+    Assert.Single(client.StopAmendments);
+
+    // TP3: trail to TP1's price (two levels back).
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4096.05m, 4096.10m, 4), CancellationToken.None
+    );
+    Assert.Equal(2, client.StopAmendments.Count);
+    Assert.Equal(4092.00m, client.StopAmendments[^1].StopLoss);
+
+    // TP4: trail to TP2's price.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4098.05m, 4098.10m, 5), CancellationToken.None
+    );
+    Assert.Equal(3, client.StopAmendments.Count);
+    Assert.Equal(4094.00m, client.StopAmendments[^1].StopLoss);
+
+    var eventTypes = store.Events.Where(e => e.Type == "sl_moved").ToArray();
+    Assert.Equal(3, eventTypes.Length);
+  }
+
+  [Fact]
   public async Task RestartRecoversArmedStateFromRedis()
   {
     var store = new FakeV7Store();
