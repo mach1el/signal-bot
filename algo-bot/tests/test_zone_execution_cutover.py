@@ -1,24 +1,36 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pandas as pd
 import pytest
+import pytest_asyncio
+from redis.asyncio import Redis
 
 from app.autotrade.strategy_match import StrategyMatch
 from app.autotrade import worker
 from app.autotrade import zone_execution_cutover as cutover
 from app.autotrade import zone_watch as zw
-from app.persistence import redis_state
 
 
-pytestmark = pytest.mark.no_database
+pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 
 
-@pytest.fixture
-def client():
-  return redis_state.get_client()
+@pytest_asyncio.fixture
+async def client():
+  url = os.getenv("REAL_REDIS_URL")
+  if not url:
+    pytest.skip("REAL_REDIS_URL is required for ZoneWatch cutover tests")
+  redis = Redis.from_url(url, decode_responses=True)
+  await redis.ping()
+  await redis.flushdb()
+  try:
+    yield redis
+  finally:
+    await redis.flushdb()
+    await redis.aclose()
 
 
 def _match(*, strategy: str = "Key Level Reaction") -> StrategyMatch:
