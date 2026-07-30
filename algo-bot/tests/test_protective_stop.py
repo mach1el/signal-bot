@@ -145,6 +145,43 @@ def test_stop_inside_execution_grade_zone_is_pushed_beyond_it():
   assert plan.adjustment_zone_high == Decimal("3998.5")
 
 
+def test_reaction_family_ceiling_still_allows_a_legitimate_opposing_zone_push():
+  # Live regression: the reaction-family stop bounds fix (20 pip floor)
+  # briefly also lowered the ceiling to 60, and a real SELL got rejected
+  # with stop_inside_opposing_zone because pushing the stop past a real
+  # opposing zone needed more room than that. Only the floor should ever
+  # have been lowered - the ceiling stays at the trend family's 65, since
+  # this push mechanism sometimes legitimately needs it.
+  kwargs = dict(
+    direction="BUY",
+    entry_price="4100.00",
+    structure_swing="4096.70",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=20,
+    pip_size="0.1",
+    digits=2,
+    opposing_zone=OpposingZoneStopContext(
+      zone_id="supply-1",
+      low=Decimal("4094.00"),
+      high=Decimal("4097.00"),
+      execution_grade=True,
+      push_beyond_zone=True,
+      buffer_atr=Decimal("0.3"),
+    ),
+  )
+
+  plan = plan_protective_stop(maximum_stop_pips=65, **kwargs)
+  assert plan.adjustment == "opposing_zone_push"
+  assert plan.final_stop_price == Decimal("4093.70")
+  assert plan.final_stop_pips == Decimal("63.0")
+
+  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone"):
+    plan_protective_stop(maximum_stop_pips=60, **kwargs)
+
+
 def test_context_only_opposing_zone_leaves_base_stop():
   plan = plan_protective_stop(
     direction="BUY",
