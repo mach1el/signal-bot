@@ -168,7 +168,17 @@ async def test_structure_break_invalidates_the_zone(client):
 
 
 @pytest.mark.asyncio
-async def test_repeated_touches_downgrade_then_exhaust_the_zone(client):
+async def test_repeated_touches_downgrade_but_do_not_alone_exhaust_the_zone(
+  client,
+):
+  """2026-07-30 recovery: touch count alone used to hard-exhaust a zone
+  after its 3rd retest regardless of whether every touch produced a valid
+  bounce - killing setups (like the 2026-07-28 200-pip miss) that were
+  still working. A zone that keeps bouncing is doing exactly what a
+  working supply/demand zone should; only a decisive break (see
+  test_decisive_break_exhausts_the_zone_immediately) or the much higher
+  stale-touch safety net may exhaust it now.
+  """
   zone_id = _zone_id()
   await zw.discover_zone_watch(
     client, zone_id=zone_id, symbol="XAU", direction="SELL",
@@ -188,12 +198,31 @@ async def test_repeated_touches_downgrade_then_exhaust_the_zone(client):
 
   after_3 = await zw.record_zone_touch(client, zone_id)
   assert after_3.touch_count == 3
-  assert after_3.state == zw.EXHAUSTED
-  assert not zw.is_actively_watchable(after_3)
+  assert after_3.state != zw.EXHAUSTED
+  assert zw.is_actively_watchable(after_3)
 
 
 @pytest.mark.asyncio
-async def test_htf_evidence_prevents_exhaustion_past_the_touch_threshold(
+async def test_stale_touch_safety_net_still_exhausts_eventually(client):
+  zone_id = _zone_id()
+  await zw.discover_zone_watch(
+    client, zone_id=zone_id, symbol="XAU", direction="SELL",
+    low=4113.0, high=4116.0, source_timeframe="M5",
+    structural_sources=("supply_demand",), confluence_tags=("supply",),
+    grade=zw.GRADE_A,
+  )
+  record = None
+  for _ in range(zw._EXHAUST_AFTER_STALE_TOUCHES - 1):
+    record = await zw.record_zone_touch(client, zone_id)
+    assert record.state != zw.EXHAUSTED
+
+  record = await zw.record_zone_touch(client, zone_id)
+  assert record.touch_count == zw._EXHAUST_AFTER_STALE_TOUCHES
+  assert record.state == zw.EXHAUSTED
+
+
+@pytest.mark.asyncio
+async def test_htf_evidence_prevents_exhaustion_past_the_stale_touch_threshold(
   client,
 ):
   zone_id = _zone_id()
@@ -203,11 +232,68 @@ async def test_htf_evidence_prevents_exhaustion_past_the_touch_threshold(
     structural_sources=("supply_demand",), confluence_tags=("supply",),
     grade=zw.GRADE_A,
   )
-  await zw.record_zone_touch(client, zone_id)
-  await zw.record_zone_touch(client, zone_id)
-  after_3 = await zw.record_zone_touch(client, zone_id, htf_evidence=True)
-  assert after_3.touch_count == 3
-  assert after_3.state != zw.EXHAUSTED
+  record = None
+  for _ in range(zw._EXHAUST_AFTER_STALE_TOUCHES):
+    record = await zw.record_zone_touch(client, zone_id, htf_evidence=True)
+  assert record.touch_count == zw._EXHAUST_AFTER_STALE_TOUCHES
+  assert record.state != zw.EXHAUSTED
+
+
+@pytest.mark.asyncio
+async def test_decisive_break_exhausts_the_zone_immediately(client):
+  """A close beyond the zone's far/invalidating edge is real evidence the
+  zone failed - unlike a bounce back out the near edge, this exhausts on
+  the very first touch, without waiting for any stale-touch count.
+  """
+  zone_id = _zone_id()
+  await zw.discover_zone_watch(
+    client, zone_id=zone_id, symbol="XAU", direction="SELL",
+    low=4113.0, high=4116.0, source_timeframe="M5",
+    structural_sources=("supply_demand",), confluence_tags=("supply",),
+    grade=zw.GRADE_A,
+  )
+  entered, _ = await zw.record_zone_presence(client, zone_id, inside=True)
+  assert entered.touch_count == 1
+  assert entered.state != zw.EXHAUSTED
+
+  broke, _ = await zw.record_zone_presence(
+    client, zone_id, inside=False, decisive_break=True,
+  )
+  assert broke.state == zw.EXHAUSTED
+  assert not zw.is_actively_watchable(broke)
+
+
+@pytest.mark.asyncio
+async def test_a_valid_bounce_exit_does_not_exhaust_the_zone(client):
+  zone_id = _zone_id()
+  await zw.discover_zone_watch(
+    client, zone_id=zone_id, symbol="XAU", direction="SELL",
+    low=4113.0, high=4116.0, source_timeframe="M5",
+    structural_sources=("supply_demand",), confluence_tags=("supply",),
+    grade=zw.GRADE_A,
+  )
+  await zw.record_zone_presence(client, zone_id, inside=True)
+  bounced, _ = await zw.record_zone_presence(
+    client, zone_id, inside=False, decisive_break=False,
+  )
+  assert bounced.state == zw.WATCHING_RETEST
+  assert bounced.state != zw.EXHAUSTED
+
+
+@pytest.mark.asyncio
+async def test_htf_evidence_prevents_exhaustion_from_a_decisive_break(client):
+  zone_id = _zone_id()
+  await zw.discover_zone_watch(
+    client, zone_id=zone_id, symbol="XAU", direction="SELL",
+    low=4113.0, high=4116.0, source_timeframe="H1",
+    structural_sources=("supply_demand",), confluence_tags=("supply",),
+    grade=zw.GRADE_A,
+  )
+  await zw.record_zone_presence(client, zone_id, inside=True, htf_evidence=True)
+  broke, _ = await zw.record_zone_presence(
+    client, zone_id, inside=False, decisive_break=True, htf_evidence=True,
+  )
+  assert broke.state != zw.EXHAUSTED
 
 
 def test_only_a_and_b_grades_are_actively_watchable():
