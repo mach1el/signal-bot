@@ -394,6 +394,179 @@ public sealed class TradePlanRuntimeTests
     Assert.Empty(client.MarketOrders);
   }
 
+  private const string LadderPlanJson = """
+  {
+    "version": 7,
+    "plan_id": "v7:plan-1",
+    "thesis_id": "thesis-1",
+    "setup_id": "setup-1",
+    "symbol": "XAU",
+    "created_at": 1719999600,
+    "expires_at": 2000000000,
+    "analysis": {
+      "strategy": "Structural Zone Reaction",
+      "strategy_family": "structural_zone",
+      "direction": "BUY",
+      "context_timeframes": ["M15"],
+      "formation_timeframe": "M15",
+      "confirmation_timeframe": "M5",
+      "formation_bar_ts": 1719999000,
+      "confirmation_bar_ts": 1719999600,
+      "score": 0.65,
+      "confluence": 2,
+      "bias": "up",
+      "regime": "range",
+      "reasons": ["demand_zone_ladder_fill"],
+      "tags": []
+    },
+    "source_structure": {
+      "structure_id": "demand:M15:4085.00:4089.50:1719990000",
+      "kind": "demand",
+      "timeframe": "M15",
+      "low": "4085.00",
+      "high": "4089.50",
+      "invalidation_price": "4079.00"
+    },
+    "entry": {
+      "type": "limit_ladder",
+      "zone_low": "4085.00",
+      "zone_high": "4089.50",
+      "expires_at": 2000000000,
+      "legs": [
+        {"leg_id": "L1", "price": "4089.50", "volume_ratio": "0.60"},
+        {"leg_id": "L2", "price": "4085.00", "volume_ratio": "0.40"}
+      ]
+    },
+    "stop": {
+      "type": "absolute",
+      "price": "4079.00",
+      "source": "structural_invalidation",
+      "structure_id": "demand:M15:4085.00:4089.50:1719990000",
+      "reason": "below distal edge plus Python-defined buffer"
+    },
+    "targets": [
+      {"target_id": "TP1", "type": "absolute", "price": "4097.00", "close_ratio": "1.0"}
+    ],
+    "risk": {
+      "risk_percent": "2.0",
+      "risk_multiplier": "1.0",
+      "max_volume": 800,
+      "max_group_risk_percent": "2.0"
+    },
+    "management": {
+      "be_after_target_id": null,
+      "be_buffer_ticks": 6,
+      "never_worsen_stop": true
+    },
+    "execution_policy": {
+      "allow_market": false,
+      "allow_limit": true,
+      "allow_partial_fill": true,
+      "cancel_on_expiry": true
+    },
+    "provenance": {
+      "analysis_engine_version": "",
+      "market_map_id": "",
+      "config_fingerprint": ""
+    }
+  }
+  """;
+
+  [Fact]
+  public async Task EachLadderLegGetsItsOwnUniqueClientOrderId()
+  {
+    // P0 production bug: every leg used to share one plan-wide
+    // ClientOrderId, so cTrader rejected leg 2+ outright as a duplicate.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient { RejectDuplicateClientOrderIds = true };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    // Quote sits above the whole zone, so neither leg is marketable - both
+    // legs are genuine resting limit orders for this assertion.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.00m, 4092.20m, 1), CancellationToken.None
+    );
+
+    Assert.Equal(2, client.LimitOrders.Count);
+    var clientOrderIds = client.LimitOrders.Select(o => o.ClientOrderId).ToArray();
+    Assert.Equal(clientOrderIds.Length, clientOrderIds.Distinct().Count());
+    var comments = client.LimitOrders.Select(o => o.Comment).ToArray();
+    Assert.Equal(comments.Length, comments.Distinct().Count());
+    var state = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Submitted, state.Stage);
+    Assert.Equal(2, state.SubmittedLegCount);
+  }
+
+  [Fact]
+  public async Task RetryAfterALegFailureResumesWithoutResubmittingAnAcceptedLeg()
+  {
+    // P0 production bug: leg 2 erroring (duplicate ClientOrderId, or any
+    // other broker rejection) threw before Stage ever became Submitted, so
+    // the plan stayed Armed and the NEXT poll resubmitted leg 1 from
+    // scratch - even though the broker had already accepted it.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient { ThrowOnCallNumber = 2 };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+    var quote = new SpotPrice("XAU", 4092.00m, 4092.20m, 1);
+
+    await Assert.ThrowsAsync<InvalidOperationException>(
+      () => runtime.PollAsync(client, Symbol, quote, CancellationToken.None)
+    );
+
+    // Leg 1 (only) was accepted and durably recorded before leg 2 threw.
+    Assert.Single(client.LimitOrders);
+    var afterFailure = Assert.Single(runtime.TrackedStates);
+    // Stage deliberately stays Armed (not Submitted) after a partial
+    // failure - EvaluateArmedPlansAsync only re-evaluates Armed plans, so
+    // this is what makes the retry below come back at all.
+    Assert.Equal(TradePlanRuntimeStage.Armed, afterFailure.Stage);
+    Assert.Equal(1, afterFailure.SubmittedLegCount);
+
+    // Retry: must resume at leg 2, never resend leg 1.
+    await runtime.PollAsync(client, Symbol, quote, CancellationToken.None);
+
+    Assert.Equal(2, client.LimitOrders.Count);
+    var afterRetry = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Submitted, afterRetry.Stage);
+    Assert.Equal(2, afterRetry.SubmittedLegCount);
+  }
+
+  [Fact]
+  public async Task ALegAlreadyMarketableAtSubmissionFillsAsAMarketOrderNotAStuckLimit()
+  {
+    // P0 production bug: the ladder leg meant to "enter now" was still
+    // submitted as a resting limit order. A BUY limit priced at or through
+    // the live ask (or a SELL limit at/through the live bid) is not a valid
+    // resting order - it must go in as a real market order instead of
+    // sitting there unfillable/rejectable.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    // Price has already traded up through leg 1 (4089.50): ask is 4089.40,
+    // so BUY leg 1 (price >= ask) is marketable; leg 2 (4085.00) is not.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.20m, 4089.40m, 1), CancellationToken.None
+    );
+
+    Assert.Single(client.MarketOrders);
+    var limitOrder = Assert.Single(client.LimitOrders);
+    Assert.Equal(4085.00m, limitOrder.LimitPrice);
+    var state = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Open, state.Stage);
+    Assert.NotNull(state.PositionId);
+    Assert.Single(state.PendingOrderIds ?? []);
+  }
+
   [Fact]
   public async Task ShadowModeNeverSubmitsRealOrders()
   {
@@ -830,10 +1003,25 @@ public sealed class TradePlanRuntimeTests
   private sealed class FakeV7TradingClient : ICTraderTradeClient
   {
     public List<MarketOrderRequest> MarketOrders { get; } = [];
+    public List<LimitOrderRequest> LimitOrders { get; } = [];
     public List<(long PositionId, long Volume)> Closes { get; } = [];
     public List<(long PositionId, decimal StopLoss)> StopAmendments { get; } = [];
     private readonly List<TradingPosition> _positions = [];
+    private readonly HashSet<string> _seenClientOrderIds = [];
     private long _nextPositionId = 501;
+    private long _nextOrderId = 601;
+
+    // Mirrors the real cTrader behaviour a duplicate leg ClientOrderId
+    // actually triggers: the broker rejects the SECOND order carrying an
+    // already-used id, exactly like CTraderOpenApiFeedClient.ThrowIfRejected.
+    public bool RejectDuplicateClientOrderIds { get; set; }
+
+    // One-shot: the Nth-from-now PlaceLimitOrderAsync call throws (simulating
+    // a transient broker rejection unrelated to duplicate ids), then the
+    // counter is spent and every later call succeeds normally - lets tests
+    // prove a retry resumes from the failed leg instead of leg 0.
+    public int ThrowOnCallNumber { get; set; } = -1;
+    private int _limitOrderCalls;
 
     public void SeedPosition(long positionId, TradeDirection direction, long volume) =>
       _positions.Add(new TradingPosition(
@@ -862,8 +1050,29 @@ public sealed class TradePlanRuntimeTests
       return Task.FromResult(new TradeExecution(positionId, 1, 4089.0m, order.Volume));
     }
 
-    public Task<long> PlaceLimitOrderAsync(LimitOrderRequest order, CancellationToken ct) =>
-      Task.FromResult(1L);
+    public Task<long> PlaceLimitOrderAsync(LimitOrderRequest order, CancellationToken ct)
+    {
+      _limitOrderCalls++;
+      if (
+        RejectDuplicateClientOrderIds
+        && !_seenClientOrderIds.Add(order.ClientOrderId)
+      )
+      {
+        throw new InvalidOperationException(
+          $"cTrader rejected order operation: duplicate ClientOrderId "
+          + $"{order.ClientOrderId}"
+        );
+      }
+      if (_limitOrderCalls == ThrowOnCallNumber)
+      {
+        ThrowOnCallNumber = -1;
+        throw new InvalidOperationException(
+          "cTrader rejected order operation: SERVER_ERROR"
+        );
+      }
+      LimitOrders.Add(order);
+      return Task.FromResult(_nextOrderId++);
+    }
 
     public Task AmendPositionStopLossAsync(
       long positionId, decimal stopLoss, CancellationToken ct
