@@ -1,26 +1,33 @@
-"""refactor/p0-direct-zone-signal-execution: ZoneWatch domain model (section 2).
-
-A retained zone is not an executable setup and must never be placed into an
-execution queue - this module has no StrategyMatch/ready-stream/Telegram
-concept at all. Identity is reused from confluence_zone.confluence_zone_id
-(section 2: "reuse the existing confluence-zone identity implementation").
-"""
+"""ZoneWatch retained-zone domain tests."""
 
 from __future__ import annotations
 
-import fakeredis
+import os
+
 import pytest
+import pytest_asyncio
+from redis.asyncio import Redis
 
 from app.analysis.confluence_zone import confluence_zone_id
 from app.autotrade import zone_watch as zw
 
 
-pytestmark = pytest.mark.no_database
+pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 
 
-@pytest.fixture
-def client():
-  return fakeredis.FakeAsyncRedis(decode_responses=True)
+@pytest_asyncio.fixture
+async def client():
+  url = os.getenv("REAL_REDIS_URL")
+  if not url:
+    pytest.skip("REAL_REDIS_URL is required for ZoneWatch CAS tests")
+  redis = Redis.from_url(url, decode_responses=True)
+  await redis.ping()
+  await redis.flushdb()
+  try:
+    yield redis
+  finally:
+    await redis.flushdb()
+    await redis.aclose()
 
 
 def _zone_id(low=4113.0, high=4116.0, tags=("supply",)) -> str:
@@ -43,6 +50,7 @@ async def test_discover_zone_watch_is_idempotent(client):
     structural_sources=("supply_demand",),
     confluence_tags=("supply",),
     grade=zw.GRADE_A,
+    now=100,
   )
   assert created
   assert record.state == zw.DISCOVERED
@@ -59,16 +67,18 @@ async def test_discover_zone_watch_is_idempotent(client):
     structural_sources=("supply_demand",),
     confluence_tags=("supply",),
     grade=zw.GRADE_A,
+    now=200,
   )
   assert not created_again
-  assert again == record
+  assert again.zone_id == record.zone_id
+  assert again.state == record.state
+  assert again.touch_count == record.touch_count
+  assert again.discovered_at == record.discovered_at
+  assert again.last_confirmed_at == 200
+  assert again.revision == record.revision + 1
 
 
-@pytest.mark.asyncio
-async def test_zone_identity_is_stable_across_coordinate_jitter():
-  # Mirrors confluence_zone.py's own jitter tolerance - a ZoneWatch keyed on
-  # confluence_zone_id must not fragment into a new record for a sub-pip
-  # coordinate wobble between scanner bars.
+def test_zone_identity_is_stable_across_coordinate_jitter():
   id_a = _zone_id(4007.47, 4012.47)
   id_b = confluence_zone_id(
     "XAU", "sell", 4007.41, 4012.53, ("supply",), atr=2.0, pip_size=0.01,
@@ -76,8 +86,7 @@ async def test_zone_identity_is_stable_across_coordinate_jitter():
   assert id_a == id_b
 
 
-@pytest.mark.asyncio
-async def test_zone_identity_is_stable_across_tag_order():
+def test_zone_identity_is_stable_across_tag_order():
   id_a = confluence_zone_id(
     "XAU", "sell", 4113.0, 4116.0, ["supply", "key_level"],
     atr=2.0, pip_size=0.01,
@@ -110,8 +119,7 @@ async def test_watched_zone_never_creates_a_strategy_match_or_ready_event(
     client, zone_id, zw.WATCHING_RETEST, reason_code="zone_discovered",
   )
 
-  # ZoneWatch storage is fully isolated from the execution-domain namespace.
-  assert await client.get(f"auto_trade:strategy_match:XAU") is None
+  assert await client.get("auto_trade:strategy_match:XAU") is None
   assert await client.xlen("auto_trade:strategy_match_ready") == 0
   assert await client.get(f"analysis:setup:{zone_id}") is None
 
@@ -132,7 +140,6 @@ async def test_price_entering_zone_moves_to_evaluating_and_back(client):
   assert changed
   assert evaluating.state == zw.EVALUATING
 
-  # Price leaves without a valid signal - back to watching, not terminal.
   watching_again, changed = await zw.transition_zone_watch(
     client, zone_id, zw.WATCHING_RETEST, reason_code="no_valid_signal",
   )
@@ -176,7 +183,7 @@ async def test_repeated_touches_downgrade_then_exhaust_the_zone(client):
 
   after_2 = await zw.record_zone_touch(client, zone_id)
   assert after_2.touch_count == 2
-  assert after_2.grade == zw.GRADE_B  # downgraded
+  assert after_2.grade == zw.GRADE_B
   assert zw.is_actively_watchable(after_2)
 
   after_3 = await zw.record_zone_touch(client, zone_id)
