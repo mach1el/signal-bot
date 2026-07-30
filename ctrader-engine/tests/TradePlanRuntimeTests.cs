@@ -283,9 +283,11 @@ public sealed class TradePlanRuntimeTests
     // plan.Targets - a single TP target here proves TP count plays no
     // part. When even 2 legs' broker-minimum steps don't fit the
     // risk-based volume, CalculateVolume still throws (a genuine "this
-    // plan cannot execute as configured"), and that must reject just this
-    // plan - not escape EvaluateArmedPlansAsync and crash-loop the whole
-    // consumer forever on every poll.
+    // plan cannot execute as configured"). That sizing check now runs
+    // before the plan is ever armed (see ProcessTradePlanEntryAsync) -
+    // a plan that can never be sized must never show PLAN ARMED only to
+    // flip to PLAN REJECTED a moment later - and it must reject just this
+    // plan, not crash-loop the whole consumer forever on every poll.
     var store = new FakeV7Store();
     store.EnqueuePlan("""
     {
@@ -370,10 +372,8 @@ public sealed class TradePlanRuntimeTests
       Options(), store, () => DateTimeOffset.UtcNow, logs.Add
     );
 
-    // A resting limit ladder submits as soon as it's armed - it doesn't
-    // wait for the quote to reach it (that's the broker's job once the
-    // order is resting). Submission is attempted and sizing fails within
-    // this same first poll.
+    // The plan is rejected during arming itself (before EvaluateArmedPlansAsync
+    // or SubmitEntryAsync ever run), on this same first poll.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
     );
