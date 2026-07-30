@@ -247,6 +247,7 @@ async def test_handle_event_fill_marks_filled_records_broker_fields_and_activate
   send = _mock_send(monkeypatch)
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  monkeypatch.setattr(settings, "manual_algo_owner_execution_dm_enabled", True)
   sid = await _algo_signal()
   client = redis_state.get_client()
   positions: dict[int, int] = {}
@@ -278,6 +279,7 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
   sid = await _algo_signal()
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  monkeypatch.setattr(settings, "manual_algo_owner_execution_dm_enabled", True)
   event = {
     "type": "manual_limit_placed",
     "stream": "algo_manual",
@@ -301,6 +303,65 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
   assert "LIMIT ORDER PLACED" in text
   assert "777" in text
   assert f"manual:{sid}:0" in text
+
+
+@pytest.mark.asyncio
+async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
+  """The owner-only "LIMIT ORDER PLACED" debug DM duplicates the real VIP/
+  public channel update the executor's own fill event already posts - it
+  must stay silent unless explicitly re-enabled."""
+  sid = await _algo_signal()
+  truth = AsyncMock()
+  monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  event = {
+    "type": "manual_limit_placed",
+    "stream": "algo_manual",
+    "candidate_id": f"manual:{sid}:0",
+    "direction": "SELL",
+    "entry_low": 4100.0,
+    "entry_high": 4105.0,
+    "stop_loss": 4110.0,
+    "target_prices": [4095.0, 4090.0, 4080.0],
+    "order_id": 777,
+  }
+
+  await manual_execution._handle_event(
+    redis_state.get_client(), event, {},
+  )
+
+  row = await store.get_manual_signal(sid)
+  assert row["execution_status"] == "pending"
+  truth.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fill_event_owner_dm_is_off_by_default(monkeypatch):
+  """The owner-only "POSITION OPENED" debug DM is noise on top of the real
+  "🟢 active" channel update trade_ops.do_active/post_result already sends
+  for the same fill - must stay silent unless explicitly re-enabled."""
+  send = _mock_send(monkeypatch)
+  truth = AsyncMock()
+  monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  sid = await _algo_signal()
+  client = redis_state.get_client()
+  positions: dict[int, int] = {}
+
+  event = {
+    "type": "manual_opened",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "setup": "Manual Algo",
+    "stream": "algo_manual",
+    "price": 4100.5,
+    "volume": 600,
+  }
+  await manual_execution._handle_event(client, event, positions)
+
+  row = await store.get_manual_signal(sid)
+  assert row["execution_status"] == "filled"
+  truth.assert_not_awaited()
+  # The real subscriber-facing channel update must still fire unchanged.
+  send.assert_awaited_once()
 
 
 @pytest.mark.asyncio
