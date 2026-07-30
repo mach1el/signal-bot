@@ -13,14 +13,18 @@ from __future__ import annotations
 from app.autotrade import delivery
 
 
-def test_plan_armed_event_renders_without_crashing():
+def test_plan_armed_event_stays_silent_and_does_not_crash():
+  # PLAN ARMED as a separate user-visible idle-waiting phase is exactly
+  # what the direct-publish model must not show - the plan card already
+  # says PLAN PUBLISHED, and the owner reading a lingering ARMED card as
+  # "still waiting" is precisely the confusion this must avoid. Moved into
+  # TELEGRAM_SILENT_LIFECYCLE_TYPES; still must not crash on the lookup.
   text = delivery.render_auto_trade_event({
     "type": "plan_armed",
     "message": "PLAN ARMED Trend Pullback BUY (market_watch)",
   })
 
-  assert text is not None
-  assert "PLAN ARMED" in text
+  assert text is None
 
 
 def test_v7_order_submitted_event_renders_without_crashing():

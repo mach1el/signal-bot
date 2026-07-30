@@ -680,6 +680,7 @@ async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
     bid=4044.50,
     ask=4044.70,
   )
+  before_publish = int(time.time())
   plan_id = await worker._publish_trade_plan_v7(
     client,
     "XAU",
@@ -700,7 +701,16 @@ async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
   assert state.phase == PUBLISHED
   assert state.trigger_bar_ts == entered_ts
   assert state.episode_id == plan.provenance.zone_episode_id
-  assert plan.expires_at <= entered_ts + 180
+  # Live incident fix: expiry restarts from actual publish time using
+  # match_for_plan's own configured TTL - not inherited unchanged from
+  # whenever the original match was built, which could leave a published
+  # plan seconds from an already-near-exhausted deadline. An M1_RETEST
+  # confirmation also truncates that TTL to the trigger's own validity
+  # window (trigger_bar_ts + 60 + validity_bars*60) before this fix's
+  # now_ts re-anchoring ever sees it - both must compose correctly.
+  trigger_expiry = entered_ts + 60 + 2 * 60
+  ttl_seconds = min(match.expires_at - match.issued_at, trigger_expiry - match.issued_at)
+  assert plan.expires_at == pytest.approx(before_publish + ttl_seconds, abs=5)
 
 
 @pytest.mark.asyncio
