@@ -800,6 +800,38 @@ def test_breaker_blocks_close_through_flips_and_wick_does_not():
   assert [zone.source for zone in breaker_blocks([ob], wick_only)] == ["order_block"]
 
 
+def test_breaker_blocks_also_flips_a_plain_supply_demand_zone():
+  # Live incident: a plain supply_demand zone (not an order_block) tagged
+  # "demand" kept opposing SELL setups long after price closed decisively
+  # below it and kept falling - engine.py only ever ran breaker_blocks
+  # (this exact close-through-flips-it rule) on order_blocks, never on
+  # supply_demand zones, so a genuinely broken demand zone never flipped to
+  # supply or died. breaker_blocks itself has always been source-agnostic
+  # (see _breaker_violation) - this proves it works identically for a
+  # supply_demand-sourced zone once engine.py actually calls it there too.
+  demand = Zone(
+    4065.30,
+    4078.55,
+    "demand",
+    origin_index=0,
+    source="supply_demand",
+  )
+  broke_and_kept_falling = _df([
+    (4070, 4072, 4066, 4067),
+    (4067, 4067, 4035, 4036),
+    (4036, 4040, 4034, 4038),
+  ])
+
+  zones = breaker_blocks([demand], broke_and_kept_falling)
+  dead = next(zone for zone in zones if zone.source == "supply_demand")
+  flipped = next(zone for zone in zones if zone.source == "breaker")
+
+  assert dead.mitigated is True
+  assert flipped.side == "supply"
+  assert flipped.low == 4065.30
+  assert flipped.high == 4078.55
+
+
 def test_score_zones_rewards_session_level_and_discount_position():
   zone = Zone(100, 101, "demand", source="supply_demand")
   ts = pd.Timestamp("2026-07-10 02:00", tz="UTC")
