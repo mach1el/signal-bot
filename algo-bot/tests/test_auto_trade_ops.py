@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -1240,12 +1241,66 @@ async def test_pause_resume_and_status(monkeypatch):
   assert "demo trading" in text
   assert "paused" in text
   assert "Algo bot" in text
-  assert "Open <b>0</b> · today <b>0</b>" in text
+  assert "Open <b>0</b> · groups <b>0</b> · today <b>0</b>" in text
   assert "Range Box Scalp · BUY · M1 · waiting rejection" in text
-  assert len(text) < 500
+  assert len(text) < 900
   assert "auto trader" not in text.lower()
   await delivery.set_auto_trade_paused(False)
   assert await client.get("auto_trade:paused") is None
+
+
+@pytest.mark.asyncio
+async def test_status_includes_compact_profile_regime_groups_and_route(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  monkeypatch.setattr(delivery.settings, "auto_trade_profile", "demo_eval")
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:last_gate:XAU",
+    json.dumps({
+      "state": "candidate",
+      "selected_strategy": "Key Level Reaction",
+      "selected_timeframe": "M5",
+      "direction": "SELL",
+      "regime": "chop",
+      "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }),
+  )
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({
+      "symbol": "XAU",
+      "profile": "demo_eval",
+      "group_ids": ["g1", "g2"],
+      "position_ids": [11],
+      "ready": True,
+    }),
+  )
+  await client.set(
+    "auto_trade:last_route_outcome:XAU",
+    json.dumps({
+      "strategy": "Key Level Reaction",
+      "status": "blocked",
+      "reason_code": "opposing_barrier",
+    }),
+  )
+  await client.set(
+    "auto_trade:config_health",
+    json.dumps({"state": "healthy", "profile": "demo_eval"}),
+  )
+  await client.set(
+    "auto_trade:executor_readiness",
+    json.dumps({"ready": True}),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "demo trading · <b>running</b> · demo_eval" in text
+  assert "groups <b>2</b>" in text
+  assert "Regime <b>chop</b>" in text
+  assert "Route: Key Level Reaction · blocked · opposing_barrier" in text
+  assert len(text) < 900
+  assert "auto trader" not in text.lower()
 
 
 @pytest.mark.asyncio
