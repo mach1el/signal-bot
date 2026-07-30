@@ -163,6 +163,238 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task MarketWatchWithManyTargetsAndASmallAccountStillSubmits()
+  {
+    // Live incident: a market_watch plan with 5 TP targets and a
+    // small-account risk-based volume used to throw
+    // "N volume steps cannot cover 5 targets" unconditionally inside
+    // CalculateVolume - even though market_watch never reads the resulting
+    // Slices at all (it submits TotalVolume as one order). TP close volume
+    // is computed live from RemainingVolume at each target hit
+    // (ManageOpenPositionsAsync), never from a pre-built slice list, so TP
+    // count must never be able to block or crash entry submission.
+    var fiveTargets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
+        {"target_id": "TP2", "type": "absolute", "price": "4094.00", "close_ratio": "0.2"},
+        {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.2"},
+        {"target_id": "TP4", "type": "absolute", "price": "4098.00", "close_ratio": "0.2"},
+        {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan($$"""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Trend Pullback",
+        "strategy_family": "trend_pullback",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "H1",
+        "confirmation_timeframe": "M15",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "up",
+        "regime": "trend",
+        "reasons": ["htf_uptrend"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "zone-xau-4088-4090",
+        "kind": "demand",
+        "timeframe": "H1",
+        "low": "4088.10",
+        "high": "4090.00",
+        "invalidation_price": "4081.80"
+      },
+      "entry": {
+        "type": "market_watch",
+        "expires_at": 2000000000,
+        "zone_low": "4088.10",
+        "zone_high": "4090.00",
+        "activation": "quote_inside_zone",
+        "price_side": "ask",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "structure",
+        "structure_id": "zone-xau-4088-4090",
+        "reason": "protective stop plan"
+      },
+      "targets": {{fiveTargets}},
+      "risk": {
+        "risk_percent": "0.42",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "management": {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": false,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 2), CancellationToken.None
+    );
+
+    var order = Assert.Single(client.MarketOrders);
+    Assert.Equal(100, order.Volume);
+    var open = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Open, open.Stage);
+  }
+
+  [Fact]
+  public async Task UndersizedLimitLadderRejectsThatPlanWithoutCrashingTheConsumer()
+  {
+    // A limit_ladder entry's legs are sized off each leg's own
+    // volume_ratio (e.g. the 70/30 DCA scale-in split), never off
+    // plan.Targets - a single TP target here proves TP count plays no
+    // part. When even 2 legs' broker-minimum steps don't fit the
+    // risk-based volume, CalculateVolume still throws (a genuine "this
+    // plan cannot execute as configured"), and that must reject just this
+    // plan - not escape EvaluateArmedPlansAsync and crash-loop the whole
+    // consumer forever on every poll.
+    var store = new FakeV7Store();
+    store.EnqueuePlan("""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Structural Zone Reaction",
+        "strategy_family": "structural_zone",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "M15",
+        "confirmation_timeframe": "M5",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 0.65,
+        "confluence": 2,
+        "bias": "up",
+        "regime": "range",
+        "reasons": ["demand_zone_ladder_fill"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "demand:M15:4085.00:4089.50:1719990000",
+        "kind": "demand",
+        "timeframe": "M15",
+        "low": "4085.00",
+        "high": "4089.50",
+        "invalidation_price": "4079.00"
+      },
+      "entry": {
+        "type": "limit_ladder",
+        "zone_low": "4085.00",
+        "zone_high": "4089.50",
+        "expires_at": 2000000000,
+        "legs": [
+          {"leg_id": "L1", "price": "4089.50", "volume_ratio": "0.90"},
+          {"leg_id": "L2", "price": "4085.00", "volume_ratio": "0.10"}
+        ]
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4079.00",
+        "source": "structural_invalidation",
+        "structure_id": "demand:M15:4085.00:4089.50:1719990000",
+        "reason": "below distal edge plus Python-defined buffer"
+      },
+      "targets": [
+        {"target_id": "TP1", "type": "absolute", "price": "4097.00", "close_ratio": "1.0"}
+      ],
+      "risk": {
+        "risk_percent": "0.45",
+        "risk_multiplier": "1.0",
+        "max_volume": 800,
+        "max_group_risk_percent": "2.0"
+      },
+      "management": {
+        "be_after_target_id": null,
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": false,
+        "allow_limit": true,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, logs.Add
+    );
+
+    // A resting limit ladder submits as soon as it's armed - it doesn't
+    // wait for the quote to reach it (that's the broker's job once the
+    // order is resting). Submission is attempted and sizing fails within
+    // this same first poll.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    Assert.Empty(client.MarketOrders);
+    Assert.Empty(runtime.TrackedStates);
+    Assert.Equal("rejected", store.Value("execution:plan_state:v7:plan-1"));
+    Assert.Contains(
+      store.Events, e => e.Type == "plan_rejected" && e.CandidateId == "v7:plan-1"
+    );
+    Assert.Contains(logs, line => line.Contains("v7 plan sizing rejected"));
+
+    // The consumer must not be stuck retrying this plan - a further poll
+    // is harmless (nothing left to submit) instead of throwing again.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.60m, 4089.70m, 2), CancellationToken.None
+    );
+    Assert.Empty(client.MarketOrders);
+  }
+
+  [Fact]
   public async Task ShadowModeNeverSubmitsRealOrders()
   {
     var store = new FakeV7Store();
