@@ -218,9 +218,8 @@ def test_counter_bias_reaction_is_hard_blocked_when_disabled():
   # Reaction all derive direction purely from structural evidence (a
   # level's role, a zone, a session level, a trendline) - none of them
   # ever required HTF-bias alignment, only scored it as a confluence
-  # bonus. That structural evidence alone is not sufficient reason to
-  # trade against a directional HTF bias for these families - this is the
-  # default now (auto_trade_allow_counter_bias=False), not opt-in.
+  # bonus. auto_trade_allow_counter_bias=True remains the default - this
+  # covers the opt-in hard block for whoever turns it off.
   buy = _result("BUY", 4100.0, 4101.0, quality=3, current_price=4100.5)
 
   resolution = resolve_actionability(

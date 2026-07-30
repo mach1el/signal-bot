@@ -51,7 +51,7 @@ def test_demo_profile_resolves_execution_defaults(monkeypatch):
   assert cfg.auto_trade_retest_enabled
   assert cfg.auto_trade_reaction_enabled
   assert cfg.auto_trade_liquidity_reversal_enabled
-  assert not cfg.auto_trade_allow_counter_bias
+  assert cfg.auto_trade_allow_counter_bias
   assert cfg.auto_trade_multi_match_enabled
   assert cfg.auto_trade_track_all_structural_matches
   assert cfg.auto_trade_enabled
