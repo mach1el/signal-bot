@@ -178,12 +178,13 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
     notify=notify,
   )
 
-  assert first == [result]
-  assert second == []
   # Non-negotiable Telegram requirement: this detection has no resolvable
   # execution_match, so it must never reach Telegram - not even as a
-  # MARKET OBSERVATION/ANALYSIS ONLY card. Detection-level dedup (first ==
-  # [result], second == []) is unaffected and still exercised above.
+  # MARKET OBSERVATION/ANALYSIS ONLY card. _handle_event's return value
+  # must reflect that honestly (nothing was actually sent), not just echo
+  # back every detected candidate regardless of whether a card went out.
+  assert first == []
+  assert second == []
   notify.assert_not_awaited()
   assert await client.get(
     "scanner:alerted:XAU:M5:Trend Pullback:4100"
@@ -757,10 +758,11 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
     notify=notify,
   )
 
-  assert sent == [results[0]]
   # No resolvable execution_match for any of these - the digest-level
-  # winner is still correctly picked (sent == [results[0]]) but must never
-  # reach Telegram.
+  # winner is still correctly picked internally (dedup keys below prove
+  # it), but must never reach Telegram, and the return value must reflect
+  # that nothing was actually sent.
+  assert sent == []
   notify.assert_not_awaited()
   assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) == "1"
@@ -868,16 +870,12 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
     notify=notify,
   )
 
-  assert [
-    (item.setup, item.direction, item.key_level)
-    for item in sent
-  ] == [
-    (item.setup, item.direction, item.key_level)
-    for item in results[:2]
-  ]
-  assert all(item.confluence_zone_id for item in sent)
   # sync_strategy_match resolves to None here - no execution_match, so no
-  # card can be sent regardless of how many candidates the card cap keeps.
+  # card can be sent regardless of how many candidates the card cap keeps,
+  # and the return value must say so honestly. The actual point of this
+  # test - the card cap must not trim what reaches sync_strategy_match - is
+  # proven below via execution_digest, independent of what got carded.
+  assert sent == []
   notify.assert_not_awaited()
   sync_strategy_match.assert_awaited_once()
   execution_digest = sync_strategy_match.await_args.args[5]
@@ -1011,9 +1009,11 @@ async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
   assert scanner._dedup_key("XAU", "M5", first) != scanner._dedup_key(
     "XAU", "M5", jittered,
   )
-  assert first_sent == [first]
+  # No execution_match passed in - no card can be sent, so nothing was
+  # actually delivered either time. Band-dedup identity is proven above
+  # independently of what got carded.
+  assert first_sent == []
   assert second_sent == []
-  # No execution_match passed in - no card can be sent.
   notify.assert_not_awaited()
 
 
@@ -1300,11 +1300,12 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
     notify=notify,
   )
 
-  assert first == [result_a]
-  assert same_band == [result_b]
-  assert far_band == [result_far]
   # No execution_match resolvable for any of these detections - band-dedup
-  # key mechanics (asserted below) are unaffected; no card can be sent.
+  # key mechanics (asserted below) are unaffected; no card can be sent, and
+  # nothing was actually delivered in any of the three calls.
+  assert first == []
+  assert same_band == []
+  assert far_band == []
   notify.assert_not_awaited()
   assert await client.get(scanner._band_dedup_key("XAU", result_a)) == "1"
   assert await client.get(scanner._dedup_key("XAU", "M5", result_b)) == "1"
@@ -1325,7 +1326,7 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
     notify=notify,
   )
 
-  assert after_ttl == [result_b]
+  assert after_ttl == []
   notify.assert_not_awaited()
 
 
@@ -1383,9 +1384,10 @@ async def test_box_breakout_second_alert_on_same_edge_is_band_deduped(monkeypatc
     ["M30"],
   )
 
-  assert first == [result]
+  # No execution_match passed in - no card can be sent, so nothing was
+  # actually delivered either time.
+  assert first == []
   assert second == []
-  # No execution_match passed in - no card can be sent.
   notify.assert_not_awaited()
 
 
@@ -1437,8 +1439,11 @@ async def test_band_dedup_preserves_a_different_structural_setup(monkeypatch):
     ["M30"],
   )
 
-  assert sent == [second]
-  # No execution_match passed in - no card can be sent.
+  # No execution_match passed in - no card can be sent, so nothing was
+  # actually delivered. _notify_digest_once must report that accurately
+  # (not the candidate list regardless of whether post_or_edit_forming_card
+  # was ever called) - see test above for the same invariant.
+  assert sent == []
   notify.assert_not_awaited()
 
 
