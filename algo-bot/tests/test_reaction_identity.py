@@ -39,3 +39,18 @@ def test_structural_zone_id_survives_width_jitter_without_source_ids():
     tags=("supply",),
   )
   assert id_a == id_b
+
+
+def test_canonicalize_zone_bucket_survives_ordinary_atr_drift():
+  """Mirrors test_confluence_zone.py's ATR-drift regression: this bucket
+  mirrors confluence_zone._bucket exactly and had the identical bug - the
+  same band bucketing differently as live ATR drifts bar to bar, with
+  nothing about the zone's own coordinates changing.
+  """
+  buckets = {
+    canonicalize_zone_bucket(
+      4077.088124726152, 4081.535208607181, atr=atr, pip_size=0.1,
+    )
+    for atr in (0.0, 0.5, 1.0, 1.5, 2.5, 4.0, 5.0, 5.9)
+  }
+  assert len(buckets) == 1

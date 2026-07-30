@@ -181,3 +181,47 @@ def test_zone_id_survives_width_jitter_across_a_rounding_boundary():
     "XAU", "sell", 4032.84, 4038.41, ("key_level",), atr=1.0, pip_size=0.1,
   )
   assert id_a == id_b
+
+
+def test_zone_id_survives_ordinary_atr_drift():
+  """Live production incident: the same SELL key-level band near 4079
+  ($4077.09-4081.54 across four separate detections, mid always ~4079.2-
+  4079.3) rehashed into a brand-new zone_id roughly every five minutes for
+  over an hour - each rehash reset its ZoneWatch to touch_count=0, so the
+  zone kept cycling discovered -> touched x3 -> exhausted and never
+  survived long enough to publish a TradePlan, despite price genuinely and
+  repeatedly reacting at that level.
+
+  Root cause: bucket size itself was `max(pip*10, atr*0.25, 1.0)`, and ATR
+  is a live rolling M5 indicator that drifts every bar even when the zone's
+  own coordinates haven't moved - atr=1.0 and atr=5.0 already produced
+  different ids for an identical band. Real M5 ATR for XAU routinely
+  fluctuates within a single-digit range intraday, so this fired
+  constantly. ATR must be quantized before it can affect bucket size.
+  """
+  low, high = 4077.088124726152, 4081.535208607181
+  ids = {
+    confluence_zone_id(
+      "XAU", "sell", low, high, ("key_level",), atr=atr, pip_size=0.1,
+    )
+    for atr in (0.0, 0.5, 1.0, 1.5, 2.5, 4.0, 5.0, 5.9)
+  }
+  assert len(ids) == 1
+
+  # Four independently-recorded detections of the same real band (from the
+  # incident) must also collapse to one id regardless of their own minor
+  # coordinate jitter, holding atr fixed at a typical M5 reading.
+  bands = [
+    (4077.1911656434213, 4081.4321676899117),
+    (4076.843895009136, 4081.531819276578),
+    (4076.9418949594537, 4081.43381932626),
+    (4077.088124726152, 4081.535208607181),
+  ]
+  band_ids = {
+    confluence_zone_id(
+      "XAU", "sell", band_low, band_high, ("key_level",), atr=2.5,
+      pip_size=0.1,
+    )
+    for band_low, band_high in bands
+  }
+  assert len(band_ids) == 1
