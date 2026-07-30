@@ -182,7 +182,12 @@ def test_buy_under_overlapping_sell_major_is_observation_only(
   assert decision.reason_code == "opposing_major_no_room"
   assert decision.measured["planned_entry_price"] == pytest.approx(4045.95)
   assert decision.measured["opposing_low"] == pytest.approx(4046.0)
-  assert decision.measured["entry_overlap_price"] == pytest.approx(0.73)
+  # 2026-07-31: the candidate zone is now trimmed to its non-overlapping
+  # portion before the room check runs (see
+  # _trim_zone_against_overlapping_barrier), so the overlap of the
+  # *adjusted* zone is genuinely zero - the major-tier zero-room rule is
+  # what still correctly rejects this, not the overlap check.
+  assert decision.measured["entry_overlap_price"] == pytest.approx(0.0)
 
 
 def test_target_room_is_static_block_even_when_legacy_gate_is_off():
@@ -216,6 +221,83 @@ def test_target_room_is_static_block_even_when_legacy_gate_is_off():
   )
   assert decision.hard_block is True
   assert decision.allowed is False
+
+
+def test_partial_overlap_trims_the_zone_instead_of_killing_the_whole_setup():
+  """2026-07-30 incident: a BUY entry zone overlapped a (non-major)
+  opposing SELL zone by a small sliver at its far edge, and the whole
+  setup got hard-rejected even though 75% of the zone - including the
+  actual planned entry point - was clean, untouched room. The overlap
+  check compares raw zone bounds, not the planned entry price, so a
+  zone-level sliver used to kill a trade whose entry was never really in
+  danger. Trimming the zone to its own non-overlapping portion first
+  lets the room check evaluate the real, now non-overlapping geometry.
+  """
+  buy = _result(
+    "BUY",
+    4100.0,
+    4108.0,
+    quality=3,
+    current_price=4102.0,
+  )
+  market_map = _map(
+    _entry("sell", 4106.0, 4112.0, tier="zone"),
+    price=4102.0,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.gated == ()
+  assert len(resolution.actionable) == 1
+  trimmed = resolution.actionable[0]
+  # Zone trimmed from 4100-4108 down to 4100-4106 (the opposing zone's
+  # near edge) - the overlapping top 2.0 is gone, the clean bottom 6.0
+  # remains.
+  assert trimmed.entry_zone.low == pytest.approx(4100.0)
+  assert trimmed.entry_zone.high == pytest.approx(4106.0)
+  assert trimmed.target_cap_pips == pytest.approx(30.0)
+
+
+def test_full_overlap_still_rejects_nothing_left_to_trim_into():
+  """A candidate zone entirely consumed by an opposing zone has no clean
+  portion to trim into - must fall through to the existing rejection
+  unchanged, not silently pass through untrimmed.
+  """
+  buy = _result(
+    "BUY",
+    4106.5,
+    4107.5,
+    quality=3,
+    current_price=4107.0,
+  )
+  market_map = _map(
+    _entry("sell", 4100.0, 4112.0, tier="zone"),
+    price=4107.0,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.hard_block is True
+  assert decision.reason_code == "opposing_entry_contained"
 
 
 def test_counter_bias_reaction_is_hard_blocked_when_disabled():
@@ -1048,7 +1130,10 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
   assert status["actionable_count"] == 0
   gate = status["actionability_gated"][0]
   assert gate["reason_code"] == "opposing_major_no_room"
-  assert gate["measured"]["entry_overlap_price"] == pytest.approx(0.73)
+  # 2026-07-31: see the sibling test above - the zone is now trimmed
+  # before the room check, so the adjusted zone's overlap is genuinely
+  # zero; the major-tier zero-room rule is still what rejects this.
+  assert gate["measured"]["entry_overlap_price"] == pytest.approx(0.0)
   logs = await client.lrange(scanner._detect_log_key("XAU", "M5"), 0, 0)
   entry = json.loads(logs[0])["entries"][0]
   assert entry["outcome"] == "actionability_gated"

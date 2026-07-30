@@ -84,8 +84,8 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   non_reaction = confirmation_policy_for(
     replace(
       _match(),
-      strategy="Trend Pullback",
-      family="trend_pullback",
+      strategy="Momentum Ride",
+      family="momentum_continuation",
       reaction_type=None,
       touch_bar_ts=None,
       confirmation_bar_ts=None,
