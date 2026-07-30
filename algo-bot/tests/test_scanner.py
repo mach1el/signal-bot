@@ -136,7 +136,7 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
     async def window(self, symbol, tf, n):
       assert symbol == "XAU"
       assert tf in {"M5", "M30", "M15"}
-      assert n == 500
+      assert n == scanner.window_for_timeframe(tf)
       return _frame()
 
   ctx = SimpleNamespace(
@@ -271,7 +271,7 @@ async def test_scanner_records_analysis_status_without_owner(monkeypatch):
     async def window(self, symbol, tf, n):
       assert symbol == "XAU"
       assert tf in {"M5", "M30", "M15"}
-      assert n == 500
+      assert n == scanner.window_for_timeframe(tf)
       return _frame()
 
   ctx = SimpleNamespace(

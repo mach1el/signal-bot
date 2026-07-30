@@ -264,9 +264,15 @@ async def real_ready_redis():
 
 
 @pytest.mark.asyncio
-async def test_m1_before_m5_ready_event_publishes_without_another_m1(
+async def test_a_grade_reaction_publishes_directly_in_the_same_scan_cycle(
   monkeypatch,
 ):
+  """refactor/p0-direct-zone-signal-execution: an M5 reaction whose quote is
+  already inside its confirmed entry zone at CONFIRMED time publishes
+  TradePlan V7 synchronously, in the scanner's own confirmation cycle - no
+  auto_trade:strategy_match_ready round-trip, no separate worker tick, and
+  no M1 bar required at all (M1 must not block an A-grade M5 reaction).
+  """
   now = int(datetime.now(timezone.utc).timestamp())
   frames = _frames(now)
   client, notify = await _configure(
@@ -276,26 +282,11 @@ async def test_m1_before_m5_ready_event_publishes_without_another_m1(
     now=now,
   )
 
-  await worker._handle_event(f"XAU:M1:{now}", client=client)
-  assert await client.xlen(_plan_count_key()) == 0
-
   await _scan(client, notify, _reaction(now), now)
-  assert await client.xlen(_plan_count_key()) == 0
-  queued_match = worker.StrategyMatch.from_json(
-    await client.get(strategy_match_key("XAU")),
-  )
-  assert queued_match is not None
-  queued_route = json.loads(
-    await client.get(route_outcome_key("XAU", queued_match.match_id)),
-  )
-  assert queued_route["status"] == "queued"
-  assert queued_route["reason_code"] == "strategy_match_ready_enqueued"
-
-  consume_once = getattr(worker, "_consume_strategy_match_ready_once", None)
-  assert consume_once is not None, "no durable scanner -> worker wake-up exists"
-  await consume_once(client=client)
 
   assert await client.xlen(_plan_count_key()) == 1
+  assert await client.xlen(READY_STREAM) == 0
+
   match = worker.StrategyMatch.from_json(
     await client.get(strategy_match_key("XAU")),
   )
@@ -306,12 +297,6 @@ async def test_m1_before_m5_ready_event_publishes_without_another_m1(
   plan_id = worker._v7_plan_id(match)
   assert route["status"] == "candidate_published"
   assert route["candidate_id"] == plan_id
-  assert route["winner_intent_id"] == f"strategy:{match.match_id}"
-  assert route["measured"]["event_id"]
-  assert route["measured"]["scanner_event_ts"] == str(now)
-  assert route["measured"]["ready_event_ts"] <= (
-    route["measured"]["worker_received_ts"]
-  )
   assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
   card_status = await load_forming_card_status_snapshot(
     client,
@@ -397,9 +382,14 @@ async def test_concurrent_m1_and_ready_event_publish_exactly_one_plan(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_detection_and_ready_events_publish_one_plan(
+async def test_duplicate_scanner_confirmation_publishes_exactly_one_plan(
   monkeypatch,
 ):
+  """Section 17 test #31: a duplicate scanner detection of the same already-
+  executable reaction (two consecutive confirming cycles) must never
+  publish a second TradePlan - the direct path's own dedup/CAS guards hold
+  exactly the same as the legacy ready-stream path's did.
+  """
   now = int(datetime.now(timezone.utc).timestamp())
   frames = _frames(now)
   client, notify = await _configure(
@@ -409,7 +399,8 @@ async def test_duplicate_detection_and_ready_events_publish_one_plan(
     now=now,
   )
   await _scan(client, notify, _reaction(now), now)
-  original = (await client.xrange(READY_STREAM))[0][1]
+  assert await client.xlen(_plan_count_key()) == 1
+  assert await client.xlen(READY_STREAM) == 0
 
   await _scan(
     client,
@@ -418,16 +409,9 @@ async def test_duplicate_detection_and_ready_events_publish_one_plan(
     now,
     expect_sent=False,
   )
-  assert await client.xlen(READY_STREAM) == 1
-
-  await client.xadd(READY_STREAM, original)
-  assert await client.xlen(READY_STREAM) == 2
-  assert await worker._consume_strategy_match_ready_once(client=client)
-  assert await worker._consume_strategy_match_ready_once(client=client)
 
   assert await client.xlen(_plan_count_key()) == 1
-  pending = await client.xpending(READY_STREAM, READY_GROUP)
-  assert pending["pending"] == 0
+  assert await client.xlen(READY_STREAM) == 0
 
 
 @pytest.mark.asyncio
@@ -439,8 +423,12 @@ async def test_terminal_setup_ready_event_is_acked_without_plan(monkeypatch):
     market_map=_market_map(now),
     frames=frames,
     now=now,
+    bid=4099.0,
+    ask=4099.2,
   )
   await _scan(client, notify, _reaction(now), now)
+  assert await client.xlen(_plan_count_key()) == 0
+  assert await client.xlen(READY_STREAM) == 1
   raw = await client.get(strategy_match_key("XAU"))
   match = worker.StrategyMatch.from_json(raw)
   assert match is not None
@@ -502,8 +490,11 @@ async def test_pending_ready_event_is_recovered_after_worker_restart(
     market_map=_market_map(now),
     frames=frames,
     now=now,
+    bid=4099.0,
+    ask=4099.2,
   )
   await _scan(real_ready_redis, notify, _reaction(now), now)
+  assert await real_ready_redis.xlen(_plan_count_key()) == 0
   await ensure_ready_group(real_ready_redis)
   claimed = await real_ready_redis.xreadgroup(
     READY_GROUP,
@@ -517,6 +508,18 @@ async def test_pending_ready_event_is_recovered_after_worker_restart(
     READY_STREAM,
     READY_GROUP,
   ))["pending"] == 1
+
+  # Price has since retested back into the executable zone - the
+  # replacement worker's recovered wake-up must be what actually publishes,
+  # proving the durable ready-stream backstop still works end to end for a
+  # setup that is genuinely still waiting when the ready event is created.
+  monkeypatch.setattr(
+    worker,
+    "_load_spot",
+    AsyncMock(return_value=worker.AutoTradeSpot(
+      price=4101.0, ts=now, fresh=True, bid=4101.0, ask=4101.2,
+    )),
+  )
 
   consumed = await worker._consume_strategy_match_ready_once(
     client=real_ready_redis,
