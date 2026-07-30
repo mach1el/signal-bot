@@ -27,7 +27,10 @@ from app.autotrade.execution_policy import (
   ExecutionPolicyEvaluation,
   classify_guard_severity,
 )
-from app.autotrade.structural_target_room import evaluate_structural_target_room
+from app.autotrade.structural_target_room import (
+  evaluate_structural_target_room,
+  filter_displaced_opposing_entries,
+)
 from app.autotrade.strategy_match import (
   strategy_match_key,
 )
@@ -127,6 +130,7 @@ def _cfg(
   actionability_gate: bool = True,
   role_ambiguity_gate: bool = True,
   allow_counter_bias: bool = True,
+  displacement_lookback_bars: int = 0,
 ) -> SimpleNamespace:
   return SimpleNamespace(
     contested_corridor_gap_atr=0.5,
@@ -136,6 +140,7 @@ def _cfg(
     auto_trade_opposing_barrier_atr=0.5,
     scanner_actionability_gate_enabled=actionability_gate,
     key_level_role_ambiguity_gate_enabled=role_ambiguity_gate,
+    auto_trade_displacement_override_lookback_bars=displacement_lookback_bars,
   )
 
 
@@ -698,6 +703,42 @@ def test_structural_target_room_caps_configured_ladder():
   assert decision.measured["effective_target_pips"] == pytest.approx(50)
 
 
+def test_filter_displaced_opposing_entries_drops_a_closed_through_barrier():
+  sell_barrier = _entry("sell", 4095.67, 4106.28, tier="major")
+  buy_barrier = _entry("buy", 4001.0, 4007.0, tier="major")
+  kept = filter_displaced_opposing_entries(
+    [sell_barrier, buy_barrier],
+    direction="BUY",
+    recent_closes=[4098.0, 4102.0, 4108.5],
+  )
+  # The BUY-side barrier is never "opposing" for a BUY candidate in the
+  # first place - kept regardless. The SELL barrier is dropped because one
+  # of the recent closes (4108.5) closed decisively above its high (4106.28).
+  assert kept == [buy_barrier]
+
+
+def test_filter_displaced_opposing_entries_keeps_an_untested_barrier():
+  sell_barrier = _entry("sell", 4095.67, 4106.28, tier="major")
+  kept = filter_displaced_opposing_entries(
+    [sell_barrier],
+    direction="BUY",
+    recent_closes=[4098.0, 4100.0, 4103.5],
+  )
+  assert kept == [sell_barrier]
+
+
+def test_filter_displaced_opposing_entries_requires_a_close_not_a_wick():
+  # A high approaching or even piercing the barrier intrabar does not count
+  # - only a genuine closed-bar break does (recent_closes are closes only).
+  sell_barrier = _entry("sell", 4095.67, 4106.28, tier="major")
+  kept = filter_displaced_opposing_entries(
+    [sell_barrier],
+    direction="BUY",
+    recent_closes=[4106.28, 4106.0, 4105.9],
+  )
+  assert kept == [sell_barrier]
+
+
 def test_barrier_capped_target_is_used_by_reward_risk_pre_gate(monkeypatch):
   monkeypatch.setattr(scanner.settings, "auto_trade_tp_pips", "30,50,70")
   # This fixture's _result() helper labels every BUY "counter_bias"
@@ -749,6 +790,128 @@ def test_barrier_capped_target_is_used_by_reward_risk_pre_gate(monkeypatch):
   assert measured["effective_target_pips"] == pytest.approx(30)
   assert measured["opposing_low"] == pytest.approx(4105.0)
   assert measured["reward_risk"] < measured["min_reward_risk"]
+
+
+def test_recent_displacement_beyond_barrier_lets_a_contained_buy_through():
+  """Live incident: a BUY at XAU ~4099 got hard-blocked by opposing_entry_
+  contained against a major opposing zone (4095.67-4106.28) - but recent M5
+  closes had already closed decisively above that zone's own high, meaning
+  the barrier was functionally already broken by live price while its own
+  (HTF-sourced) classification hadn't caught up. The candidate must not be
+  blocked on a barrier price has already displaced beyond.
+  """
+  buy = _result(
+    "BUY",
+    4093.95,
+    4101.61,
+    quality=3,
+    current_price=4099.41,
+  )
+  market_map = _map(
+    _entry(
+      "sell", 4095.67, 4106.28, tier="major",
+      tags=("OB", "breaker", "flip", "supply"),
+    ),
+    price=4099.41,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="down",
+    frames={"M5": pd.DataFrame({
+      "close": [4098.0, 4102.0, 4108.5],
+    })},
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=ctx,
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(displacement_lookback_bars=3),
+  )
+
+  assert resolution.gated == ()
+  assert len(resolution.actionable) == 1
+
+
+def test_no_displacement_still_blocks_as_before():
+  """Same setup as above, but the recent closes never actually close beyond
+  the barrier (still a wick/approach, not a confirmed break) - the block
+  must still hold. Proves the override requires a genuine confirmed close,
+  not just recent proximity to the barrier.
+  """
+  buy = _result(
+    "BUY",
+    4093.95,
+    4101.61,
+    quality=3,
+    current_price=4099.41,
+  )
+  market_map = _map(
+    _entry(
+      "sell", 4095.67, 4106.28, tier="major",
+      tags=("OB", "breaker", "flip", "supply"),
+    ),
+    price=4099.41,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="down",
+    frames={"M5": pd.DataFrame({
+      "close": [4098.0, 4100.0, 4103.5],
+    })},
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=ctx,
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(displacement_lookback_bars=3),
+  )
+
+  assert len(resolution.gated) == 1
+  assert resolution.gated[0][1].reason_code == "opposing_entry_contained"
+
+
+def test_displacement_override_disabled_by_default_lookback_zero():
+  """The override only fires when explicitly configured with a positive
+  lookback - a config carrying the same shape as the legacy `_cfg()`
+  default (0) must behave exactly as it did before this feature existed.
+  """
+  buy = _result(
+    "BUY",
+    4093.95,
+    4101.61,
+    quality=3,
+    current_price=4099.41,
+  )
+  market_map = _map(
+    _entry("sell", 4095.67, 4106.28, tier="major"),
+    price=4099.41,
+  )
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="down",
+    frames={"M5": pd.DataFrame({"close": [4098.0, 4102.0, 4108.5]})},
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=ctx,
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert len(resolution.gated) == 1
+  assert resolution.gated[0][1].reason_code == "opposing_entry_contained"
 
 
 def test_empty_market_map_is_valid_but_unavailable_map_fails_structural_closed():
