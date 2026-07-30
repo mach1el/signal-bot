@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 import pytest
 
@@ -410,6 +412,84 @@ def test_analyze_skips_reconcile_opposing_when_disabled_by_settings(monkeypatch)
     [],
   )
   assert calls == [1], "reconcile_opposing must run when the flag is on"
+
+
+def test_analyze_excludes_mitigated_zones_from_reconcile_opposing(monkeypatch):
+  """2026-07-31: production replay showed reconcile_opposing's circuit
+  breaker aborting on nearly every call - of a typical ~69-zone set, only
+  ~2 were still live (unmitigated); the other ~67 were historical zones
+  price had already traded through. Two dead opposite-side zones
+  overlapping is normal over hundreds of bars, not a broken zone map, but
+  it was counted the same as a live conflict. Only unmitigated zones may
+  reach reconcile_opposing now.
+  """
+  import app.analysis.engine as engine_module
+
+  captured: list[list[Zone]] = []
+  original = engine_module.reconcile_opposing
+
+  def _spy(zones, *args, **kwargs):
+    captured.append(list(zones))
+    return original(zones, *args, **kwargs)
+
+  monkeypatch.setattr(engine_module, "reconcile_opposing", _spy)
+
+  mark_original = engine_module.mark_mitigation
+  marked: list[list[Zone]] = []
+
+  def _mark_spy(zones, *args, **kwargs):
+    result = mark_original(zones, *args, **kwargs)
+    marked.append(list(result))
+    return result
+
+  monkeypatch.setattr(engine_module, "mark_mitigation", _mark_spy)
+
+  # A long oscillation (guarantees zones later get traded through and
+  # marked mitigated) followed by a final decisive breakout leg well
+  # beyond the prior range (guarantees some fresh, still-live zones near
+  # the top that nothing after them re-touches).
+  bars: list[tuple[float, float, float, float]] = []
+  price = 100.0
+  for i in range(250):
+    center = 100 + 10 * math.sin(i / 18.0)
+    close = center + ((i * 37) % 5 - 2) * 0.3
+    high = max(price, close) + 0.8
+    low = min(price, close) - 0.8
+    bars.append((price, high, low, close))
+    price = close
+  for _ in range(8):
+    close = price + 3.0
+    bars.append((price, close + 0.5, price - 0.3, close))
+    price = close
+  m5 = _df(bars)
+
+  analyze(
+    {"M5": m5},
+    AnalysisSettings(
+      zigzag_atr_mult=0.0, key_level_min_touches=1, zone_reconcile_enabled=True,
+    ),
+    [],
+  )
+
+  assert len(marked) == 1
+  full_zone_set = marked[0]
+  mitigated_in_full_set = [zone for zone in full_zone_set if zone.mitigated]
+  # The fixture must actually exercise both paths, or this test would
+  # pass vacuously regardless of whether the exclusion works.
+  assert mitigated_in_full_set, "fixture must produce at least one mitigated zone"
+  assert any(not zone.mitigated for zone in full_zone_set), (
+    "fixture must also produce at least one still-live zone"
+  )
+
+  assert len(captured) == 1
+  assert all(not zone.mitigated for zone in captured[0]), (
+    "reconcile_opposing must never see a mitigated (already-traded-through) "
+    "zone - those are irrelevant history, not a live conflict"
+  )
+  assert len(captured[0]) < len(full_zone_set), (
+    "reconcile_opposing must see strictly fewer zones than the full set "
+    "once mitigated zones exist"
+  )
 
 
 def test_reconcile_opposing_split_keeps_larger_remainder_only():
