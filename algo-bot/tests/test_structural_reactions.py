@@ -108,15 +108,16 @@ def test_default_detectors_exclude_zone_reaction():
 
 
 def test_live_registry_matches_detector_settings_defaults():
-  """Recovery mission (2026-07-30): DEFAULT_DETECTORS is now built from
-  LIVE_DETECTOR_REGISTRY filtered by DetectorSettings' own per-detector
-  enabled flags - session_level_reaction and trendline_reaction already
-  defaulted to enabled=True in DetectorSettings/config.py (an existing,
-  fully-wired flag DEFAULT_DETECTORS was silently ignoring), so they are
-  live again. The six 2026-07-28 sources without their own confirmation
-  path re-verified against the current pipeline (box_breakout,
-  trend_pullback, break_retest, momentum_ride, fade_scalp, snap_back)
-  default to disabled - registered and visible, not silently missing.
+  """Recovery mission (2026-07-30, extended 2026-07-31): DEFAULT_DETECTORS
+  is now built from LIVE_DETECTOR_REGISTRY filtered by DetectorSettings'
+  own per-detector enabled flags - session_level_reaction and
+  trendline_reaction already defaulted to enabled=True in
+  DetectorSettings/config.py (an existing, fully-wired flag
+  DEFAULT_DETECTORS was silently ignoring), so they are live again.
+  trend_pullback/snap_back/fade_scalp were retrofitted onto the shared
+  evaluate_structural_reaction confirmation path (2026-07-31) and are now
+  live too. box_breakout/break_retest/momentum_ride remain disabled -
+  registered and visible, not silently missing.
   """
   names = {item.__name__ for item in detectors.DEFAULT_DETECTORS}
 
@@ -127,14 +128,14 @@ def test_live_registry_matches_detector_settings_defaults():
     "session_level_reaction",
     "trendline_reaction",
     "range_edge_scalp",
+    "trend_pullback",
+    "snap_back",
+    "fade_scalp",
   }
   for disabled in (
     "box_breakout",
-    "trend_pullback",
     "break_retest",
     "momentum_ride",
-    "fade_scalp",
-    "snap_back",
     "zone_reaction",
   ):
     assert disabled not in names, f"{disabled} must not be in the live registry"
@@ -184,6 +185,9 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     session_level_reaction_enabled=False,
     trendline_reaction_enabled=False,
     range_scalp_enabled=False,
+    trend_pullback_enabled=False,
+    snap_back_enabled=False,
+    fade_scalp_enabled=False,
   )
   assert detectors.build_default_detectors(all_off) == ()
 
