@@ -311,6 +311,37 @@ async def test_algo_armed_signal_suppresses_watcher_tp_booking(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_algo_armed_be_stop_does_not_spawn_manual_close_button(monkeypatch):
+  """Regression: after engine moves SL to BE, an M1 bar whose wick still
+  spans the entry zone must not fan out NEAR SL + close keyboard. That
+  button made owners manual-close the residual while broker BE was not hit.
+  """
+  fanout = AsyncMock()
+  send = AsyncMock()
+  monkeypatch.setattr(watcher, "fanout_update", fanout)
+  monkeypatch.setattr(watcher, "send_scanner_with_retry", send)
+  progress = {"tp": 1, "sl": False, "runner_pips": 52}
+  # SELL filled at 4095.79; BE stop amended to 4095.73; bar high still
+  # wicked through entry while price was already at TP.
+  sig = _buy_signal(
+    action="SELL",
+    entry=4095.0,
+    entry_end=4098.0,
+    sl=4095.73,
+    tps=[4091.0, 4087.0, 4082.0],
+    algo_armed=True,
+    broker_position_id="555",
+    broker_fill_price=4095.79,
+  )
+  bar = _bar("2026-07-30T13:39:00.000Z", 4095.80, 4096.10, 4086.00, 4086.20)
+
+  await watcher._evaluate(sig, bar, progress, atr=1.0)
+
+  fanout.assert_not_awaited()
+  assert progress["sl"] is False
+
+
+@pytest.mark.asyncio
 async def test_algo_runner_replies_to_engine_tp_message(monkeypatch):
   fanout = AsyncMock()
   send = AsyncMock()
