@@ -14,6 +14,7 @@ from app.analysis.market_map import (
   ScalpRail,
   _distance,
   _merge_display_entries,
+  _resolve_cross_side_overlaps,
   build_map,
   map_materially_changed,
   map_reference,
@@ -357,6 +358,52 @@ def test_map_reference_skips_zone_containing_price():
 
   assert result is not None
   assert "4,038" in result
+
+
+def test_resolve_cross_side_overlaps_drops_the_weaker_contradicting_zone():
+  # Live incident: the card showed BUY 4,070-4,082 (ZONE, demand) sitting
+  # almost on top of SELL 4,075-4,087 (MAJOR, supply) - each side is ranked
+  # and capped independently, so nothing ever checked whether the two
+  # resulting lists contradict each other. The MAJOR/higher-scored SELL
+  # zone should survive; the lower-tier overlapping BUY zone should not.
+  buy = MapEntry("buy", 4070.0, 4082.0, 4070, 4082, "zone", ["breaker", "flip", "demand"], 6.0)
+  sell = MapEntry("sell", 4075.0, 4087.0, 4075, 4087, "major", ["OB", "flip", "supply"], 12.0)
+  unrelated_buy = MapEntry("buy", 4001.0, 4007.0, 4001, 4007, "major", ["demand"], 12.0)
+
+  result = _resolve_cross_side_overlaps([buy, sell, unrelated_buy])
+
+  assert sell in result
+  assert buy not in result
+  assert unrelated_buy in result
+
+
+def test_resolve_cross_side_overlaps_ignores_a_minor_edge_touch():
+  # A small edge overlap between two otherwise-independent zones is normal
+  # market structure, not the contradictory-noise case - only a
+  # substantial overlap should trigger a drop.
+  buy = MapEntry("buy", 4000.0, 4010.0, 4000, 4010, "zone", ["demand"], 6.0)
+  sell = MapEntry("sell", 4009.0, 4020.0, 4009, 4020, "zone", ["supply"], 6.0)
+
+  result = _resolve_cross_side_overlaps([buy, sell])
+
+  assert buy in result
+  assert sell in result
+
+
+def test_resolve_cross_side_overlaps_circuit_breaker_fails_open():
+  # If a pass would drop more than a third of the entries, something else
+  # is wrong (e.g. a degenerate all-overlapping fixture) - fail open and
+  # return the input unchanged rather than risk stripping the map, mirroring
+  # zones.py's reconcile_opposing circuit breaker.
+  entries = []
+  for i in range(4):
+    base = 4000 + i * 2
+    entries.append(MapEntry("buy", base, base + 5, base, base + 5, "zone", ["demand"], 6.0))
+    entries.append(MapEntry("sell", base, base + 5, base, base + 5, "zone", ["supply"], 6.0))
+
+  result = _resolve_cross_side_overlaps(entries)
+
+  assert result == entries
 
 
 def test_market_map_payload_round_trips_contains_price():

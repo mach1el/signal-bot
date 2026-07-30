@@ -398,7 +398,11 @@ async def test_reward_risk_pre_gate_suppresses_card_and_confirmation(
   monkeypatch.setattr(scanner.settings, "scanner_htf", "M30")
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(scanner.settings, "auto_trade_tp_pips", "30")
+  # 15 pips against this fixture's ~20-pip reaction-family stop (structure
+  # 4100.0, buffer 0.3*ATR=2.0 -> 4099.4, entry ~4101, floored at the
+  # reaction-family minimum) is reward_risk=0.75 - genuinely below the 1.15
+  # minimum, not an artifact of a stop floor wider than the real structure.
+  monkeypatch.setattr(scanner.settings, "auto_trade_tp_pips", "15")
   monkeypatch.setattr(
     scanner,
     "_load_market_context_for_symbol",

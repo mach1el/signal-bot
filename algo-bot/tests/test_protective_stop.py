@@ -243,3 +243,33 @@ def test_reward_risk_accepts_near_entry_structure_after_minimum_clamp():
   assert result.allowed
   assert result.measured["planned_stop_pips"] == "40.0"
   assert result.measured["reward_risk"] == 1.5
+
+
+def test_reaction_family_stop_floor_is_tighter_than_trend_families():
+  # Owner's trading style: a narrow (~3 point) entry zone with a stop just
+  # beyond it - a genuinely tight, structure-computed stop. The 4 zone-scale
+  # reaction families (Key Level/Demand/Supply/Session Level/Trendline
+  # Reaction) previously fell through to the trend-family floor
+  # (auto_trade_trend_stop_min_pips=40) regardless of how tight their own
+  # structure actually was, dragging a perfectly good reward:risk down to
+  # "insufficient" for no structural reason. They now get their own,
+  # tighter floor (auto_trade_reaction_stop_min_pips=20) instead.
+  reaction = evaluate_execution_policy(
+    _policy_subject(strategy="Key Level Reaction", targets_pips=(30,)),
+    spot_price=4100.0,
+    regime="range",
+    pip_size=0.1,
+  )
+  trend = evaluate_execution_policy(
+    _policy_subject(strategy="Mapped Zone Reaction", targets_pips=(30,)),
+    spot_price=4100.0,
+    regime="trend",
+    pip_size=0.1,
+  )
+
+  assert reaction.measured["planned_stop_pips"] == "20.0"
+  assert reaction.measured["reward_risk"] == 1.5
+  assert reaction.allowed
+
+  assert trend.measured["planned_stop_pips"] == "40.0"
+  assert trend.reason_code == "policy_reward_risk_insufficient"
