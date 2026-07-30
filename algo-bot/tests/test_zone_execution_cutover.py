@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import fakeredis
 import pandas as pd
 import pytest
 
@@ -11,6 +10,7 @@ from app.autotrade.strategy_match import StrategyMatch
 from app.autotrade import worker
 from app.autotrade import zone_execution_cutover as cutover
 from app.autotrade import zone_watch as zw
+from app.persistence import redis_state
 
 
 pytestmark = pytest.mark.no_database
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.no_database
 
 @pytest.fixture
 def client():
-  return fakeredis.FakeAsyncRedis(decode_responses=True)
+  return redis_state.get_client()
 
 
 def _match(*, strategy: str = "Key Level Reaction") -> StrategyMatch:
