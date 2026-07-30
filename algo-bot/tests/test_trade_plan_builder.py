@@ -111,6 +111,38 @@ def test_bias_and_kind_are_whatever_was_captured_not_direction_derived():
   assert plan.source_structure.kind == "supply"
 
 
+def test_now_ts_refreshes_a_stale_matchs_expiry_window():
+  """Live incident: a match built at issued_at=1719999600 with a 3600s TTL
+  (expires_at=1720003200) sat in WAITING_RETEST/IN_ZONE_WAITING_M1 for
+  most of that window before its retest/M1 confirmation finally completed
+  and the plan actually got published near the end of the original TTL.
+  The C# executor then armed a market_watch plan with almost no runway
+  left and it expired without ever getting a chance to submit, despite the
+  executable quote already being inside the zone at publication. The
+  published plan's expiry must restart from actual publish time (now_ts),
+  not inherit whatever was left of the original match's clock.
+  """
+  match = _match()
+  # Same TTL (3600s) as the fixture, but "now" is deep into that original
+  # window - simulating a match that sat waiting for most of its TTL.
+  stale_now = match.issued_at + 3500
+  plan = _build(match, now_ts=stale_now)
+
+  assert plan.expires_at == stale_now + 3600
+  assert plan.entry.expires_at == stale_now + 3600
+  # Not the stale, almost-exhausted original deadline.
+  assert plan.expires_at != match.expires_at
+
+
+def test_without_now_ts_falls_back_to_the_matchs_own_expiry():
+  # Existing behavior preserved when a caller doesn't pass now_ts.
+  match = _match()
+  plan = _build(match)
+
+  assert plan.expires_at == match.expires_at
+  assert plan.entry.expires_at == match.expires_at
+
+
 def test_missing_structural_zone_id_fails_closed():
   match = _match(structural_zone_id=None)
 

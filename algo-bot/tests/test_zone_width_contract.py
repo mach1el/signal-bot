@@ -45,6 +45,29 @@ def _key_level_result(
   )
 
 
+def _structural_zone_result(
+  low: float, high: float, *, direction: str = "SELL",
+  structural_id: str = "sd-narrow",
+) -> DetectionResult:
+  # A genuine STRUCTURAL_ZONE source (BandKind.classify_band_kind), unlike
+  # _key_level_result above - key levels/session levels/trendlines are
+  # LEVEL_BAND and exempt from the 3.0-price minimum entirely (see
+  # confluence_zone.classify_band_kind); only a real supply/demand/OB/FVG
+  # band is subject to it.
+  return DetectionResult(
+    setup="Demand Zone Reaction" if direction == "BUY" else "Supply Zone Reaction",
+    direction=direction,
+    key_level=(low + high) / 2,
+    entry_zone=Zone(low, high, "demand" if direction == "BUY" else "supply"),
+    current_price=(low + high) / 2,
+    confluence=2,
+    reasons=["zone reaction"],
+    structural_source="supply_demand",
+    structural_id=structural_id,
+    structural_kind="demand" if direction == "BUY" else "supply",
+  )
+
+
 def test_supply_zone_4113_4116_width_3_is_eligible():
   result = validate_zone_width(
     raw_width=4116.0 - 4113.0,
@@ -148,7 +171,7 @@ def test_custom_width_overrides_are_respected():
 
 
 def test_scanner_gate_drops_a_too_narrow_zone_only_when_enabled(monkeypatch):
-  narrow = [_key_level_result(4100.0, 4100.5, structural_id="kl-narrow")]
+  narrow = [_structural_zone_result(4100.0, 4100.5, structural_id="sd-narrow")]
 
   monkeypatch.setattr(scanner.settings, "scanner_zone_width_gate_enabled", False)
   merged_off = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
@@ -157,6 +180,26 @@ def test_scanner_gate_drops_a_too_narrow_zone_only_when_enabled(monkeypatch):
   monkeypatch.setattr(scanner.settings, "scanner_zone_width_gate_enabled", True)
   merged_on = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
   assert merged_on == []
+
+
+def test_key_level_band_is_never_width_dropped_regardless_of_the_gate(
+  monkeypatch,
+):
+  """Recovery mission section 4: a key level is a LEVEL_BAND, not a merged
+  structural zone - it must never be rejected only for being narrower than
+  XAU_ZONE_MIN_WIDTH_PRICE, whether the scanner-stage width gate is on or
+  off. (This is the same fixture/width test_scanner_gate_drops_a_too_
+  narrow_zone_only_when_enabled used before the BandKind split - key
+  levels no longer belong in that test.)
+  """
+  narrow = [_key_level_result(4100.0, 4100.5, structural_id="kl-narrow")]
+
+  for gate_enabled in (True, False):
+    monkeypatch.setattr(
+      scanner.settings, "scanner_zone_width_gate_enabled", gate_enabled,
+    )
+    merged = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
+    assert len(merged) == 1
 
 
 def test_scanner_gate_keeps_a_contract_width_zone_when_enabled(monkeypatch):

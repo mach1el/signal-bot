@@ -107,11 +107,16 @@ def test_default_detectors_exclude_zone_reaction():
     assert required in names
 
 
-def test_live_registry_is_limited_to_the_three_supported_families():
-  """L (required): the autonomous detector registry contains only the
-  supported analysis pipeline - key level/supply/demand/order block/FVG
-  (folded into Zone Reaction) and Range Edge Scalp. No live entries for
-  any of the unrequested strategy families this refactor removes.
+def test_live_registry_matches_detector_settings_defaults():
+  """Recovery mission (2026-07-30): DEFAULT_DETECTORS is now built from
+  LIVE_DETECTOR_REGISTRY filtered by DetectorSettings' own per-detector
+  enabled flags - session_level_reaction and trendline_reaction already
+  defaulted to enabled=True in DetectorSettings/config.py (an existing,
+  fully-wired flag DEFAULT_DETECTORS was silently ignoring), so they are
+  live again. The six 2026-07-28 sources without their own confirmation
+  path re-verified against the current pipeline (box_breakout,
+  trend_pullback, break_retest, momentum_ride, fade_scalp, snap_back)
+  default to disabled - registered and visible, not silently missing.
   """
   names = {item.__name__ for item in detectors.DEFAULT_DETECTORS}
 
@@ -119,11 +124,11 @@ def test_live_registry_is_limited_to_the_three_supported_families():
     "key_level_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
+    "session_level_reaction",
+    "trendline_reaction",
     "range_edge_scalp",
   }
-  for removed in (
-    "trendline_reaction",
-    "session_level_reaction",
+  for disabled in (
     "box_breakout",
     "trend_pullback",
     "break_retest",
@@ -132,7 +137,65 @@ def test_live_registry_is_limited_to_the_three_supported_families():
     "snap_back",
     "zone_reaction",
   ):
-    assert removed not in names, f"{removed} must not be in the live registry"
+    assert disabled not in names, f"{disabled} must not be in the live registry"
+
+
+def test_disabled_registry_entries_all_have_a_replay_only_reason():
+  for registration in detectors.LIVE_DETECTOR_REGISTRY:
+    if not registration.enabled(detectors.DetectorSettings()):
+      assert registration.replay_only_reason, (
+        f"{registration.name} is disabled by default but has no "
+        "replay_only_reason - a disabled detector must never be silently "
+        "unexplained"
+      )
+
+
+def test_build_default_detectors_honors_settings_not_just_defaults():
+  all_on = detectors.DetectorSettings(
+    box_breakout_enabled=True,
+    trend_pullback_enabled=True,
+    break_retest_enabled=True,
+    momentum_ride_enabled=True,
+    snap_back_enabled=True,
+    fade_scalp_enabled=True,
+  )
+  names = {
+    item.__name__ for item in detectors.build_default_detectors(all_on)
+  }
+  assert names == {
+    "key_level_reaction",
+    "demand_zone_reaction",
+    "supply_zone_reaction",
+    "session_level_reaction",
+    "trendline_reaction",
+    "range_edge_scalp",
+    "box_breakout",
+    "trend_pullback",
+    "break_retest",
+    "momentum_ride",
+    "snap_back",
+    "fade_scalp",
+  }
+
+  all_off = detectors.DetectorSettings(
+    key_level_reaction_enabled=False,
+    demand_reaction_enabled=False,
+    supply_reaction_enabled=False,
+    session_level_reaction_enabled=False,
+    trendline_reaction_enabled=False,
+    range_scalp_enabled=False,
+  )
+  assert detectors.build_default_detectors(all_off) == ()
+
+
+def test_live_detector_report_lists_every_registration_with_a_reason():
+  report = detectors.live_detector_report(detectors.DetectorSettings())
+  by_name = {row["name"]: row for row in report}
+  assert len(report) == len(detectors.LIVE_DETECTOR_REGISTRY)
+  assert by_name["key_level_reaction"]["enabled"] is True
+  assert by_name["key_level_reaction"]["replay_only_reason"] is None
+  assert by_name["box_breakout"]["enabled"] is False
+  assert by_name["box_breakout"]["replay_only_reason"]
 
 
 def test_demand_zone_reaction_buy():

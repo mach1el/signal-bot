@@ -66,7 +66,13 @@ def _match(*, strategy: str = "Key Level Reaction") -> StrategyMatch:
   )
 
 
-def _result(*, low: float = 4113.0, high: float = 4116.0, setup="Key Level Reaction"):
+def _result(
+  *,
+  low: float = 4113.0,
+  high: float = 4116.0,
+  setup="Key Level Reaction",
+  structural_source: str = "key_level",
+):
   return SimpleNamespace(
     setup=setup,
     direction="SELL",
@@ -74,7 +80,7 @@ def _result(*, low: float = 4113.0, high: float = 4116.0, setup="Key Level React
     structural_low=low,
     structural_high=high,
     structural_timeframe="M15",
-    structural_source="key_level",
+    structural_source=structural_source,
     structural_id="zone-1",
     confluence_zone_id="zone-1",
     confluence_tags=("key_level", "supply"),
@@ -92,22 +98,74 @@ def test_grade_policy_is_explicit():
 
 
 @pytest.mark.asyncio
-async def test_width_contract_records_telemetry_even_when_legacy_gate_is_off(
-  client,
-  monkeypatch,
-):
-  monkeypatch.setattr(cutover.settings, "scanner_zone_width_gate_enabled", False)
+async def test_structural_zone_width_rejects_when_gate_enabled(client, monkeypatch):
+  monkeypatch.setattr(cutover.settings, "scanner_zone_width_gate_enabled", True)
   eligible = await cutover._record_width_telemetry(
     client,
     symbol="XAU",
     zone_id="narrow",
-    result=_result(low=4113.0, high=4113.5),
+    result=_result(
+      low=4113.0, high=4113.5, structural_source="supply_demand",
+    ),
     source_tf="M5",
   )
   assert eligible is False
   raw = await client.get(cutover.width_telemetry_key("XAU", "narrow"))
   assert raw is not None
   assert '"rejection_reason":"zone_too_narrow"' in raw
+
+
+@pytest.mark.asyncio
+async def test_structural_zone_width_gate_disabled_flag_actually_disables_it(
+  client, monkeypatch,
+):
+  """Section 4: SCANNER_ZONE_WIDTH_GATE_ENABLED=false must actually disable
+  scanner-stage structural width rejection - the cutover previously ignored
+  this flag entirely ("the cutover makes the width contract canonical"),
+  silently re-enabling a gate the operator explicitly turned off.
+  """
+  monkeypatch.setattr(cutover.settings, "scanner_zone_width_gate_enabled", False)
+  eligible = await cutover._record_width_telemetry(
+    client,
+    symbol="XAU",
+    zone_id="narrow",
+    result=_result(
+      low=4113.0, high=4113.5, structural_source="supply_demand",
+    ),
+    source_tf="M5",
+  )
+  # Telemetry still records the true (failing) width result...
+  raw = await client.get(cutover.width_telemetry_key("XAU", "narrow"))
+  assert raw is not None
+  assert '"rejection_reason":"zone_too_narrow"' in raw
+  assert '"eligible":false' in raw
+  # ...but with the gate off, this must not be able to reject the zone.
+  assert eligible is True
+
+
+@pytest.mark.asyncio
+async def test_level_band_is_never_width_rejected_regardless_of_the_gate(
+  client, monkeypatch,
+):
+  """Section 4: a key level / session level / trendline reaction is a
+  LEVEL_BAND, not a merged STRUCTURAL_ZONE - it must never be rejected only
+  for being narrower than XAU_ZONE_MIN_WIDTH_PRICE, whether the width gate
+  is on or off.
+  """
+  for gate_enabled in (True, False):
+    monkeypatch.setattr(
+      cutover.settings, "scanner_zone_width_gate_enabled", gate_enabled,
+    )
+    eligible = await cutover._record_width_telemetry(
+      client,
+      symbol="XAU",
+      zone_id=f"level-{gate_enabled}",
+      result=_result(
+        low=4113.0, high=4114.2, structural_source="key_level",
+      ),
+      source_tf="M5",
+    )
+    assert eligible is True
 
 
 @pytest.mark.asyncio
