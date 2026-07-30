@@ -340,7 +340,10 @@ def test_actionable_map_entry_appears_in_rendered_market_map():
     datetime(2026, 7, 24, 10, 0, tzinfo=timezone.utc),
     SimpleNamespace(seq_reset_tz="UTC", map_tag_limit=4),
   )
-  assert "ACTIONABLE NOW" in text
+  # "ACTIONABLE NOW" was misleading - these bands are only listed here
+  # because the per-side display cap dropped them, not because price is
+  # near them. See render_market_map's comment on this section.
+  assert "ALSO QUALIFIES" in text
   assert "4,053" in text
   assert "map_id abc123" in text
 
