@@ -67,3 +67,41 @@ def test_flat_window_has_no_gap_sweep_or_retest():
   assert structure.fvg(df) == []
   assert structure.liquidity_sweep(df, 100) is None
   assert structure.find_retest(df, 100) is None
+
+
+def test_last_consecutive_break_index_requires_the_full_run():
+  # A single close beyond the level is not, by itself, a structural break
+  # (see key_level_role.classify_key_level_role, which uses the exact same
+  # breakout_accept_bars requirement) - a run must actually reach the
+  # required length before it counts.
+  closes = [98.0, 98.0, 103.0, 97.0, 96.0]
+
+  assert structure._last_consecutive_break_index(
+    closes, 100.0, 1, above=True,
+  ) == 2
+  assert structure._last_consecutive_break_index(
+    closes, 100.0, 2, above=True,
+  ) is None
+
+
+def test_last_consecutive_break_index_finds_the_completion_bar():
+  closes = [98.0, 98.0, 103.0, 104.0, 105.0]
+
+  # required=1: the run reaches length 1 at the first close above price.
+  assert structure._last_consecutive_break_index(
+    closes, 100.0, 1, above=True,
+  ) == 2
+  # required=2: the run reaches length 2 one bar later.
+  assert structure._last_consecutive_break_index(
+    closes, 100.0, 2, above=True,
+  ) == 3
+
+
+def test_last_consecutive_break_index_tracks_the_most_recent_run():
+  # Two separate above-price runs - the function reports where the later
+  # (most recent) one reached the required length, not the first.
+  closes = [103.0, 104.0, 98.0, 105.0, 106.0]
+
+  assert structure._last_consecutive_break_index(
+    closes, 100.0, 2, above=True,
+  ) == 4
