@@ -300,6 +300,78 @@ def test_full_overlap_still_rejects_nothing_left_to_trim_into():
   assert decision.reason_code == "opposing_entry_contained"
 
 
+def test_room_below_the_ladder_but_above_the_floor_is_capped_not_rejected():
+  """2026-07-30/31: three real setups the same evening (15.18/15.2/19.9
+  pips of real buffered room) were all hard-rejected for falling short of
+  the smallest *configured* target (30 pips), even though genuine,
+  positive room existed. min_capped_target_pips (15) is a floor
+  independent of the configured ladder - room below the ladder but at or
+  above this floor is now allowed with its own real room as the target.
+  """
+  buy = _result(
+    "BUY",
+    4103.0,
+    4107.0,
+    quality=3,
+    current_price=4107.0,
+  )
+  market_map = _map(
+    _entry("sell", 4110.0, 4118.0, tier="major"),
+    price=4107.0,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.gated == ()
+  assert len(resolution.actionable) == 1
+  capped = resolution.actionable[0]
+  # raw_room = 4110.0 - 4107.0 = 3.0; buffer = 0.5*2.0 = 1.0; buffered =
+  # 2.0 price units = 20 pips - below the 30-pip floor of the configured
+  # ladder [30, 50, 70] but above the 15-pip minimum-viability floor.
+  assert capped.target_cap_pips == pytest.approx(20.0)
+
+
+def test_room_below_the_floor_still_rejects():
+  """The floor is a real floor, not a removal of the gate - room this
+  thin still has nothing worth taking.
+  """
+  buy = _result(
+    "BUY",
+    4103.0,
+    4108.7,
+    quality=3,
+    current_price=4108.7,
+  )
+  market_map = _map(
+    _entry("sell", 4110.0, 4118.0, tier="major"),
+    price=4108.7,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.hard_block is True
+  assert decision.reason_code == "opposing_barrier_no_target"
+
+
 def test_counter_bias_reaction_is_hard_blocked_when_disabled():
   # Owner's call: Key Level/Demand/Supply Zone/Session Level/Trendline
   # Reaction all derive direction purely from structural evidence (a
