@@ -337,7 +337,14 @@ def test_market_route_publishes_the_quote_as_planned_entry():
   "strategy",
   ["Key Level Reaction", "Trendline Reaction"],
 )
-def test_reaction_family_publishes_concrete_market_route(strategy):
+def test_reaction_family_falls_back_to_a_concrete_market_route_when_narrow(
+  strategy,
+):
+  """Reaction families now prefer a DCA-into-zone scale ladder (owner spec),
+  but with zone-fill disabled (this test's default cfg), a reaction family
+  must still resolve to a concrete single market fill - never an
+  unresolved `either` - exactly like before this change.
+  """
   evaluation = evaluate_execution_policy(
     _policy_match(strategy=strategy),
     spot_price=4100.5,
@@ -347,7 +354,8 @@ def test_reaction_family_publishes_concrete_market_route(strategy):
   )
 
   assert evaluation.allowed
-  assert evaluation.measured["order_type_preference"] == "market"
+  assert evaluation.measured["order_type_preference"] == "limit"
+  assert evaluation.measured["entry_distribution"] == "zone_scale"
   assert evaluation.measured["planned_execution_route"] == "market"
   assert evaluation.measured["planned_leg_entry_prices"] == []
 

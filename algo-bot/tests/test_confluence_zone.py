@@ -13,6 +13,7 @@ import pytest
 from app.analysis.confluence_zone import (
   ConfluenceMember,
   claim_confluence_zone,
+  confluence_zone_id,
   merge_confluence_zones,
   release_confluence_zone,
   resolve_confluence_zone_id,
@@ -157,3 +158,26 @@ def test_no_opposing_merge_demand_and_supply_stay_distinct():
   assert sides == {"buy", "sell"}
   for zone in zones:
     assert len(zone.provenance) == 1
+
+
+def test_zone_id_survives_width_jitter_across_a_rounding_boundary():
+  """Live production incident: the same resistance level (key_level
+  4035.63, map SELL 4033-4042) was re-detected twice with a slightly
+  different measured entry zone - 4032.9-4038.35 then 4032.84-4038.41 -
+  and each publish got its own zone_id, so the SAME structural level
+  published two separate TradePlan V7s (and two live PLAN PUBLISHED
+  cards) a few minutes apart.
+
+  Both bands share the exact same bucketed midpoint (4035.625 -> 4036.0
+  at bucket=1.0), but their widths (5.45 vs 5.57) straddle the 5.5
+  rounding boundary at that same bucket size, which used to flip the old
+  width_bucket component by a full unit and change the id. Width must
+  never be part of zone identity for exactly this reason.
+  """
+  id_a = confluence_zone_id(
+    "XAU", "sell", 4032.9, 4038.35, ("key_level",), atr=1.0, pip_size=0.1,
+  )
+  id_b = confluence_zone_id(
+    "XAU", "sell", 4032.84, 4038.41, ("key_level",), atr=1.0, pip_size=0.1,
+  )
+  assert id_a == id_b
