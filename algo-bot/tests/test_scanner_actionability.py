@@ -510,7 +510,17 @@ def test_generic_key_level_without_acceptance_is_ambiguous():
   assert decision.role == ROLE_AMBIGUOUS
 
 
-def test_role_ambiguity_is_static_block_even_when_legacy_gate_is_off():
+def test_role_ambiguity_is_telemetry_only_never_a_hard_block():
+  """P0 zone/M1 simplification: key_level_reaction() (detectors.py) no
+  longer emits a genuinely-undecided ambiguous-role result - it
+  deterministically resolves to exactly one direction before this point,
+  or discards the level entirely. Hard-blocking "ambiguous role" here
+  duplicated a decision already made upstream and rejected every one of
+  those decisions regardless of how they were actually resolved. Now
+  recorded for telemetry only, never gated - and never actionable-
+  blocking regardless of the (already dead)
+  key_level_role_ambiguity_gate_enabled flag.
+  """
   result = _result(
     "BUY",
     99.5,
@@ -529,14 +539,14 @@ def test_role_ambiguity_is_static_block_even_when_legacy_gate_is_off():
     cfg=_cfg(actionability_gate=False, role_ambiguity_gate=False),
   )
 
-  assert resolution.actionable == ()
-  assert len(resolution.gated) == 1
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
   decision = next(
     decision for _item, decision in resolution.decisions
     if decision.reason_code == "key_level_role_ambiguous"
   )
-  assert decision.hard_block is True
-  assert decision.allowed is False
+  assert decision.hard_block is False
+  assert decision.allowed is True
 
 
 def test_key_level_explicit_role_and_accepted_break_are_deterministic():
