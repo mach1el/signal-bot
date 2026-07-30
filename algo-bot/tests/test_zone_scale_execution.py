@@ -83,12 +83,12 @@ def test_all_reaction_families_use_the_zone_scale_ladder(strategy):
 
 
 def test_sell_zone_first_leg_is_proximal_low_at_seventy_percent():
-  # SELL zone 4035-4036.5: proximal (first touched, rising into resistance
-  # from below) = zone low = 4035.
+  # SELL zone 4035-4036.5, price still at the low edge (proximal, first
+  # touched rising into resistance from below) when the signal fires.
   evaluation = evaluate_execution_policy(
     _policy_match(direction="SELL"),
-    spot_price=4035.5,
-    executable_quote=4035.5,
+    spot_price=4035.0,
+    executable_quote=4035.0,
     regime="range",
     pip_size=0.1,
     cfg=_cfg(),
@@ -101,9 +101,47 @@ def test_sell_zone_first_leg_is_proximal_low_at_seventy_percent():
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4035.5)
 
 
+def test_sell_zone_already_inside_anchors_first_leg_at_current_price():
+  # Detection latency means price is often already past the near edge by
+  # the time the signal confirms (e.g. sweep_reclaim needs a full bar to
+  # confirm). A resting SELL limit left at the stale 4035 edge would sit
+  # below the current quote - not a valid resting order, so it would never
+  # place/fill. Leg 1 must anchor to the current quote instead.
+  evaluation = evaluate_execution_policy(
+    _policy_match(direction="SELL"),
+    spot_price=4035.5,
+    executable_quote=4035.5,
+    regime="range",
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  measured = evaluation.measured
+  assert measured["planned_leg_entry_prices"][0] == pytest.approx(4035.5)
+  assert measured["planned_leg_entry_prices"][1] == pytest.approx(4036.0)
+
+
 def test_buy_zone_first_leg_is_proximal_high_at_seventy_percent():
-  # BUY zone 4035-4036.5: proximal (first touched, falling into demand
-  # from above) = zone high = 4036.5.
+  # BUY zone 4035-4036.5, price still at the high edge (proximal, first
+  # touched falling into demand from above) when the signal fires.
+  evaluation = evaluate_execution_policy(
+    _policy_match(direction="BUY", structure_swing=4033.5),
+    spot_price=4036.5,
+    executable_quote=4036.5,
+    regime="range",
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  measured = evaluation.measured
+  assert measured["planned_leg_entry_prices"][0] == pytest.approx(4036.5)
+  assert measured["planned_leg_volume_ratios"] == pytest.approx([0.70, 0.30])
+  assert measured["planned_leg_entry_prices"][1] == pytest.approx(4036.0)
+
+
+def test_buy_zone_already_inside_anchors_first_leg_at_current_price():
+  # Same detection-latency case as the SELL side: price already fell past
+  # the near (high) edge into the zone by confirmation time - a resting
+  # BUY limit left at the stale 4036.5 edge would sit above the current
+  # quote and never place/fill. Leg 1 must anchor to the current quote.
   evaluation = evaluate_execution_policy(
     _policy_match(direction="BUY", structure_swing=4033.5),
     spot_price=4036.0,
@@ -113,9 +151,8 @@ def test_buy_zone_first_leg_is_proximal_high_at_seventy_percent():
     cfg=_cfg(),
   )
   measured = evaluation.measured
-  assert measured["planned_leg_entry_prices"][0] == pytest.approx(4036.5)
-  assert measured["planned_leg_volume_ratios"] == pytest.approx([0.70, 0.30])
-  assert measured["planned_leg_entry_prices"][1] == pytest.approx(4036.0)
+  assert measured["planned_leg_entry_prices"][0] == pytest.approx(4036.0)
+  assert measured["planned_leg_entry_prices"][1] == pytest.approx(4035.5)
 
 
 def test_scale_ladder_never_places_the_second_leg_past_the_far_edge():
@@ -160,7 +197,7 @@ def test_first_leg_fraction_and_step_are_configurable():
     direction="SELL",
     order_type_preference="limit",
     entry_distribution="zone_scale",
-    executable_quote=4035.1,
+    executable_quote=4035.0,
     zone_low=4035.0,
     zone_high=4040.0,
     atr=1.0,
