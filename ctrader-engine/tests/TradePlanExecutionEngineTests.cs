@@ -138,8 +138,11 @@ public sealed class TradePlanExecutionEngineTests
     );
 
     Assert.True(result.TotalVolume > 0);
-    Assert.Equal(3, result.Slices.Count);
-    Assert.Equal(result.TotalVolume, result.Slices.Sum(slice => slice.Volume));
+    // market_watch submits the whole position as one order - no per-target
+    // slice exists to compute. TP close volume is worked out live from
+    // RemainingVolume at each target hit (TradePlanRuntime), never from a
+    // pre-built list here.
+    Assert.Empty(result.Slices);
   }
 
   [Fact]
@@ -154,19 +157,65 @@ public sealed class TradePlanExecutionEngineTests
     Assert.True(result.TotalVolume <= 500);
   }
 
+  private static TradePlan LimitLadderPlan(
+    string direction = "BUY",
+    decimal legPrice1 = 4089.50m,
+    decimal legPrice2 = 4085.00m,
+    decimal leg1Ratio = 0.60m,
+    decimal leg2Ratio = 0.40m,
+    decimal stopPrice = 4079.00m,
+    long maxVolume = 100_000
+  ) => new(
+    Version: 7,
+    PlanId: "plan-1",
+    ThesisId: "thesis-1",
+    SetupId: "setup-1",
+    Symbol: "XAU",
+    CreatedAt: 1_720_000_000,
+    ExpiresAt: 1_720_003_600,
+    Analysis: new TradePlanAnalysis(
+      "Structural Zone Reaction", "structural_zone", direction,
+      new[] { "M15" }, "M15", "M5", 1, 1, 0.65, 2, "up", "range"
+    ),
+    SourceStructure: new TradePlanSourceStructure(
+      "structure-1", "demand", "M15", legPrice2, legPrice1, stopPrice
+    ),
+    Entry: new TradePlanEntry(
+      "limit_ladder",
+      1_720_003_600,
+      ZoneLow: legPrice2,
+      ZoneHigh: legPrice1,
+      Legs: new[]
+      {
+        new TradePlanEntryLeg("L1", legPrice1, leg1Ratio),
+        new TradePlanEntryLeg("L2", legPrice2, leg2Ratio),
+      }
+    ),
+    Stop: new TradePlanStop("absolute", stopPrice, "structural_invalidation"),
+    Targets: new[] { new TradePlanTarget("TP1", "absolute", legPrice1 + 8m, 1.0m) },
+    Risk: new TradePlanRisk(1.0m, 1.0m, maxVolume, 2.0m),
+    Management: new TradePlanManagement(null, 6, true),
+    ExecutionPolicy: new TradePlanExecutionPolicy(false, true, true, true),
+    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1")
+  );
+
   [Fact]
-  public void CalculateVolumeSlicesAreProportionalToCloseRatio()
+  public void CalculateVolumeSlicesForALimitLadderAreProportionalToLegVolumeRatio()
   {
-    var plan = MarketWatchPlan();
+    var plan = LimitLadderPlan(leg1Ratio: 0.60m, leg2Ratio: 0.40m);
 
     var result = TradePlanExecutionEngine.CalculateVolume(
       plan, accountBalance: 200_000m, pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    var tp1 = result.Slices.Single(slice => slice.TargetId == "TP1").Volume;
-    var tp3 = result.Slices.Single(slice => slice.TargetId == "TP3").Volume;
-    // TP1 close_ratio 0.40 > TP3 close_ratio 0.25.
-    Assert.True(tp1 >= tp3);
+    Assert.Equal(2, result.Slices.Count);
+    Assert.Equal(result.TotalVolume, result.Slices.Sum(slice => slice.Volume));
+    var l1 = result.Slices.Single(slice => slice.TargetId == "L1").Volume;
+    var l2 = result.Slices.Single(slice => slice.TargetId == "L2").Volume;
+    // L1 volume_ratio 0.60 > L2 volume_ratio 0.40 - and this must track the
+    // leg ratio, not plan.Targets.CloseRatio (this plan's single TP1 has
+    // close_ratio 1.0, which would say nothing about a 60/40 split).
+    Assert.True(l1 > l2);
   }
 
   [Fact]
