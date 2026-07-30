@@ -9,6 +9,7 @@ import pandas as pd
 from app.analysis import detectors
 from app.analysis.structural_reaction_support import (
   STRUCTURAL_SETUPS,
+  engulfing_on_bar,
   evaluate_structural_reaction,
   structural_thesis_id,
 )
@@ -345,6 +346,67 @@ def test_confirmation_older_than_lookback_rejected():
     lookback_bars=2,
   )
   assert conf is None
+
+
+def test_engulfing_on_bar_bullish_and_bearish():
+  bullish_prior = pd.Series({"open": 103.0, "high": 104.0, "low": 102.0, "close": 102.5})
+  bullish_engulf = pd.Series({"open": 102.0, "high": 106.5, "low": 101.8, "close": 106.0})
+  assert engulfing_on_bar(bullish_engulf, bullish_prior, "BUY") is True
+  assert engulfing_on_bar(bullish_engulf, bullish_prior, "SELL") is False
+
+  bearish_prior = pd.Series({"open": 102.5, "high": 104.0, "low": 102.0, "close": 103.0})
+  bearish_engulf = pd.Series({"open": 106.0, "high": 106.5, "low": 101.8, "close": 102.0})
+  assert engulfing_on_bar(bearish_engulf, bearish_prior, "SELL") is True
+  assert engulfing_on_bar(bearish_engulf, bearish_prior, "BUY") is False
+
+  # Body does not fully cover the prior bar's body -> not an engulfing bar.
+  partial_prior = pd.Series({"open": 103.0, "high": 104.0, "low": 102.0, "close": 100.0})
+  small_bar = pd.Series({"open": 102.0, "high": 103.0, "low": 101.5, "close": 102.8})
+  assert engulfing_on_bar(small_bar, partial_prior, "BUY") is False
+
+
+def test_engulfing_confirms_a_slow_grind_reaction_with_no_rejection_wick():
+  # Live gap: a multi-hour chop right at a demand zone (small-bodied
+  # consolidation candles, no single dramatic rejection wick) never
+  # satisfies wick_rejection_on_bar/strong_reclaim_on_bar, so
+  # Demand Zone Reaction stayed silent for hours despite repeated genuine
+  # touches. A bullish engulfing candle - a well-established reversal
+  # confirmation on its own - is exactly the pattern that shape of reaction
+  # actually produces.
+  df = _df([
+    (100, 101, 98, 100, 100),
+    (101, 108, 100, 107, 100),
+    (107, 109, 103, 104, 100),
+    (104, 106, 100.5, 103, 100),  # small-bodied touch at demand
+    (102, 106.5, 101.8, 106, 100),  # bullish engulfing confirmation
+  ])
+  conf = evaluate_structural_reaction(
+    df, direction="BUY", low=100, high=106, lookback_bars=3,
+  )
+  assert conf is not None
+  assert conf.confirmation_type == "engulfing"
+
+
+def test_engulfing_never_overrides_a_stronger_confirmation():
+  # Additive only: when a bar independently qualifies as an engulfing bar
+  # AND some stronger existing pattern, the existing pattern must still
+  # win - engulfing is checked last in the confirmation chain. (This bar
+  # happens to also sweep below the zone and reclaim, so strong_reclaim
+  # wins; the point being proven is simply that it is never "engulfing".)
+  df = _df([
+    (100, 101, 98, 100, 100),
+    (101, 108, 100, 107, 100),
+    (107, 109, 103, 104, 100),
+    (104, 106, 100.5, 103, 100),  # small-bodied touch at demand
+    (102, 106, 98, 105, 100),  # engulfing-shaped, but also a sweep+reclaim
+  ])
+  conf = evaluate_structural_reaction(
+    df, direction="BUY", low=100, high=106, lookback_bars=3,
+  )
+  assert conf is not None
+  assert engulfing_on_bar(df.iloc[-1], df.iloc[-2], "BUY")
+  assert conf.confirmation_type != "engulfing"
+  assert conf.confirmation_type == "strong_reclaim"
 
 
 def test_strategy_family_and_stable_thesis_identity():
