@@ -126,10 +126,11 @@ def _cfg(
   profile: str = "conservative",
   actionability_gate: bool = True,
   role_ambiguity_gate: bool = True,
+  allow_counter_bias: bool = True,
 ) -> SimpleNamespace:
   return SimpleNamespace(
     contested_corridor_gap_atr=0.5,
-    auto_trade_allow_counter_bias=True,
+    auto_trade_allow_counter_bias=allow_counter_bias,
     auto_trade_structural_guard_mode=guard_mode,
     auto_trade_profile=profile,
     auto_trade_opposing_barrier_atr=0.5,
@@ -210,6 +211,55 @@ def test_target_room_is_static_block_even_when_legacy_gate_is_off():
   )
   assert decision.hard_block is True
   assert decision.allowed is False
+
+
+def test_counter_bias_reaction_is_hard_blocked_when_disabled():
+  # Owner's call: Key Level/Demand/Supply Zone/Session Level/Trendline
+  # Reaction all derive direction purely from structural evidence (a
+  # level's role, a zone, a session level, a trendline) - none of them
+  # ever required HTF-bias alignment, only scored it as a confluence
+  # bonus. That structural evidence alone is not sufficient reason to
+  # trade against a directional HTF bias for these families - this is the
+  # default now (auto_trade_allow_counter_bias=False), not opt-in.
+  buy = _result("BUY", 4100.0, 4101.0, quality=3, current_price=4100.5)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=_map(price=4100.5),
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(allow_counter_bias=False),
+  )
+
+  assert resolution.actionable == ()
+  decision = next(
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "counter_bias_disabled"
+  )
+  assert decision.hard_block is True
+  assert decision.allowed is False
+
+
+def test_with_bias_reaction_is_unaffected_by_counter_bias_disabled():
+  sell = _result("SELL", 4100.0, 4101.0, quality=3, current_price=4100.5)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[sell],
+    market_map=_map(price=4100.5),
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(allow_counter_bias=False),
+  )
+
+  assert not any(
+    decision.reason_code == "counter_bias_disabled"
+    for _item, decision in resolution.decisions
+  )
+  assert resolution.actionable == (sell,)
 
 
 def test_invalid_geometry_is_always_analysis_only():
@@ -651,6 +701,11 @@ def test_structural_target_room_caps_configured_ladder():
 
 def test_barrier_capped_target_is_used_by_reward_risk_pre_gate(monkeypatch):
   monkeypatch.setattr(scanner.settings, "auto_trade_tp_pips", "30,50,70")
+  # This fixture's _result() helper labels every BUY "counter_bias"
+  # regardless of the ctx.htf_bias passed in below (a fixture quirk, not
+  # something this test is exercising) - this test is about barrier-capped
+  # target room, not counter-bias policy, so keep it enabled here.
+  monkeypatch.setattr(scanner.settings, "auto_trade_allow_counter_bias", True)
   result = _result(
     "BUY",
     4095.0,
