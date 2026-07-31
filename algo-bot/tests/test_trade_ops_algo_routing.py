@@ -162,7 +162,7 @@ async def test_do_close_defers_to_broker_when_algo_and_filled(monkeypatch):
   assert result["ok"] is True
   assert result["pending"] is True
   assert trade_ops.render_result(result, "XAU") == (
-    f"⏳ #{rec['id']} close requested — awaiting broker confirmation"
+    f"⏳ #{rec['id']} close requested"
   )
 
 
@@ -317,7 +317,7 @@ def test_render_result_pending_close():
     "row": {"id": 1, "daily_seq": 3},
   }
   assert trade_ops.render_result(result, "XAU") == (
-    "⏳ #3 close requested — awaiting broker confirmation"
+    "⏳ #3 close requested"
   )
 
 
@@ -327,7 +327,7 @@ def test_render_result_pending_cancel():
     "row": {"id": 1, "daily_seq": 4},
   }
   assert trade_ops.render_result(result, "XAU") == (
-    "⏳ #4 cancel requested — awaiting broker confirmation"
+    "⏳ #4 cancel requested"
   )
 
 
@@ -337,7 +337,7 @@ def test_render_result_pending_sl():
     "row": {"id": 1, "daily_seq": 5},
   }
   assert trade_ops.render_result(result, "XAU") == (
-    "⏳ #5 stop-loss move requested — awaiting broker confirmation"
+    "⏳ #5 stop-loss move requested"
   )
 
 
@@ -347,5 +347,5 @@ def test_render_result_public_tier_pending_close_has_no_seq():
     "row": {"id": 1, "daily_seq": 3},
   }
   assert trade_ops.render_result(result, "XAU", "public") == (
-    "⏳ close requested — awaiting broker confirmation"
+    "⏳ close requested"
   )

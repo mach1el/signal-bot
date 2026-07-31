@@ -26,6 +26,8 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   scanner = AsyncMock()
   auto_scalp = AsyncMock()
   market_map = AsyncMock()
+  stats_backfill = AsyncMock(return_value="0-0")
+  stats_ingestion = AsyncMock()
   commands = AsyncMock()
   scanner_commands = AsyncMock()
   polling = AsyncMock()
@@ -38,6 +40,12 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   monkeypatch.setattr(main, "scanner_loop", scanner)
   monkeypatch.setattr(main, "auto_scalp_loop", auto_scalp)
   monkeypatch.setattr(main, "market_map_scan_loop", market_map)
+  monkeypatch.setattr(
+    main, "backfill_retained_auto_trade_stats", stats_backfill,
+  )
+  monkeypatch.setattr(
+    main, "auto_trade_stats_ingestion_loop", stats_ingestion,
+  )
   monkeypatch.setattr(main, "setup_commands", commands)
   monkeypatch.setattr(main, "setup_scanner_commands", scanner_commands)
   monkeypatch.setattr(main.dp, "start_polling", polling)
@@ -57,6 +65,8 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   scanner.assert_awaited_once()
   auto_scalp.assert_awaited_once()
   market_map.assert_awaited_once()
+  stats_backfill.assert_awaited_once()
+  stats_ingestion.assert_awaited_once()
   commands.assert_awaited_once_with(main.bot)
   scanner_commands.assert_awaited_once_with(main.scanner_bot)
   scanner_polling.assert_called_once_with(

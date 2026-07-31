@@ -1369,6 +1369,7 @@ async def test_v7_order_filled_and_position_closed_feed_trade_stats():
     "candidate_id": "v7:17ab03ca932a19b11d374d2ae9de8f30",
     "direction": "BUY",
     "price": 4064.85,
+    "target_pips": 90,
     "remaining_volume": 0,
     "message": "PLAN CLOSED · highest TP archived TP1",
   })
@@ -1379,7 +1380,7 @@ async def test_v7_order_filled_and_position_closed_feed_trade_stats():
   assert row["stream"] == "algo_auto"
   assert row["trade_key"] == "algo:v7:17ab03ca932a19b11d374d2ae9de8f30"
   assert row["sign"] == "+"
-  assert row["pips"] == 40  # (4064.85 - 4060.85) / 0.1
+  assert row["pips"] == 90  # highest archived TP, not the residual close
   assert row["stop_pips"] == pytest.approx(43.0)  # (4060.85 - 4056.55) / 0.1
 
 

@@ -612,6 +612,7 @@ async def test_handle_event_manual_sl_moved_updates_stop(monkeypatch):
 async def test_handle_event_manual_cancelled_cancels_armed_signal(monkeypatch):
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()  # armed, never filled
+  await store.insert_signal_post(sid, -100987654321, 9900 + sid, "public")
   client = redis_state.get_client()
   positions: dict[int, int] = {}
 
@@ -622,8 +623,13 @@ async def test_handle_event_manual_cancelled_cancels_armed_signal(monkeypatch):
   assert row["status"] == "cancelled"
   assert row["execution_status"] == "cancelled"
   assert row["algo_armed"] is False
-  # Algo-manual cancel must not fan out a VIP/public channel card.
-  send.assert_not_awaited()
+  # Broker-confirmed cancel is a real signal lifecycle result and replies to
+  # both persisted VIP + public roots.
+  assert send.await_count == 2
+  texts = [call.args[0] for call in send.await_args_list]
+  assert all("cancelled" in text for text in texts)
+  assert any(f"#{sid}" in text for text in texts)
+  assert any(f"#{sid}" not in text for text in texts)
 
 
 @pytest.mark.asyncio
