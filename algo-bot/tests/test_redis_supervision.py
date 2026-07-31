@@ -65,7 +65,6 @@ async def test_run_supervised_restarts_after_connection_error(monkeypatch):
       raise redis.exceptions.ConnectionError(
         "Error -2 connecting to redis:6379. Name or service not known."
       )
-    # Second run stays alive until cancelled.
     await asyncio.Event().wait()
 
   async def fast_sleep(seconds):
@@ -106,6 +105,7 @@ async def test_run_supervised_does_not_restart_programming_bug(monkeypatch):
   runs = {"n": 0}
   resets = {"n": 0}
   health = []
+  alerts = []
 
   async def buggy_loop():
     runs["n"] += 1
@@ -117,8 +117,12 @@ async def test_run_supervised_does_not_restart_programming_bug(monkeypatch):
   async def fake_health(**kwargs):
     health.append(kwargs)
 
+  async def fake_alert(**kwargs):
+    alerts.append(kwargs)
+
   monkeypatch.setattr(redis_state, "reset_client", fake_reset)
   monkeypatch.setattr(redis_state, "publish_component_health", fake_health)
+  monkeypatch.setattr(redis_state, "_alert_owner_component_fatal", fake_alert)
 
   with pytest.raises(KeyError, match="missing plan field"):
     await redis_state.run_supervised("buggy_loop", buggy_loop)
@@ -126,6 +130,35 @@ async def test_run_supervised_does_not_restart_programming_bug(monkeypatch):
   assert runs["n"] == 1
   assert resets["n"] == 0
   assert any(item.get("state") == "fatal" for item in health)
+  assert alerts and alerts[0]["component"] == "buggy_loop"
+
+
+@pytest.mark.asyncio
+async def test_fatal_health_has_no_ttl(monkeypatch):
+  sets = []
+
+  class FakeClient:
+    async def set(self, key, value, ex=None, nx=None):
+      sets.append({"key": key, "ex": ex, "nx": nx})
+      return True
+
+  monkeypatch.setattr(redis_state, "get_client", lambda: FakeClient())
+
+  await redis_state.publish_component_health(
+    component="scanner_loop",
+    state="fatal",
+    error="KeyError",
+  )
+  await redis_state.publish_component_health(
+    component="scanner_loop",
+    state="ready",
+  )
+
+  fatal = next(item for item in sets if "fatal" in str(item) or item["ex"] is None)
+  # First call is fatal without TTL; second is ready with TTL.
+  assert sets[0]["ex"] is None
+  assert sets[1]["ex"] == redis_state._COMPONENT_HEALTH_TTL
+  assert fatal["ex"] is None
 
 
 @pytest.mark.asyncio
@@ -144,13 +177,22 @@ async def test_run_supervised_does_not_restart_clean_exit(monkeypatch):
   assert runs["n"] == 1
 
 
-@pytest.mark.asyncio
-async def test_is_transient_redis_error_classifies():
+def test_is_transient_redis_error_classifies():
   assert redis_state.is_transient_redis_error(
     redis.exceptions.ConnectionError("Name or service not known")
   )
   assert redis_state.is_transient_redis_error(
-    TimeoutError("timed out")
+    redis.exceptions.TimeoutError("Timeout reading from redis")
+  )
+  assert redis_state.is_transient_redis_error(
+    OSError("Error -2 connecting to redis:6379. Name or service not known.")
   )
   assert not redis_state.is_transient_redis_error(KeyError("x"))
   assert not redis_state.is_transient_redis_error(TypeError("bad"))
+  assert not redis_state.is_transient_redis_error(
+    RuntimeError("broker fill timeout")
+  )
+  assert not redis_state.is_transient_redis_error(
+    ValueError("statement timeout")
+  )
+  assert not redis_state.is_transient_redis_error(TimeoutError("timed out"))

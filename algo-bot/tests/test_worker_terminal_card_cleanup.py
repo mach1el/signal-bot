@@ -100,22 +100,25 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   assert payloads[-1]["type"] == CANCELLED
   assert payloads[-1]["reason_code"] == "v7_plan_build_incomplete"
 
-  deleted = []
+  edited = []
+
+  async def edit_card(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
 
   async def delete_card(chat_id, message_id):
-    deleted.append((chat_id, message_id))
+    raise AssertionError("reject/expire must edit root, not delete")
 
-  monkeypatch.setattr(delivery.settings, "auto_trade_telegram_single_root_card", False)
-  monkeypatch.setattr(delivery.settings, "delivery_delete_on_terminal", True)
   monkeypatch.setattr(delivery, "delete_scanner_message", delete_card)
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", edit_card)
 
   delivered = await delivery._deliver_auto_trade_event(
     client, payloads[-1], profile="internal", chat_id=4242,
   )
 
   assert delivered is False
-  assert deleted == [(4242, 9005)]
-  assert await client.get(forming_message_key(setup_id)) is None
+  assert len(edited) == 1
+  assert edited[0][:2] == (4242, 9005)
+  assert await client.get(forming_message_key(setup_id)) is not None
 
 
 @pytest.mark.asyncio

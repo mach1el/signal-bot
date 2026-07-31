@@ -326,18 +326,14 @@ def test_be_after_target_index_can_be_overridden():
   assert plan.management.be_after_target_id == "TP2"
 
 
-def test_execution_policy_rejection_is_not_silently_swallowed():
-  # confluence 1 is below Trend Pullback's min_confluence=2 -> the shared
-  # V6 gate rejects it, and the builder must surface that reason, not
-  # raise an opaque error or (worse) build a plan anyway.
+def test_execution_policy_preference_does_not_block_builder():
+  # confluence 1 is below Trend Pullback's min_confluence=2 — preference
+  # telemetry only; the builder still produces a plan.
   match = _match()
   low_confluence = replace(match, confluence=1)
 
-  with pytest.raises(TradePlanBuildRejected) as excinfo:
-    _build(low_confluence)
-
-  assert excinfo.value.reason_code
-  assert excinfo.value.measured
+  plan = _build(low_confluence)
+  assert plan.analysis.confluence == 1
 
 
 def test_retest_trigger_wick_drives_stop_rr_and_confirmation_provenance():
@@ -356,17 +352,16 @@ def test_retest_trigger_wick_drives_stop_rr_and_confirmation_provenance():
   assert plan.provenance.zone_episode_id == "episode-1"
 
 
-def test_final_reward_risk_uses_retest_trigger_wick_not_structure_fallback():
-  with pytest.raises(TradePlanBuildRejected) as excinfo:
-    _build(
-      _match(structure_swing=4085.0, targets=(60,)),
-      confirmation_source="m1_retest",
-      execution_confirmation_bar_ts=1_720_000_060,
-      zone_episode_id="episode-rr",
-      trigger_wick_extreme=4083.5,
-    )
-
-  assert excinfo.value.reason_code == "policy_reward_risk_insufficient"
+def test_final_reward_risk_preference_keeps_builder_plan():
+  plan = _build(
+    _match(structure_swing=4085.0, targets=(60,)),
+    confirmation_source="m1_retest",
+    execution_confirmation_bar_ts=1_720_000_060,
+    zone_episode_id="episode-rr",
+    trigger_wick_extreme=4083.5,
+  )
+  assert plan.management is not None
+  assert plan.stop.source == "m1_trigger_wick"
 
 
 def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():

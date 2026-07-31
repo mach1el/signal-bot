@@ -220,7 +220,7 @@ public sealed class TradePlanExecutionEngineTests
     CreatedAt: 1_720_000_000,
     ExpiresAt: 1_720_003_600,
     Analysis: new TradePlanAnalysis(
-      "Structural Zone Reaction", "structural_zone", direction,
+      "Zone Reaction", "supply_demand", direction,
       new[] { "M15" }, "M15", "M5", 1, 1, 0.65, 2, "up", "range"
     ),
     SourceStructure: new TradePlanSourceStructure(

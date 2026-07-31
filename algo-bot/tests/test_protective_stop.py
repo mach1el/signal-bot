@@ -281,7 +281,7 @@ def _policy_subject(**overrides):
   return SimpleNamespace(**values)
 
 
-def test_reward_risk_uses_clamped_stop_and_rejects_old_apparent_30r():
+def test_reward_risk_uses_clamped_stop_and_records_insufficient_rr_preference():
   result = evaluate_execution_policy(
     _policy_subject(),
     spot_price=4100.0,
@@ -289,8 +289,10 @@ def test_reward_risk_uses_clamped_stop_and_rejects_old_apparent_30r():
     pip_size=0.1,
   )
 
-  assert not result.allowed
+  # Insufficient RR is preference telemetry on the measured payload.
+  assert result.allowed
   assert result.reason_code == "policy_reward_risk_insufficient"
+  assert result.measured.get("preference_telemetry") is True
   assert result.measured["planned_stop_pips"] == "40.0"
   assert result.measured["planned_final_stop_pips"] == "40.0"
   assert result.measured["reward_risk"] == 0.75

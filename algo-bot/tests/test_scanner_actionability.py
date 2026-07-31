@@ -131,6 +131,8 @@ def _cfg(
   role_ambiguity_gate: bool = True,
   allow_counter_bias: bool = True,
   displacement_lookback_bars: int = 0,
+  execution_cost_pips: float = 1.0,
+  min_capped_target_pips: float = 15.0,
 ) -> SimpleNamespace:
   return SimpleNamespace(
     contested_corridor_gap_atr=0.5,
@@ -141,15 +143,18 @@ def _cfg(
     scanner_actionability_gate_enabled=actionability_gate,
     key_level_role_ambiguity_gate_enabled=role_ambiguity_gate,
     auto_trade_displacement_override_lookback_bars=displacement_lookback_bars,
+    auto_trade_execution_cost_pips=execution_cost_pips,
+    auto_trade_min_capped_target_pips=min_capped_target_pips,
   )
 
 
 @pytest.mark.parametrize("profile", ["conservative", "demo_eval"])
 @pytest.mark.parametrize("guard_mode", ["observe", "balanced", "strict"])
-def test_buy_under_overlapping_sell_major_is_hard_gated(
+def test_buy_under_overlapping_sell_major_hard_gates_on_execution_cost(
   profile,
   guard_mode,
 ):
+  """Raw room is tiny but positive; buffer eats it → execution-cost floor."""
   buy = _result(
     "BUY",
     4041.67,
@@ -178,13 +183,43 @@ def test_buy_under_overlapping_sell_major_is_hard_gated(
   assert resolution.actionable == ()
   assert len(resolution.gated) == 1
   decision = resolution.gated[0][1]
-  assert decision.reason_code == "opposing_major_no_room"
+  assert decision.reason_code == "execution_cost_insufficient_room"
   assert decision.hard_block is True
   assert decision.allowed is False
-  assert decision.measured["planned_entry_price"] == pytest.approx(4045.95)
-  assert decision.measured["opposing_low"] == pytest.approx(4046.0)
-  # Zone trim leaves no overlap; major-tier zero buffered room hard-gates.
+  assert decision.measured["raw_room_price"] == pytest.approx(0.05)
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.0)
+
+
+def test_raw_room_zero_major_hard_gates():
+  # Planned entry already past the opposing major (not contained inside it)
+  # leaves negative raw room → hard structural gate.
+  buy = _result(
+    "BUY",
+    4054.0,
+    4057.0,
+    quality=3,
+    current_price=4056.0,
+  )
+  market_map = _map(
+    _entry("sell", 4046.0, 4055.0, tier="major"),
+    price=4056.0,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.actionable == ()
+  decision = resolution.gated[0][1]
+  assert decision.reason_code == "opposing_major_no_room"
+  assert decision.hard_block is True
+  assert decision.measured["raw_room_price"] < 0
 
 
 def test_target_room_is_observation_when_actionability_gate_is_off():
@@ -214,7 +249,7 @@ def test_target_room_is_observation_when_actionability_gate_is_off():
   assert resolution.gated == ()
   decision = next(
     decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_major_no_room"
+    if decision.reason_code == "execution_cost_insufficient_room"
   )
   assert decision.hard_block is False
   assert decision.allowed is True
@@ -246,7 +281,7 @@ def test_target_room_hard_gates_when_actionability_gate_is_on():
   assert resolution.actionable == ()
   assert len(resolution.gated) == 1
   decision = resolution.gated[0][1]
-  assert decision.reason_code == "opposing_major_no_room"
+  assert decision.reason_code == "execution_cost_insufficient_room"
   assert decision.hard_block is True
   assert decision.allowed is False
 
@@ -372,8 +407,9 @@ def test_room_below_the_ladder_but_above_the_floor_is_capped_not_rejected():
 
 
 def test_room_below_the_floor_still_caps_positive_room():
-  """Positive buffered room below the viability floor stays actionable with
-  a capped target (preference telemetry), not a hard reject.
+  """Positive buffered room below the preference floor stays actionable with
+  a capped target (preference telemetry), not a hard reject — as long as it
+  clears the execution-cost floor.
   """
   buy = _result(
     "BUY",
@@ -407,6 +443,28 @@ def test_room_below_the_floor_still_caps_positive_room():
   assert decision.allowed is True
   # raw_room = 1.3; buffer = 1.0; buffered = 0.3 → 3 pips capped target.
   assert resolution.actionable[0].target_cap_pips == pytest.approx(3.0)
+  assert resolution.actionable[0].target_cap_pips <= decision.measured["room_pips"]
+
+
+def test_capped_target_never_exceeds_usable_room():
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4100.0,
+    candidate_entry_low=4099.0,
+    candidate_entry_high=4100.5,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      _entry("sell", 4100.05, 4101.0, tier="zone"),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.0,
+    execution_cost_pips=1.0,
+  )
+  # raw = 0.05 → 0.5 pips; floor would invent 1.0 under the old max(1.0, …).
+  assert not decision.allowed
+  assert decision.reason_code == "execution_cost_insufficient_room"
+  assert decision.hard_block
 
 
 def test_counter_bias_reaction_is_observed_when_disabled():
@@ -608,8 +666,8 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
 
 
 def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
-  """Executable overlap keeps contested telemetry; zero major room still
-  hard-gates the blocked side independently.
+  """Executable overlap keeps contested telemetry; execution-cost floor can
+  hard-gate a side whose buffered room is exhausted independently.
   """
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
@@ -633,9 +691,9 @@ def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
   }
   assert "contested_corridor" in reasons
   assert resolution.conflicts[0]["outcome"] == "contested_corridor"
-  # BUY has major zero buffered room → hard-gated; SELL stays actionable.
   assert any(
-    decision.reason_code == "opposing_major_no_room" and decision.hard_block
+    decision.reason_code == "execution_cost_insufficient_room"
+    and decision.hard_block
     for _item, decision in resolution.gated
   )
   assert any(item.direction == "SELL" for item in resolution.actionable)
@@ -1348,7 +1406,7 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
     notify=notify,
   )
 
-  # Structural hard gate: opposing_major_no_room with zero buffered room.
+  # Structural hard gate: buffer eats tiny raw room → execution-cost floor.
   assert len(sent) == 0
   notify.assert_not_awaited()
   status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
@@ -1356,7 +1414,7 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
   assert status["actionable_count"] == 0
   gate = next(
     item for item in status["actionability_gated"]
-    if item["reason_code"] == "opposing_major_no_room"
+    if item["reason_code"] == "execution_cost_insufficient_room"
   )
   assert gate["hard_block"] is True
   assert gate["measured"]["entry_overlap_price"] == pytest.approx(0.0)

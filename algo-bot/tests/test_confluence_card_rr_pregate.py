@@ -534,10 +534,13 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
   assert payloads[-1]["type"] == EXPIRED
   assert payloads[-1]["reason_code"] == "confirmation_expired"
 
-  deleted = []
+  edited = []
+
+  async def edit_card(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
 
   async def delete_card(chat_id, message_id):
-    deleted.append((chat_id, message_id))
+    raise AssertionError("reject/expire must edit root, not delete")
 
   sent_messages = []
 
@@ -545,9 +548,8 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
     sent_messages.append((text, kwargs))
     return SimpleNamespace(message_id=9006)
 
-  monkeypatch.setattr(delivery.settings, "delivery_delete_on_terminal", True)
-  monkeypatch.setattr(delivery.settings, "auto_trade_telegram_single_root_card", False)
   monkeypatch.setattr(delivery, "delete_scanner_message", delete_card)
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", edit_card)
   delivered = await delivery._deliver_auto_trade_event(
     client,
     payloads[-1],
@@ -557,9 +559,11 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
   )
 
   assert delivered is False
-  assert deleted == [(4242, 9005)]
+  assert len(edited) == 1
+  assert edited[0][:2] == (4242, 9005)
   assert sent_messages == []
-  assert await client.get(delivery._forming_message_key(setup_id)) is None
+  # Root mapping retained for reply threading.
+  assert await client.get(delivery._forming_message_key(setup_id)) is not None
 
 
 @pytest.mark.asyncio

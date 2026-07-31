@@ -357,7 +357,7 @@ public sealed class TradePlanRuntimeTests
       "created_at": 1719999600,
       "expires_at": 2000000000,
       "analysis": {
-        "strategy": "Structural Zone Reaction",
+        "strategy": "Zone Reaction",
         "strategy_family": "structural_zone",
         "direction": "BUY",
         "context_timeframes": ["M15"],
@@ -580,7 +580,7 @@ public sealed class TradePlanRuntimeTests
     "created_at": 1719999600,
     "expires_at": 2000000000,
     "analysis": {
-      "strategy": "Structural Zone Reaction",
+      "strategy": "Zone Reaction",
       "strategy_family": "structural_zone",
       "direction": "BUY",
       "context_timeframes": ["M15"],

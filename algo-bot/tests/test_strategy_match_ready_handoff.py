@@ -574,6 +574,9 @@ async def test_static_opposing_overlap_never_creates_executable_match_or_card(
     frames=frames,
     now=now,
   )
+  monkeypatch.setattr(
+    scanner.settings, "scanner_actionability_gate_enabled", True,
+  )
 
   await scanner._handle_event(
     f"XAU:M5:{now}",
@@ -582,17 +585,17 @@ async def test_static_opposing_overlap_never_creates_executable_match_or_card(
     notify=notify,
   )
 
-  # Overlap / containment is preference telemetry — match may be retained.
-  match_raw = await client.get(strategy_match_key("XAU"))
-  assert match_raw is not None
-  assert await client.get(strategy_matches_key("XAU")) is not None
+  # Contained planned entry is a hard structural gate — no match/card path.
+  assert await client.get(strategy_match_key("XAU")) is None
   assert await client.xlen(_plan_count_key()) == 0
   assert await client.xlen(READY_STREAM) == 0
-  notify.assert_not_awaited()
   status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
-  assert status["actionable_count"] == 1
+  assert status["actionable_count"] == 0
   gate = next(
     item for item in status["actionability_gated"]
-    if item["reason_code"] == "opposing_entry_contained"
+    if item["reason_code"] in {
+      "opposing_entry_contained",
+      "opposing_entry_overlap",
+    }
   )
-  assert gate["hard_block"] is False
+  assert gate["hard_block"] is True
