@@ -76,7 +76,8 @@ def test_order_filled_event_renders_without_crashing():
 
   assert text is not None
   assert "ORDER FILLED" in text
-  assert "lot=1100" in text
+  assert "lot=0.11" in text
+  assert "lot=1100" not in text
   assert "volume=" not in text
   assert "weighted=4074.12" in text
   assert "4074.118181818" not in text
@@ -86,7 +87,8 @@ def test_clean_message_formats_partial_fill_lot_and_price():
   cleaned = delivery._clean_message(
     "ENTRY L1 FILLED volume=800 @ 4074.6812345; L2 still pending"
   )
-  assert "lot=800" in cleaned
+  assert "lot=0.08" in cleaned
+  assert "lot=800" not in cleaned
   assert "volume=" not in cleaned
   assert "@ 4074.68" in cleaned
   assert "4074.6812345" not in cleaned
@@ -102,9 +104,9 @@ def test_tp_booked_event_renders_without_crashing():
   assert text is not None
   assert "TP COMPLETED" in text
   assert "TP1" in text
-  assert "L1" in text and "320" in text
+  assert "L1" in text and "0.032" in text
   assert "Remaining" in text
-  assert "660" in text
+  assert "0.066" in text
   assert "📦" in text
   assert "🎯" in text
 
@@ -113,10 +115,20 @@ def test_clean_message_formats_tp_leg_and_remaining_as_lot():
   cleaned = delivery._clean_message(
     "TP1 COMPLETED TP2 closed L1=100 remaining=700 (1/1)"
   )
-  assert "L1 lot=100" in cleaned
-  assert "remaining lot=700" in cleaned
+  assert "L1 lot=0.01" in cleaned
+  assert "remaining lot=0.07" in cleaned
   assert "L1=100" not in cleaned
   assert "remaining=700" not in cleaned
+  assert "lot=100" not in cleaned
+  assert "lot=700" not in cleaned
+
+
+def test_clean_message_keeps_already_converted_lots():
+  cleaned = delivery._clean_message(
+    "ENTRY L1 FILLED lot=0.08 @ 4051.93; L2 still pending"
+  )
+  assert "lot=0.08" in cleaned
+  assert "lot=0.000008" not in cleaned
 
 
 def test_sl_moved_event_renders_without_crashing():
