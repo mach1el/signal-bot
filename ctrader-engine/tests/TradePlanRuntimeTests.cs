@@ -163,6 +163,32 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task SubmitsARelativeStopLossScaledForTheBrokerNotTheSymbolsTickSize()
+  {
+    // Live incident: RelativeStopLoss used to be computed as
+    // distance / tickSize (a tick count) instead of distance * 100_000m
+    // (the fixed-point scale cTrader's ProtoOANewOrderReq.RelativeStopLoss
+    // actually expects, per the already-correct V6 path in
+    // AutoTradeEngine.cs). For a 2-digit symbol like XAU that sent a value
+    // roughly 1000x smaller than the broker expected, which cTrader
+    // rejected outright with "Relative stop loss has invalid precision" -
+    // crash-looping the whole auto_trade consumer, not just one order.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m, stopPrice: 4082.50m));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+
+    var order = Assert.Single(client.MarketOrders);
+    // BUY entryReference is the proximal (lowest) entry price, 4088.10;
+    // distance to the 4082.50 stop is 5.60 -> 5.60 * 100_000 = 560_000.
+    Assert.Equal(560_000, order.RelativeStopLoss);
+  }
+
+  [Fact]
   public async Task MarketWatchWithManyTargetsAndASmallAccountStillSubmits()
   {
     // Live incident: a market_watch plan with 5 TP targets and a
