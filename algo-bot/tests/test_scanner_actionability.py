@@ -1032,6 +1032,109 @@ def test_structural_planned_entry_in_overlap_hard_blocks():
   assert decision.reason_code == "opposing_entry_overlap"
 
 
+def test_contains_price_alone_does_not_hard_reject():
+  """Market Map contains_price means spot is inside a map entry — not that
+  the planned execution entry is geometrically contained. A false
+  opposing_entry_contained must not fire from the flag alone.
+  """
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=4110.0,
+    candidate_entry_low=4108.0,
+    candidate_entry_high=4112.0,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      # Opposing demand sits below planned SELL entry; market flag says
+      # spot is inside demand, but planned entry 4110 is outside [4090, 4098].
+      _entry("buy", 4090.0, 4098.0, tier="major", contains_price=True),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+  assert decision.allowed
+  assert decision.hard_block is False
+  assert decision.reason_code != "opposing_entry_contained"
+  assert decision.measured["planned_entry_contained"] is False
+  assert decision.measured["market_price_contained"] is True
+  assert decision.measured["opposing_contains_price"] is True
+
+
+def test_true_planned_entry_containment_hard_rejects():
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=4095.0,
+    candidate_entry_low=4093.0,
+    candidate_entry_high=4097.0,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      _entry("buy", 4090.0, 4098.0, tier="major", contains_price=False),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+  assert not decision.allowed
+  assert decision.hard_block
+  assert decision.reason_code in {
+    "opposing_entry_contained",
+    "opposing_entry_overlap",
+  }
+  assert decision.measured["planned_entry_contained"] is True
+  assert decision.measured["market_price_contained"] is False
+
+
+def test_band_overlap_alone_remains_executable_with_cap():
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4102.0,
+    candidate_entry_low=4100.0,
+    candidate_entry_high=4108.0,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      _entry("sell", 4106.0, 4112.0, tier="zone", contains_price=True),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+  assert decision.allowed
+  assert decision.hard_block is False
+  assert decision.measured["planned_entry_contained"] is False
+  assert decision.measured["entry_overlap_ratio"] > 0
+  assert decision.measured.get("band_overlap_without_planned_containment") is True
+  assert decision.effective_target_pips is not None
+
+
+def test_displaced_opposing_zone_does_not_block_target_room():
+  opposing = _entry("sell", 4095.67, 4106.28, tier="major")
+  kept = filter_displaced_opposing_entries(
+    [opposing],
+    direction="BUY",
+    recent_closes=[4098.0, 4102.0, 4108.5],
+  )
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4099.41,
+    candidate_entry_low=4093.95,
+    candidate_entry_high=4101.61,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=kept,
+    atr=2.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+    displacement_state={
+      "applied": True,
+      "dropped": 1,
+      "recent_closes": [4098.0, 4102.0, 4108.5],
+    },
+  )
+  assert kept == []
+  assert decision.allowed
+  assert decision.reason_code == "no_opposing_barrier"
+  assert decision.measured["displacement_state"]["dropped"] == 1
+
+
 def test_filter_displaced_opposing_entries_drops_a_closed_through_barrier():
   sell_barrier = _entry("sell", 4095.67, 4106.28, tier="major")
   buy_barrier = _entry("buy", 4001.0, 4007.0, tier="major")

@@ -536,7 +536,7 @@ async def test_opened_event_stores_message_id_with_ttl():
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_order_filled_replies_using_v7_plan_id_and_edits_root_status(monkeypatch):
+async def test_order_filled_replies_using_v7_plan_id_without_head_fill(monkeypatch):
   client = redis_state.get_client()
   setup_id = "ece2d0168a881f82d8a7fa673c36d40e"
   await client.set(
@@ -580,10 +580,15 @@ async def test_order_filled_replies_using_v7_plan_id_and_edits_root_status(monke
 
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
-  assert "ORDER FILLED" in calls[0][0]
-  assert edited
-  assert "ORDER FILLED" in edited[0][2]
-  assert "PLAN PUBLISHED" not in edited[0][2].splitlines()[1]
+  body = calls[0][0]
+  assert "• ✅ <b>ORDER FILLED</b>" in body
+  assert "• ENTRY L1 FILLED lot=0.08 @ 4074.68; L2 still pending" in body
+  # Forming card head must not receive ORDER FILLED.
+  head_edits = [e for e in edited if e[1] == 7001]
+  assert head_edits == []
+  card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
+  assert "PLAN PUBLISHED" in card["text"].splitlines()[1]
+  assert "ORDER FILLED" not in card["text"]
 
 
 @pytest.mark.asyncio
@@ -632,18 +637,20 @@ async def test_order_filled_prefers_live_forming_card_over_stale_root(monkeypatc
 
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 9002
-  assert edited and edited[0][1] == 9002
+  assert "• ✅ <b>ORDER FILLED</b>" in calls[0][0]
+  # Head is not edited for fills; stale root id 1111 must not be used.
+  assert edited == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
 async def test_tp_booked_does_not_overwrite_forming_card_head(monkeypatch):
-  """TP stays on the manage reply; keep ORDER FILLED on the forming head."""
+  """TP stays on the manage reply; forming head stays free of fill/TP noise."""
   client = redis_state.get_client()
   setup_id = "tp-head-setup"
   head = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "✅ <b>ORDER FILLED</b> · ENTRY L1 FILLED",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
     "🔴 <b>SELL · Key Level Reaction</b>",
   ])
   await client.set(
@@ -681,14 +688,14 @@ async def test_tp_booked_does_not_overwrite_forming_card_head(monkeypatch):
   # No manage reply yet → one fallback create; never edit the forming head.
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 9003
-  assert "🎯 ·" in calls[0][0]
-  assert "TP3" in calls[0][0]
+  assert "• 🎯 TP3 · 💰 Fill: 4030.00 · ✅ Achieved: +50.0 pips" in calls[0][0]
   assert "TP COMPLETED" not in calls[0][0]
   head_edits = [e for e in edited if e[1] == 9003]
   assert head_edits == []
   card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
-  assert "ORDER FILLED" in card["text"].splitlines()[1]
-  assert "TP COMPLETED" not in card["text"].splitlines()[1]
+  assert "PLAN PUBLISHED" in card["text"].splitlines()[1]
+  assert "ORDER FILLED" not in card["text"]
+  assert "TP COMPLETED" not in card["text"]
 
 
 @pytest.mark.asyncio
@@ -777,9 +784,8 @@ async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
   )
   fill_body = "\n".join([
     "🤖 <b>ApexVoid Algo</b>",
-    "✅ <b>ORDER FILLED</b>",
-    "",
-    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
+    "• ✅ <b>ORDER FILLED</b>",
+    "• ENTRY L1 FILLED lot=0.08 @ 4034.50",
   ])
   await delivery._save_manage_message(
     client, setup_id, message_id=8123, text=fill_body,
@@ -817,9 +823,9 @@ async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
   manage_edits = [e for e in edited if e[1] == 8123]
   assert len(manage_edits) == 2
   final = manage_edits[-1][2]
-  assert "ORDER FILLED" in final
-  assert "🎯 ·" in final and "TP1" in final and "TP2" in final
-  assert "4029.98" in final and "+41.0 pips" in final
+  assert "• ✅ <b>ORDER FILLED</b>" in final
+  assert "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
+  assert "• 🎯 TP2 · 💰 Fill: 4010.00 · ✅ Achieved: +60.0 pips" in final
   head_edits = [e for e in edited if e[1] == 7001]
   assert head_edits == []
 
@@ -935,10 +941,9 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
   )
   fill_body = "\n".join([
     "🤖 <b>ApexVoid Algo</b>",
-    "✅ <b>ORDER FILLED</b>",
-    "",
-    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
-    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
+    "• ✅ <b>ORDER FILLED</b>",
+    "• ENTRY L1 FILLED lot=0.08 @ 4034.50",
+    "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
   ])
   await delivery._save_manage_message(
     client, setup_id, message_id=8123, text=fill_body,
@@ -974,10 +979,11 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
   manage_edits = [e for e in edited if e[1] == 8123]
   assert manage_edits
   final = manage_edits[-1][2]
-  assert "ORDER FILLED" in final
-  assert "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
-  assert "🎯 · TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in final
-  assert "🏁 · POSITION CLOSED" in final
+  assert "• ✅ <b>ORDER FILLED</b>" in final
+  assert "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
+  assert "• 🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in final
+  assert "• 🏁 POSITION CLOSED" in final
+  assert "• @ 4106.00" in final
   assert "Highest TP archived" not in final
 
 
@@ -998,10 +1004,9 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
   )
   fill_body = "\n".join([
     "🤖 <b>ApexVoid Algo</b>",
-    "✅ <b>ORDER FILLED</b>",
-    "",
-    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
-    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
+    "• ✅ <b>ORDER FILLED</b>",
+    "• ENTRY L1 FILLED lot=0.08 @ 4034.50",
+    "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
   ])
   await delivery._save_manage_message(
     client, setup_id, message_id=8123, text=fill_body,
@@ -1035,9 +1040,9 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
 
   assert calls == []
   final = edited[-1][2]
-  assert "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
-  assert "🎯 · TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
-  assert "🏁 · POSITION CLOSED" in final
+  assert "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
+  assert "• 🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
+  assert "• 🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
 
 
@@ -1079,19 +1084,14 @@ async def test_position_closed_fallback_creates_manage_reply(monkeypatch):
 
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
-  assert "🏁 · POSITION CLOSED" in calls[0][0]
-  assert (
-    "🎯 · TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips"
-    in calls[0][0]
-  )
+  assert "• 🏁 POSITION CLOSED" in calls[0][0]
+  assert "• 🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in calls[0][0]
   assert await client.get(delivery._manage_msg_key(setup_id)) == "9001"
 
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_order_filled_skips_standalone_when_reply_rejected_after_card_edit(
-  monkeypatch,
-):
+async def test_order_filled_skips_standalone_when_reply_rejected(monkeypatch):
   client = redis_state.get_client()
   setup_id = "reply-reject-setup"
   await client.set(
@@ -1133,9 +1133,12 @@ async def test_order_filled_skips_standalone_when_reply_rejected_after_card_edit
     send=sent,
   )
 
-  assert edited
+  # Reply target gone → skip standalone; do not spam a second send or head edit.
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
+  assert edited == []
+  card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
+  assert "ORDER FILLED" not in card["text"]
 
 
 @pytest.mark.asyncio
