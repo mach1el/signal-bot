@@ -50,7 +50,7 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal((91, 3993.7m), Assert.Single(client.StopAmendments));
     Assert.Contains(logs, message => message.Contains("dryRun=False"));
     Assert.Contains(
-      "sizing: mode=min balance=2000.00 → table 0.15 lots · risk 0.06 lots",
+      "sizing: mode=min balance=2000.00 → table 0.15 lots · risk 0.07 lots",
       logs
     );
 
@@ -101,7 +101,7 @@ public sealed partial class AutoTradeEngineTests
     await WaitForEventAsync(store, "ready");
 
     Assert.Contains(
-      "sizing: mode=table balance=2072.02 → table 0.15 lots · risk 0.06 lots",
+      "sizing: mode=table balance=2072.02 → table 0.15 lots · risk 0.07 lots",
       logs
     );
     cts.Cancel();
@@ -2319,7 +2319,7 @@ public sealed partial class AutoTradeEngineTests
       cts.Token
     );
     // A zone/structure swing 10 price units (100p) below entry pushes the
-    // P5 stop far past the 65p trend envelope - must reject, not clamp the
+    // P5 stop far past the 60p trend envelope - must reject, not clamp the
     // stop inside the retrace.
     store.EnqueueCandidate(PullbackAddCandidateJson(
       structureSwing: 3908.0m
@@ -2372,11 +2372,11 @@ public sealed partial class AutoTradeEngineTests
       cts.Token
     );
     client.EnqueueMarketExecutionPrice(4004.8m);
-    // structureSwing far below entry pushes the P5 stop to ~64p - inside
-    // the 65p envelope, but wide enough that this tranche's own risk
+    // structureSwing far below entry pushes the P5 stop to ~58p - inside
+    // the 60p trend envelope, but wide enough that this tranche's own risk
     // outweighs the booked-profit buffer.
     store.EnqueueCandidate(PullbackAddCandidateJson(
-      structureSwing: 3998.9m,
+      structureSwing: 3999.3m,
       entryLow: 4004.5m,
       entryHigh: 4005.5m,
       opposingZoneLow: 4004.5m,
@@ -5149,7 +5149,9 @@ public sealed partial class AutoTradeEngineTests
     AccessRights: "FullAccess",
     AccountType: "Hedged",
     BrokerName: "FP Markets",
-    Balance: 2_000m
+    Balance: 2_000m,
+    Equity: 2_000m,
+    SnapshotTimestamp: 0
   );
 
   private static string CandidateJson(
@@ -5253,10 +5255,10 @@ public sealed partial class AutoTradeEngineTests
     parent_group_id = parentGroupId,
     planned_stop_entry_price = stopContract ? 4000.2m : (decimal?)null,
     planned_stop_price = stopContract
-      ? (stopMismatch ? 3994.70m : 3993.70m)
+      ? (stopMismatch ? 3994.70m : 3994.20m)
       : (decimal?)null,
-    planned_stop_distance = stopContract ? 6.5m : (decimal?)null,
-    planned_stop_pips = stopContract ? 65m : (decimal?)null,
+    planned_stop_distance = stopContract ? 6.0m : (decimal?)null,
+    planned_stop_pips = stopContract ? 60m : (decimal?)null,
     planned_stop_raw_price = stopContract ? 3993.2m : (decimal?)null,
     planned_stop_clamped = stopContract ? true : (bool?)null,
     stop_source = stopContract ? "structure" : null,

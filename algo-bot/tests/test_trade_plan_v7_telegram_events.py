@@ -39,17 +39,17 @@ def test_v7_order_submitted_event_renders_without_crashing():
 
   text = delivery.render_auto_trade_event({
     "type": "v7_order_submitted",
-    "message": "ORDER SUBMITTED BUY 2 leg(s)",
+    "message": "ORDERS SUBMITTED BUY L1=800 L2=300 (pending=1)",
   })
 
   assert text is not None
-  assert "ORDER SUBMITTED" in text
+  assert "ORDERS SUBMITTED" in text
 
 
 def test_order_filled_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "order_filled",
-    "message": "ORDER FILLED BUY 1300 @ 4089.10",
+    "message": "ENTRY GROUP FULLY FILLED BUY volume=1100 weighted=4089.10",
   })
 
   assert text is not None
@@ -59,21 +59,31 @@ def test_order_filled_event_renders_without_crashing():
 def test_tp_booked_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "tp_booked",
-    "message": "TP BOOKED TP1 @ 4096.00",
+    "message": "TP1 COMPLETED TP1 closed L1=320 L2=120 remaining=660 (2/2)",
   })
 
   assert text is not None
-  assert "TP BOOKED" in text
+  assert "TP COMPLETED" in text
 
 
 def test_sl_moved_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "sl_moved",
-    "message": "SL MOVED to 4089.10 (BE)",
+    "message": "GROUP SL MOVED TO BE 4089.10 (2/2)",
   })
 
   assert text is not None
-  assert "SL MOVED" in text
+  assert "GROUP SL MOVED" in text
+
+
+def test_plan_closed_event_renders_without_crashing():
+  text = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "GROUP STOP LOSS (2/2)",
+  })
+
+  assert text is not None
+  assert "PLAN CLOSED" in text or "GROUP STOP LOSS" in text
 
 
 def test_plan_rejected_event_renders_without_crashing():

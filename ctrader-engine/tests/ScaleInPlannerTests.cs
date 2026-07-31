@@ -155,7 +155,7 @@ public sealed class ScaleInPlannerTests
     for (var index = 0; index < 500; index++)
     {
       var balance = random.Next(500, 5_001);
-      var tableLots = VolumePlanner.LotsForBalance(balance);
+      var tableLots = VolumePlanner.LotsForEquity(balance);
       var openLots = Math.Max(0.02m, tableLots - random.Next(2, 10) / 100m);
       var openVolume = VolumePlanner.VolumeForLots(openLots, Symbol);
       var entry = 4000m;

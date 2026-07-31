@@ -128,9 +128,7 @@ public sealed class StructureStopPlannerTests
   [Theory]
   [InlineData(TradeDirection.Buy, 3999.5, 3998.5, 15)]
   [InlineData(TradeDirection.Sell, 4000.5, 4001.5, 15)]
-  [InlineData(TradeDirection.Buy, 3990.0, 3993.5, 65)]
-  [InlineData(TradeDirection.Sell, 4010.0, 4006.5, 65)]
-  public void ClampsToConfiguredStopBand(
+  public void ExpandsToConfiguredStopFloor(
     TradeDirection direction,
     double swing,
     double expectedStop,
@@ -153,6 +151,34 @@ public sealed class StructureStopPlannerTests
 
     Assert.Equal(Convert.ToDecimal(expectedStop), plan.StopLoss);
     Assert.Equal(expectedPips, plan.StopPips);
+    Assert.True(plan.Clamped);
+  }
+
+  [Theory]
+  [InlineData(TradeDirection.Buy, 3990.0, 3993.5)]
+  [InlineData(TradeDirection.Sell, 4010.0, 4006.5)]
+  public void ClampsWhenStructuralStopExceedsMaxEnvelope(
+    TradeDirection direction,
+    double swing,
+    double expectedStop
+  )
+  {
+    var plan = StructureStopPlanner.Plan(
+      direction,
+      4000m,
+      Convert.ToDecimal(swing),
+      atr: 1m,
+      bufferAtr: 0.3m,
+      sweepExtreme: null,
+      wickBufferAtr: 0.15m,
+      minimumStopPips: 15,
+      maximumStopPips: 65,
+      pipSize: 0.1m,
+      Symbol
+    );
+
+    Assert.Equal(Convert.ToDecimal(expectedStop), plan.StopLoss);
+    Assert.Equal(65m, plan.StopPips);
     Assert.True(plan.Clamped);
   }
 

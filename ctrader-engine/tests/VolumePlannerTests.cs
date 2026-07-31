@@ -21,19 +21,29 @@ public sealed class VolumePlannerTests
   [InlineData(200, 0.02)]
   [InlineData(900, 0.06)]
   [InlineData(1000, 0.09)]
+  [InlineData(1300, 0.11)]
+  [InlineData(1500, 0.12)]
+  [InlineData(1999, 0.15)]
   [InlineData(2000, 0.15)]
   [InlineData(3000, 0.25)]
+  [InlineData(4000, 0.28)]
   [InlineData(5000, 0.30)]
   [InlineData(10000, 0.30)]
-  public void MapsBalanceBandsAndFloorsToOneCentLotStep(
-    double balance,
+  public void MapsEquityBandsAndRoundsToOneCentLotStep(
+    double equity,
     double expectedLots
   )
   {
     Assert.Equal(
       Convert.ToDecimal(expectedLots),
-      VolumePlanner.LotsForBalance(Convert.ToDecimal(balance))
+      VolumePlanner.LotsForEquity(Convert.ToDecimal(equity))
     );
+  }
+
+  [Fact]
+  public void LotsForEquityAt1300IsElevenCents()
+  {
+    Assert.Equal(0.11m, VolumePlanner.LotsForEquity(1_300m));
   }
 
   [Theory]
@@ -67,26 +77,26 @@ public sealed class VolumePlannerTests
   [InlineData(999.99, 0.06, 1000, 0.09)]
   [InlineData(2999.99, 0.15, 3000, 0.25)]
   public void PreservesIntentionalBoundarySteps(
-    double belowBalance,
+    double belowEquity,
     double belowLots,
-    double boundaryBalance,
+    double boundaryEquity,
     double boundaryLots
   )
   {
     Assert.Equal(
       Convert.ToDecimal(belowLots),
-      VolumePlanner.LotsForBalance(Convert.ToDecimal(belowBalance))
+      VolumePlanner.LotsForEquity(Convert.ToDecimal(belowEquity))
     );
     Assert.Equal(
       Convert.ToDecimal(boundaryLots),
-      VolumePlanner.LotsForBalance(Convert.ToDecimal(boundaryBalance))
+      VolumePlanner.LotsForEquity(Convert.ToDecimal(boundaryEquity))
     );
   }
 
   [Fact]
-  public void FloorsEquityTableToOneCentLotStep()
+  public void RoundsEquityTableToOneCentLotStep()
   {
-    Assert.Equal(0.25m, VolumePlanner.LotsForBalance(3_196m));
+    Assert.Equal(0.25m, VolumePlanner.LotsForEquity(3_196m));
   }
 
   [Fact]
@@ -102,6 +112,7 @@ public sealed class VolumePlannerTests
 
   [Theory]
   [InlineData("table", 0.15)]
+  [InlineData("equity_table", 0.15)]
   [InlineData("risk", 0.06)]
   [InlineData("min", 0.06)]
   public void SelectsExplicitSizingMode(string sizingMode, double expectedLots)
@@ -238,6 +249,25 @@ public sealed class VolumePlannerTests
       var idealSteps = 23m * weights[index] / weights.Sum();
       Assert.True(Math.Abs(actualSteps - idealSteps) <= 1m);
     }
+  }
+
+  [Fact]
+  public void SplitEntryVolumePrefersRatioRoundedAllocationOverSplitWeighted()
+  {
+    // 0.11 lots / 70-30: Round(0.077, 2 AwayFromZero)=0.08 → L1=800 L2=300.
+    // SplitWeighted on the same input yields 700/400 (0.07+0.04).
+    var total = VolumePlanner.VolumeForLots(0.11m, Symbol);
+    Assert.Equal(1_100, total);
+
+    var slices = VolumePlanner.SplitEntryVolume(
+      total, Symbol, [0.70m, 0.30m]
+    );
+
+    Assert.Equal(new long[] { 800, 300 }, slices);
+    Assert.NotEqual(
+      slices,
+      VolumePlanner.SplitWeighted(total, Symbol, [70, 30])
+    );
   }
 
   [Fact]

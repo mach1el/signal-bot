@@ -70,7 +70,10 @@ public sealed class TradePlanExecutionEngineTests
     Risk: new TradePlanRisk(1.0m, 1.0m, maxVolume, 2.0m),
     Management: new TradePlanManagement("TP1", 6, true),
     ExecutionPolicy: new TradePlanExecutionPolicy(true, false, true, true),
-    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1")
+    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+    Sizing: new TradePlanSizing(
+      "equity_table", "owner_equity_v1", "single", Array.Empty<decimal>()
+    )
   );
 
   [Fact]
@@ -125,36 +128,79 @@ public sealed class TradePlanExecutionEngineTests
     Assert.Equal("plan_expired", decision.RejectReason);
   }
 
-  [Fact]
-  public void CalculateVolumeSizesFromRiskPercentAndStopDistance()
-  {
-    var plan = MarketWatchPlan();
-    // entry reference (BUY) = min(zoneLow, zoneHigh) = 4088.10, stop = 4081.80
-    // stop distance = 6.30, pipSize = 0.1 -> 63 pips.
-    // risk = 10000 * 1% = 100; riskLots = 100 / (63 * 10) = 0.1587...
+  private static TradingAccountSnapshot Account(
+    decimal equity,
+    decimal? balance = null
+  ) => new(
+    1,
+    IsLive: false,
+    PermissionScope: "ScopeTrade",
+    AccessRights: "FullAccess",
+    AccountType: "Hedged",
+    BrokerName: "Fusion Markets",
+    Balance: balance ?? equity,
+    Equity: equity,
+    SnapshotTimestamp: 0
+  );
 
-    var result = TradePlanExecutionEngine.CalculateVolume(
-      plan, accountBalance: 10_000m, pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+  [Fact]
+  public void CalculateVolumeWithoutSizingContractIsRejected()
+  {
+    var plan = MarketWatchPlan() with { Sizing = null };
+
+    var error = Assert.Throws<TradePlanContractException>(() =>
+      TradePlanExecutionEngine.CalculateVolume(
+        plan, Account(10_000m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+      )
     );
 
-    Assert.True(result.TotalVolume > 0);
-    // market_watch submits the whole position as one order - no per-target
-    // slice exists to compute. TP close volume is worked out live from
-    // RemainingVolume at each target hit (TradePlanRuntime), never from a
-    // pre-built list here.
+    Assert.Equal("legacy_v7_sizing_contract_missing", error.Message);
+  }
+
+  [Fact]
+  public void CalculateVolumeUsesEquityTableIgnoringRiskPercent()
+  {
+    // RiskPercent=1 on a ~63-pip stop at equity 1300 would yield ~0.02 lots
+    // under the old risk path; equity_table must produce 0.11 lots instead.
+    var plan = MarketWatchPlan() with
+    {
+      Risk = new TradePlanRisk(1.0m, 1.0m, 100_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    Assert.Equal(1_100, result.TotalVolume);
+    Assert.Empty(result.Slices);
+    Assert.NotEqual(300, result.TotalVolume);
+  }
+
+  [Fact]
+  public void CalculateVolumeSizesFromEquityTable()
+  {
+    var plan = MarketWatchPlan();
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(10_000m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    Assert.Equal(3_000, result.TotalVolume); // LotsForEquity(10000)=0.30
     Assert.Empty(result.Slices);
   }
 
   [Fact]
-  public void CalculateVolumeClampsToDeclaredMaxVolume()
+  public void CalculateVolumeRejectsWhenTableExceedsDeclaredMaxVolume()
   {
     var plan = MarketWatchPlan(maxVolume: 500);
 
-    var result = TradePlanExecutionEngine.CalculateVolume(
-      plan, accountBalance: 1_000_000m, pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    var error = Assert.Throws<TradePlanContractException>(() =>
+      TradePlanExecutionEngine.CalculateVolume(
+        plan, Account(1_000_000m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+      )
     );
 
-    Assert.True(result.TotalVolume <= 500);
+    Assert.Equal("equity_table_above_broker_maximum", error.Message);
   }
 
   private static TradePlan LimitLadderPlan(
@@ -196,26 +242,32 @@ public sealed class TradePlanExecutionEngineTests
     Risk: new TradePlanRisk(1.0m, 1.0m, maxVolume, 2.0m),
     Management: new TradePlanManagement(null, 6, true),
     ExecutionPolicy: new TradePlanExecutionPolicy(false, true, true, true),
-    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1")
+    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+    Sizing: new TradePlanSizing(
+      "equity_table",
+      "owner_equity_v1",
+      "zone_scale",
+      new[] { leg1Ratio, leg2Ratio }
+    )
   );
 
   [Fact]
   public void CalculateVolumeSlicesForALimitLadderAreProportionalToLegVolumeRatio()
   {
-    var plan = LimitLadderPlan(leg1Ratio: 0.60m, leg2Ratio: 0.40m);
+    var plan = LimitLadderPlan(leg1Ratio: 0.70m, leg2Ratio: 0.30m);
 
     var result = TradePlanExecutionEngine.CalculateVolume(
-      plan, accountBalance: 200_000m, pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+      plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
+    Assert.Equal(1_100, result.TotalVolume);
     Assert.Equal(2, result.Slices.Count);
     Assert.Equal(result.TotalVolume, result.Slices.Sum(slice => slice.Volume));
     var l1 = result.Slices.Single(slice => slice.TargetId == "L1").Volume;
     var l2 = result.Slices.Single(slice => slice.TargetId == "L2").Volume;
-    // L1 volume_ratio 0.60 > L2 volume_ratio 0.40 - and this must track the
-    // leg ratio, not plan.Targets.CloseRatio (this plan's single TP1 has
-    // close_ratio 1.0, which would say nothing about a 60/40 split).
-    Assert.True(l1 > l2);
+    // SplitEntryVolume 70/30 on 0.11 lots → 0.08 + 0.03, not SplitWeighted's 0.07+0.04.
+    Assert.Equal(800, l1);
+    Assert.Equal(300, l2);
   }
 
   [Fact]
