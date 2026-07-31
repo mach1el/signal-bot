@@ -75,8 +75,12 @@ async def test_run_supervised_restarts_after_connection_error(monkeypatch):
   async def fake_reset():
     return None
 
+  async def fake_health(**_kwargs):
+    return None
+
   monkeypatch.setattr(redis_state.asyncio, "sleep", fast_sleep)
   monkeypatch.setattr(redis_state, "reset_client", fake_reset)
+  monkeypatch.setattr(redis_state, "publish_component_health", fake_health)
 
   task = asyncio.create_task(
     redis_state.run_supervised("flaky_loop", flaky_loop)
@@ -96,12 +100,57 @@ async def test_run_supervised_restarts_after_connection_error(monkeypatch):
   assert runs["n"] >= 2
   assert sleeps[0] == pytest.approx(1.0)
 
+
 @pytest.mark.asyncio
-async def test_run_supervised_does_not_restart_clean_exit():
+async def test_run_supervised_does_not_restart_programming_bug(monkeypatch):
+  runs = {"n": 0}
+  resets = {"n": 0}
+  health = []
+
+  async def buggy_loop():
+    runs["n"] += 1
+    raise KeyError("missing plan field")
+
+  async def fake_reset():
+    resets["n"] += 1
+
+  async def fake_health(**kwargs):
+    health.append(kwargs)
+
+  monkeypatch.setattr(redis_state, "reset_client", fake_reset)
+  monkeypatch.setattr(redis_state, "publish_component_health", fake_health)
+
+  with pytest.raises(KeyError, match="missing plan field"):
+    await redis_state.run_supervised("buggy_loop", buggy_loop)
+
+  assert runs["n"] == 1
+  assert resets["n"] == 0
+  assert any(item.get("state") == "fatal" for item in health)
+
+
+@pytest.mark.asyncio
+async def test_run_supervised_does_not_restart_clean_exit(monkeypatch):
   runs = {"n": 0}
 
   async def disabled_loop():
     runs["n"] += 1
 
+  async def fake_health(**_kwargs):
+    return None
+
+  monkeypatch.setattr(redis_state, "publish_component_health", fake_health)
+
   await redis_state.run_supervised("disabled_loop", disabled_loop)
   assert runs["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_is_transient_redis_error_classifies():
+  assert redis_state.is_transient_redis_error(
+    redis.exceptions.ConnectionError("Name or service not known")
+  )
+  assert redis_state.is_transient_redis_error(
+    TimeoutError("timed out")
+  )
+  assert not redis_state.is_transient_redis_error(KeyError("x"))
+  assert not redis_state.is_transient_redis_error(TypeError("bad"))

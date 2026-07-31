@@ -7,7 +7,6 @@ from aiogram.exceptions import TelegramBadRequest
 
 from app.autotrade import delivery
 from app.autotrade import setup_card
-from app.autotrade.strategy_match_ready import save_ready_consumer_health
 from app.persistence import redis_state, store
 
 
@@ -1976,33 +1975,60 @@ async def test_status_includes_compact_profile_regime_groups_and_route(monkeypat
   assert "auto trader" not in text.lower()
 
 
+@pytest.mark.no_database
 @pytest.mark.asyncio
-async def test_status_warns_when_ready_consumer_is_degraded(monkeypatch):
+async def test_status_warns_when_component_is_fatal(monkeypatch):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
-  client = redis_state.get_client()
-  await save_ready_consumer_health(
-    client, state="degraded_retrying", consumer="worker-1", retry_count=3,
-    last_error="ConnectionError",
-  )
+
+  async def fake_fatals():
+    return [{
+      "component": "scanner_loop",
+      "state": "fatal",
+      "error": "KeyError: missing plan field",
+      "retry_count": 0,
+    }]
+
+  async def fake_scorecard():
+    return None
+
+  async def fake_book(_client):
+    return []
+
+  monkeypatch.setattr(redis_state, "list_fatal_components", fake_fatals)
+  monkeypatch.setattr(delivery, "_today_algo_scorecard_line", fake_scorecard)
+  monkeypatch.setattr(delivery, "_open_v7_book_lines", fake_book)
 
   text = await delivery.auto_trade_status_text()
 
-  assert "Ready consumer" in text
-  assert "degraded_retrying" in text
-  assert "retry 3" in text
+  assert "scanner_loop" in text
+  assert "fatal" in text
+  assert "Ready consumer" not in text
 
 
+@pytest.mark.no_database
 @pytest.mark.asyncio
-async def test_status_is_silent_when_ready_consumer_is_healthy(monkeypatch):
+async def test_status_is_silent_when_no_fatal_components(monkeypatch):
   monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
   monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
-  client = redis_state.get_client()
-  await save_ready_consumer_health(client, state="ready", consumer="worker-1")
+
+  async def fake_fatals():
+    return []
+
+  async def fake_scorecard():
+    return None
+
+  async def fake_book(_client):
+    return []
+
+  monkeypatch.setattr(redis_state, "list_fatal_components", fake_fatals)
+  monkeypatch.setattr(delivery, "_today_algo_scorecard_line", fake_scorecard)
+  monkeypatch.setattr(delivery, "_open_v7_book_lines", fake_book)
 
   text = await delivery.auto_trade_status_text()
 
   assert "Ready consumer" not in text
+  assert "fatal ·" not in text
 
 
 @pytest.mark.asyncio

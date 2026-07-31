@@ -146,7 +146,7 @@ def _cfg(
 
 @pytest.mark.parametrize("profile", ["conservative", "demo_eval"])
 @pytest.mark.parametrize("guard_mode", ["observe", "balanced", "strict"])
-def test_buy_under_overlapping_sell_major_is_observation_only(
+def test_buy_under_overlapping_sell_major_is_hard_gated(
   profile,
   guard_mode,
 ):
@@ -175,21 +175,15 @@ def test_buy_under_overlapping_sell_major_is_observation_only(
   )
 
   assert resolution.observed == (buy,)
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_major_no_room"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code == "opposing_major_no_room"
+  assert decision.hard_block is True
+  assert decision.allowed is False
   assert decision.measured["planned_entry_price"] == pytest.approx(4045.95)
   assert decision.measured["opposing_low"] == pytest.approx(4046.0)
-  # 2026-07-31: the candidate zone is now trimmed to its non-overlapping
-  # portion before the room check runs (see
-  # _trim_zone_against_overlapping_barrier), so the overlap of the
-  # *adjusted* zone is genuinely zero - the major-tier zero-room rule is
-  # preference telemetry, not a hard reject.
+  # Zone trim leaves no overlap; major-tier zero buffered room hard-gates.
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.0)
 
 
@@ -226,7 +220,7 @@ def test_target_room_is_observation_when_actionability_gate_is_off():
   assert decision.allowed is True
 
 
-def test_target_room_is_telemetry_when_actionability_gate_is_on():
+def test_target_room_hard_gates_when_actionability_gate_is_on():
   buy = _result(
     "BUY",
     4041.67,
@@ -249,14 +243,12 @@ def test_target_room_is_telemetry_when_actionability_gate_is_on():
     cfg=_cfg(actionability_gate=True),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_major_no_room"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code == "opposing_major_no_room"
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
 def test_partial_overlap_trims_the_zone_instead_of_killing_the_whole_setup():
@@ -304,8 +296,8 @@ def test_partial_overlap_trims_the_zone_instead_of_killing_the_whole_setup():
 
 def test_full_overlap_still_rejects_nothing_left_to_trim_into():
   """A candidate zone entirely consumed by an opposing zone has no clean
-  portion to trim into. Overlap containment is preference telemetry — the
-  setup remains actionable with the observed decision retained.
+  portion to trim into. Planned entry inside the opposing structure is a
+  hard structural conflict when the actionability gate is on.
   """
   buy = _result(
     "BUY",
@@ -329,14 +321,15 @@ def test_full_overlap_still_rejects_nothing_left_to_trim_into():
     cfg=_cfg(),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_entry_contained"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code in {
+    "opposing_entry_contained",
+    "opposing_entry_overlap",
+  }
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
 def test_room_below_the_ladder_but_above_the_floor_is_capped_not_rejected():
@@ -378,9 +371,9 @@ def test_room_below_the_ladder_but_above_the_floor_is_capped_not_rejected():
   assert capped.target_cap_pips == pytest.approx(20.0)
 
 
-def test_room_below_the_floor_still_rejects():
-  """Room below the viability floor remains a preference observation —
-  telemetry only, setup stays actionable.
+def test_room_below_the_floor_still_caps_positive_room():
+  """Positive buffered room below the viability floor stays actionable with
+  a capped target (preference telemetry), not a hard reject.
   """
   buy = _result(
     "BUY",
@@ -408,10 +401,12 @@ def test_room_below_the_floor_still_rejects():
   assert resolution.gated == ()
   decision = next(
     decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_barrier_no_target"
+    if decision.reason_code == "opposing_barrier_target_capped_below_ladder"
   )
   assert decision.hard_block is False
   assert decision.allowed is True
+  # raw_room = 1.3; buffer = 1.0; buffered = 0.3 → 3 pips capped target.
+  assert resolution.actionable[0].target_cap_pips == pytest.approx(3.0)
 
 
 def test_counter_bias_reaction_is_observed_when_disabled():
@@ -613,7 +608,9 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
 
 
 def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
-  """Executable overlap keeps both sides actionable with contested telemetry."""
+  """Executable overlap keeps contested telemetry; zero major room still
+  hard-gates the blocked side independently.
+  """
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
   no_room = _map(
@@ -631,13 +628,17 @@ def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
     cfg=_cfg(actionability_gate=True),
   )
 
-  assert len(resolution.actionable) == 2
-  assert resolution.gated == ()
   reasons = {
     decision.reason_code for _item, decision in resolution.decisions
   }
   assert "contested_corridor" in reasons
   assert resolution.conflicts[0]["outcome"] == "contested_corridor"
+  # BUY has major zero buffered room → hard-gated; SELL stays actionable.
+  assert any(
+    decision.reason_code == "opposing_major_no_room" and decision.hard_block
+    for _item, decision in resolution.gated
+  )
+  assert any(item.direction == "SELL" for item in resolution.actionable)
 
 
 def test_distant_map_room_does_not_rescue_an_overlapping_pair():
@@ -865,7 +866,7 @@ def test_key_level_explicit_role_and_accepted_break_are_deterministic():
 
 
 @pytest.mark.parametrize("guard_mode", ["observe", "balanced", "strict"])
-def test_preference_geometry_is_telemetry_in_every_guard_mode(guard_mode):
+def test_hard_geometry_blocks_in_every_guard_mode(guard_mode):
   decision = classify_guard_severity(
     "opposing_barrier",
     "entry_inside_opposing_zone",
@@ -874,8 +875,8 @@ def test_preference_geometry_is_telemetry_in_every_guard_mode(guard_mode):
     hard_geometry=True,
   )
 
-  assert decision.hard_block is False
-  assert decision.outcome == "allow_with_warning"
+  assert decision.hard_block is True
+  assert decision.outcome == "block"
 
 
 def test_soft_geometry_remains_mode_aware():
@@ -928,6 +929,49 @@ def test_structural_target_room_caps_configured_ladder():
   assert decision.fitted_targets_pips == (30, 50)
   assert decision.measured["configured_target_pips"] == [30, 50, 70]
   assert decision.measured["effective_target_pips"] == pytest.approx(50)
+
+
+def test_structural_band_overlap_without_planned_entry_caps_not_blocks():
+  """Zone-band sliver overlap is preference; planned entry clear → allow+cap."""
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4102.0,
+    candidate_entry_low=4100.0,
+    candidate_entry_high=4108.0,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      _entry("sell", 4106.0, 4112.0, tier="zone"),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+  assert decision.allowed
+  assert decision.reason_code in {
+    "opposing_barrier_target_capped",
+    "configured_ladder_does_not_fit",
+    "opposing_barrier_target_capped_below_ladder",
+  }
+  assert decision.hard_block is False
+
+
+def test_structural_planned_entry_in_overlap_hard_blocks():
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4107.0,
+    candidate_entry_low=4100.0,
+    candidate_entry_high=4108.0,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=(
+      _entry("sell", 4106.0, 4112.0, tier="zone"),
+    ),
+    atr=1.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+  assert not decision.allowed
+  assert decision.hard_block
+  assert decision.reason_code == "opposing_entry_overlap"
 
 
 def test_filter_displaced_opposing_entries_drops_a_closed_through_barrier():
@@ -1068,8 +1112,8 @@ def test_recent_displacement_beyond_barrier_lets_a_contained_buy_through():
 
 def test_no_displacement_still_blocks_as_before():
   """Same setup as above, but the recent closes never actually close beyond
-  the barrier (still a wick/approach, not a confirmed break). Containment
-  remains preference telemetry — actionable with the observed decision.
+  the barrier (still a wick/approach, not a confirmed break). Planned entry
+  inside the opposing major is a hard structural gate.
   """
   buy = _result(
     "BUY",
@@ -1103,19 +1147,20 @@ def test_no_displacement_still_blocks_as_before():
     cfg=_cfg(displacement_lookback_bars=3),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_entry_contained"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code in {
+    "opposing_entry_contained",
+    "opposing_entry_overlap",
+  }
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
 def test_displacement_override_disabled_by_default_lookback_zero():
-  """With lookback 0 the displacement override never fires; containment is
-  still preference telemetry (actionable + observed decision).
+  """With lookback 0 the displacement override never fires; containment
+  hard-gates when the actionability gate is on.
   """
   buy = _result(
     "BUY",
@@ -1144,14 +1189,14 @@ def test_displacement_override_disabled_by_default_lookback_zero():
     cfg=_cfg(),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_entry_contained"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code in {
+    "opposing_entry_contained",
+    "opposing_entry_overlap",
+  }
+  assert decision.hard_block is True
 
 
 def test_empty_market_map_is_valid_and_unavailable_map_retains_candidate():
@@ -1303,16 +1348,15 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
     notify=notify,
   )
 
-  # Preference telemetry: opposing_major_no_room keeps the setup actionable.
-  # Telegram owner notify may still be suppressed by other handoff rules.
-  assert len(sent) == 1
+  # Structural hard gate: opposing_major_no_room with zero buffered room.
+  assert len(sent) == 0
   notify.assert_not_awaited()
   status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
   assert status["observed_count"] == 1
-  assert status["actionable_count"] == 1
+  assert status["actionable_count"] == 0
   gate = next(
     item for item in status["actionability_gated"]
     if item["reason_code"] == "opposing_major_no_room"
   )
-  assert gate["hard_block"] is False
+  assert gate["hard_block"] is True
   assert gate["measured"]["entry_overlap_price"] == pytest.approx(0.0)
