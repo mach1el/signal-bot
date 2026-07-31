@@ -592,16 +592,22 @@ def _strategy_match_for_card(setup_id: str = "setup-publish-card") -> object:
     expires_at=1_785_503_400,
     strategy="Key Level Reaction",
     strategy_mode="with_bias",
-    direction="SELL",
-    key_level=4044.91,
-    entry_low=4042.15,
-    entry_high=4046.39,
-    current_price=4042.43,
+    direction="BUY",
+    key_level=4050.68,
+    entry_low=4048.73,
+    entry_high=4052.63,
+    current_price=4051.6,
     confluence=2,
-    reasons=("key level reaction",),
+    reasons=("key reaction x13", "key reaction 4050.68 x13"),
     atr=4.0,
     structure_swing=10.0,
     targets_pips=(20, 40, 60),
+    tags=("key_level",),
+    structural_source="key_level",
+    structural_kind="key_level",
+    structural_timeframe="M5",
+    reaction_type="sweep_reclaim",
+    htf_bias="up (H1)",
   )
 
 
@@ -631,12 +637,17 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
 
   assert message_id == 4242
   assert len(sent) == 1
-  assert "PLAN PUBLISHED" in sent[0]
-  assert "Key Level Reaction" in sent[0]
-  assert "4,042.15–4,046.39" in sent[0]
-  assert "• <b>Stop:</b>" in sent[0]
-  assert "Copy draft" not in sent[0]
-  assert "<code>" not in sent[0]
+  text = sent[0]
+  assert "SETUP FORMING" in text
+  assert "PLAN PUBLISHED" in text
+  assert "Trade area" in text
+  assert "Price now" in text
+  assert "Entry zone" in text
+  assert "Key level" in text
+  assert "Stop" in text
+  assert "Context" in text
+  assert "Copy draft" not in text
+  assert "<code>" not in text
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
   assert card["message_id"] == 4242
@@ -651,7 +662,7 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
 
 
 @pytest.mark.asyncio
-async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies():
+async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monkeypatch):
   """TP archive / trailing SL / close must reply_to the ensured root card."""
   from app.autotrade import delivery
 
@@ -676,10 +687,16 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies():
   assert message_id == 6060
 
   calls = []
+  edited = []
 
   async def sent(text, **kwargs):
     calls.append((text, kwargs))
     return SimpleNamespace(message_id=7000 + len(calls))
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
 
   for event in (
     {
@@ -718,7 +735,7 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies():
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
   assert "4,044.91" in card["text"]
-
+  assert edited
 
 @pytest.mark.asyncio
 async def test_ensure_plan_published_root_card_edits_existing_status_only():
