@@ -179,16 +179,44 @@ def test_plan_closed_event_renders_highest_tp_only():
   assert "lot=" not in text.lower()
 
 
-def test_plan_closed_no_tp_archived_renders_none():
+def test_plan_closed_no_tp_archived_renders_losing():
   text = delivery.render_auto_trade_event({
     "type": "position_closed",
-    "message": "PLAN CLOSED · no TP archived · @ 4090.50",
+    "message": "PLAN CLOSED · no TP archived · losing -47 pips · @ 4090.50",
+    "group_realized_pips": -47,
+    "reason_code": "stop_loss_or_take_profit",
   })
 
   assert text is not None
   assert "Highest TP archived" in text
   assert "none" in text
+  assert "❌ Losing:" in text
+  assert "-47.0 pips" in text
   assert "4090.50" in text
+  assert "achieved" not in text.lower()
+
+
+def test_plan_closed_no_tp_archived_parses_losing_from_message_alone():
+  text = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "PLAN CLOSED · no TP archived · losing -36 pips · @ 4101.00",
+  })
+
+  assert "❌ Losing:" in text
+  assert "-36.0 pips" in text
+
+
+def test_position_closed_one_shot_sl_reports_losing():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "SELL position is closed",
+    "reason_code": "stop_loss_or_take_profit",
+    "group_realized_pips": -12.0,
+  })
+  assert "❌ Losing:" in closed
+  assert "-12.0 pips" in closed
+  assert "Total:" not in closed
+
 
 def test_plan_rejected_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
