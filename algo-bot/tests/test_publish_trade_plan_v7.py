@@ -962,7 +962,7 @@ async def test_midpoint_inside_does_not_override_executable_quote_outside(
 
 
 @pytest.mark.asyncio
-async def test_final_v7_gate_observes_opposing_major_as_preference_telemetry():
+async def test_final_v7_gate_rejects_entry_inside_opposing_structure():
   client = redis_state.get_client()
   match = _match(
     match_id="match-v7-opposing-major",
@@ -976,6 +976,8 @@ async def test_final_v7_gate_observes_opposing_major_as_preference_telemetry():
     bid=4088.9,
     ask=4089.1,
   )
+  # BUY planned entry sits inside opposing supply — must not publish
+  # (live incident: SELL Key Level Reaction from demand).
   market_map = _market_map(MapEntry(
     "sell",
     4089.2,
@@ -1003,14 +1005,67 @@ async def test_final_v7_gate_observes_opposing_major_as_preference_telemetry():
     market_map=market_map,
   )
 
-  # Opposing major / target-room preference is telemetry — publish continues.
-  assert plan_id is not None
-  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is not None
-  assert await client.hget(
-    "auto_trade:metrics:XAU",
-    "target_room_preference_observed",
-  ) == "1"
+  assert plan_id is None
+  assert (await load_setup(client, match.match_id)).state == CONFIRMED
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  rejected = int(
+    await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
+  )
+  assert rejected >= 1
+
+
+@pytest.mark.asyncio
+async def test_final_v7_gate_rejects_sell_from_demand_containment():
+  """Live log 2026-07-31: SELL Key Level Reaction published from demand.
+
+  opposing_entry_contained was preference-only; must hard-reject instead.
+  """
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="match-v7-sell-from-demand",
+    thesis_id="thesis-v7-sell-from-demand",
+    key_level=4055.0,
+    entry_low=4053.12,
+    entry_high=4057.08,
+    current_price=4054.5,
+    structure_swing=4058.5,
+    structural_zone_id="zone-xau-4053-4057",
+    structural_zone_low=4053.12,
+    structural_zone_high=4057.08,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4054.5,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4054.40,
+    ask=4054.60,
+  )
+  market_map = _market_map(MapEntry(
+    "buy",
+    4050.0,
+    4056.0,
+    4050,
+    4056,
+    "major",
+    ["demand"],
+    12.0,
+  ))
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    market_map=market_map,
+  )
+
+  assert plan_id is None
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  rejected = int(
+    await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
+  )
+  assert rejected >= 1
 
 
 @pytest.mark.asyncio
