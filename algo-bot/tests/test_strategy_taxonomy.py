@@ -45,10 +45,13 @@ def test_trendline_reaction_is_reaction():
 def test_demand_zone_is_not_reaction():
   assert not is_reaction_strategy("Demand Zone")
   assert not is_reaction_strategy("Demand Zone Reaction")
+  assert not is_reaction_strategy("Zone Reaction")
   assert is_zone_strategy("Demand Zone")
   assert is_zone_strategy("Demand Zone Reaction")
+  assert is_zone_strategy("Zone Reaction")
   assert canonical_family("Demand Zone") == CANONICAL_FAMILY_ZONE
   assert canonical_family("Demand Zone Reaction") == CANONICAL_FAMILY_ZONE
+  assert canonical_family("Zone Reaction") == CANONICAL_FAMILY_ZONE
 
 
 def test_supply_zone_is_not_reaction():
@@ -65,6 +68,7 @@ def test_strategy_names_are_not_classified_by_substring():
   assert not is_reaction_strategy("Fake Reaction Setup")
   assert not is_reaction_strategy("Mapped Zone Reaction")
   assert not is_zone_strategy("Mapped Zone Reaction")
+  assert "Zone Reaction" in ZONE_STRATEGIES
   assert "Demand Zone Reaction" in ZONE_STRATEGIES
   assert "Demand Zone Reaction" not in REACTION_STRATEGIES
   assert canonical_family("Something Reaction Something") != CANONICAL_FAMILY_REACTION

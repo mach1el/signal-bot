@@ -92,10 +92,11 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
     ),
   )
   assert non_reaction.reaction_family is False
-  assert non_reaction.m5_authoritative is False
+  assert non_reaction.m5_authoritative is True
   assert non_reaction.m1_required_on_retest is False
-  assert non_reaction.allow_same_cycle_publish is False
-  assert non_reaction.reason_code == "non_reaction_m1_required"
+  assert non_reaction.allow_same_cycle_publish is True
+  assert non_reaction.require_quote_inside_zone is False
+  assert non_reaction.reason_code == "momentum_continuation"
 
 
 @pytest.mark.parametrize(
