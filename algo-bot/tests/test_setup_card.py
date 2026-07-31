@@ -274,6 +274,40 @@ async def test_terminal_setup_is_never_re_carded():
 
 
 @pytest.mark.asyncio
+async def test_kill_setup_card_treats_message_not_modified_as_success(caplog):
+  """Startup reconcile often re-edits an already-terminal card; Telegram
+  returns 'message is not modified' — that is success, not a failure."""
+  client = redis_state.get_client()
+  await setup_card.save_forming_card(
+    client, "setup-not-mod-kill", chat_id=123, message_id=7777,
+    text="🤖 <b>ApexVoid Algo</b>\n❌ <b>TERMINAL</b> · startup reconciliation missing setup",
+  )
+
+  async def delete_fn(chat_id, message_id):
+    raise AssertionError("delete should not run on retain path")
+
+  async def edit_fn(chat_id, message_id, text):
+    raise TelegramBadRequest(
+      method=None,
+      message="Bad Request: message is not modified",
+    )
+
+  with caplog.at_level("INFO"):
+    await setup_card.kill_setup_card(
+      client,
+      "setup-not-mod-kill",
+      reason_code="startup_reconciliation_missing_setup",
+      delete_fn=delete_fn,
+      edit_fn=edit_fn,
+    )
+
+  assert "forming card terminal edit failed" not in caplog.text
+  card = await setup_card.load_forming_card(client, "setup-not-mod-kill")
+  assert card is not None
+  assert "TERMINAL" in card["text"]
+
+
+@pytest.mark.asyncio
 async def test_kill_setup_card_deletes_when_forced(monkeypatch):
   """Legacy delete path remains reachable only via explicit monkeypatch."""
   client = redis_state.get_client()
