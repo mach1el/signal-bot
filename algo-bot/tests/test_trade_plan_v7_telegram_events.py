@@ -99,15 +99,19 @@ def test_tp_booked_event_renders_without_crashing():
     "type": "tp_booked",
     "message": "TP COMPLETED TP1 closed L1=320 L2=120 remaining=660 (2/2)",
     "setup": "Key Level Reaction",
+    "price": 4054.86,
   })
 
   assert text is not None
   assert "TP COMPLETED" in text
   assert "TP1" in text
-  assert "L1" in text and "0.032" in text
-  assert "Remaining" in text
-  assert "0.066" in text
-  assert "📦" in text
+  assert "4054.86" in text
+  assert "Key Level Reaction" in text
+  assert "Closed" not in text
+  assert "Remaining" not in text
+  assert "Legs open" not in text
+  assert "L1" not in text
+  assert "📦" not in text
   assert "🎯" in text
 
 
