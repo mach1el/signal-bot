@@ -222,12 +222,12 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
   assert first == []
   assert second == []
   notify.assert_not_awaited()
+  # A non-executable observation must not reserve notification dedup: the
+  # same structure may become executable on a later scan and then needs its
+  # forming card.
   assert await client.get(
     "scanner:alerted:XAU:M5:Trend Pullback:4100"
-  ) == "1"
-  assert await client.ttl(
-    "scanner:alerted:XAU:M5:Trend Pullback:4100"
-  ) > 0
+  ) is None
   broadcast_entry.assert_not_awaited()
   store_manual_signal.assert_not_awaited()
 
@@ -794,14 +794,13 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
     notify=notify,
   )
 
-  # No resolvable execution_match for any of these - the digest-level
-  # winner is still correctly picked internally (dedup keys below prove
-  # it), but must never reach Telegram, and the return value must reflect
-  # that nothing was actually sent.
+  # No resolvable execution_match for any of these: they must not reach
+  # Telegram and, critically, must not burn dedup needed if the structure
+  # becomes executable later.
   assert sent == []
   notify.assert_not_awaited()
-  assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) == "1"
-  assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) == "1"
+  assert await client.get(scanner._dedup_key("XAU", "M5", results[0])) is None
+  assert await client.get(scanner._dedup_key("XAU", "M5", results[1])) is None
   assert await client.get(scanner._dedup_key("XAU", "M5", results[2])) is None
 
 
@@ -918,7 +917,7 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
   assert len(execution_digest) == len(results)
   assert all(item.confluence_zone_id for item in execution_digest)
   assert all([
-    await client.get(scanner._dedup_key("XAU", "M5", result)) == "1"
+    await client.get(scanner._dedup_key("XAU", "M5", result)) is None
     for result in execution_digest
   ])
 
@@ -1054,7 +1053,7 @@ async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_structural_anchor_gate_filters_card_and_execution_with_telemetry(
+async def test_structural_anchor_preference_is_telemetry_not_execution_filter(
   monkeypatch,
 ):
   client = redis_state.get_client()
@@ -1116,10 +1115,13 @@ async def test_structural_anchor_gate_filters_card_and_execution_with_telemetry(
 
   assert sent == []
   notify.assert_not_awaited()
-  assert sync_strategy_match.await_args.args[5] == []
+  forwarded = sync_strategy_match.await_args.args[5]
+  assert len(forwarded) == 1
+  assert forwarded[0].setup == "Key Level Reaction"
   assert scanner._structure_card_gate(anchored, ctx) is None
   status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
-  assert status["detected"] == []
+  assert len(status["detected"]) == 1
+  assert status["detected"][0]["setup"] == "Key Level Reaction"
   assert status["structure_gated"] == [{
     "setup": "Key Level Reaction",
     "direction": "BUY",
@@ -1128,10 +1130,10 @@ async def test_structural_anchor_gate_filters_card_and_execution_with_telemetry(
   detect_log = json.loads((
     await client.lrange(scanner._detect_log_key("XAU", "M5"), 0, 0)
   )[0])
-  assert detect_log["entries"][0]["outcome"] == "structure_gated"
+  assert detect_log["entries"][0]["outcome"] == "actionability_observed"
   assert (
     detect_log["entries"][0]["reason"]
-    == "round_without_structural_anchor"
+    == "key_level_role_ambiguous"
   )
 
 
@@ -1336,15 +1338,14 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
     notify=notify,
   )
 
-  # No execution_match resolvable for any of these detections - band-dedup
-  # key mechanics (asserted below) are unaffected; no card can be sent, and
-  # nothing was actually delivered in any of the three calls.
+  # No execution_match resolvable for any of these detections: no card is
+  # delivered and no notification dedup is reserved.
   assert first == []
   assert same_band == []
   assert far_band == []
   notify.assert_not_awaited()
-  assert await client.get(scanner._band_dedup_key("XAU", result_a)) == "1"
-  assert await client.get(scanner._dedup_key("XAU", "M5", result_b)) == "1"
+  assert await client.get(scanner._band_dedup_key("XAU", result_a)) is None
+  assert await client.get(scanner._dedup_key("XAU", "M5", result_b)) is None
 
   await client.delete(scanner._band_dedup_key("XAU", result_b))
   await client.delete(scanner._dedup_key("XAU", "M5", result_b))
@@ -1988,6 +1989,52 @@ def _card_result(structural_id: str = "demand-1") -> "scanner.DetectionResult":
     structural_id=structural_id,
     structural_kind="demand",
   )
+
+
+@pytest.mark.asyncio
+async def test_non_executable_observation_does_not_burn_future_forming_card(
+  monkeypatch,
+):
+  """Production incident: the same zone became executable 24m later."""
+  client = redis_state.get_client()
+  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  result = _card_result("incident-zone")
+  notify = AsyncMock(return_value=SimpleNamespace(message_id=9100))
+
+  first = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    _card_ctx(),
+    [result],
+    notify,
+    ["H1"],
+  )
+
+  assert first == []
+  assert await client.get(scanner._dedup_key("XAU", "M5", result)) is None
+  assert await client.get(scanner._band_dedup_key("XAU", result)) is None
+
+  match = SimpleNamespace(
+    strategy=result.setup,
+    match_id="incident-setup-id",
+    structural_zone_id=result.structural_id,
+  )
+  second = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    _card_ctx(),
+    [result],
+    notify,
+    ["H1"],
+    execution_match=match,
+  )
+
+  assert second == [result]
+  notify.assert_awaited_once()
+  assert await client.get(scanner._dedup_key("XAU", "M5", result)) == "1"
+  assert await client.get(scanner._band_dedup_key("XAU", result)) == "1"
 
 
 @pytest.mark.asyncio

@@ -203,7 +203,9 @@ public sealed class EquityZoneLadderGroupE2ETests
     Assert.Equal(400, client.Closes.Sum(item => item.Volume));
     Assert.Contains(
       store.Events,
-      item => item.Type == "tp_booked" && item.Message.Contains("TP COMPLETED")
+      item => item.Type == "tp_booked"
+        && item.Message.Contains("TP COMPLETED")
+        && item.TargetPips == 92
     );
     // L2 already filled before TP1, so no pending cancel is required.
     Assert.Empty(client.PendingOrders);
@@ -233,6 +235,7 @@ public sealed class EquityZoneLadderGroupE2ETests
       store.Events,
       item => item.Type == "position_closed"
         && item.Message.Contains("highest TP archived", StringComparison.OrdinalIgnoreCase)
+        && item.TargetPips == 92
     );
     Assert.Contains(
       store.Events,

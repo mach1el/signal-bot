@@ -261,7 +261,7 @@ async def test_algo_suffix_arms_and_publishes_intent_when_enabled(monkeypatch):
   text = msg.answer.await_args.args[0]
   assert "✅ Sent to channel (#1)" in text
   assert "📨 ALGO REQUEST RECEIVED" in text
-  assert "Waiting for executor confirmation" in text
+  assert "Waiting for executor confirmation" not in text
   assert "dry-run" not in text
 
   set_intent.assert_awaited_once()
@@ -303,7 +303,7 @@ async def test_algo_suffix_not_live_still_reports_dry_run_off(monkeypatch):
 
   text = msg.answer.await_args.args[0]
   assert "📨 ALGO REQUEST RECEIVED" in text
-  assert "Waiting for executor confirmation" in text
+  assert "Waiting for executor confirmation" not in text
   assert "dry-run" not in text
 
 

@@ -100,12 +100,14 @@ def test_tp_booked_event_renders_without_crashing():
     "message": "TP COMPLETED TP1 closed L1=320 L2=120 remaining=660 (2/2)",
     "setup": "Key Level Reaction",
     "price": 4054.86,
+    "target_pips": 60,
   })
 
   assert text is not None
   assert "TP COMPLETED" in text
   assert "TP1" in text
   assert "4054.86" in text
+  assert "+60.0 pips" in text
   assert "Key Level Reaction" in text
   assert "Closed" not in text
   assert "Remaining" not in text
@@ -164,12 +166,14 @@ def test_plan_closed_event_renders_highest_tp_only():
   text = delivery.render_auto_trade_event({
     "type": "position_closed",
     "message": "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
+    "target_pips": 90,
   })
 
   assert text is not None
   assert "POSITION CLOSED" in text
   assert "Highest TP archived" in text
   assert "TP2" in text
+  assert "+90.0 pips" in text
   assert "4106.00" in text
   assert "L1" not in text
   assert "lot=" not in text.lower()
