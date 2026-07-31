@@ -12,7 +12,6 @@ from app.autotrade.protective_stop import (
   opposing_zone_context_from_values,
   plan_group_protective_stop,
   plan_protective_stop,
-  resolve_entry_leg_lots,
   stop_bounds_for_strategy,
 )
 
@@ -601,22 +600,16 @@ def evaluate_execution_policy(
       and len(leg_ratios) == len(leg_prices)
     )
     if use_group_stop:
-      # Resolve broker-step lots for stop weighting. Default planning total
-      # 0.11 matches the owner equity-table lot near $1,300 so Python uses
-      # 8/11·3/11 weights rather than ideal 70/30 before C# sizes live.
-      planning_lots = getattr(
-        cfg, "auto_trade_stop_planning_total_lots", 0.11,
-      )
-      resolved_lots = resolve_entry_leg_lots(
-        planning_lots if planning_lots else 0.11,
-        leg_ratios,
-      )
+      # Absolute group SL is structural (one price beyond zone/entries/swing).
+      # Envelope distance uses declared leg ratios as relative weights only —
+      # never a fake planning total lots. Live equity sizes broker volume later
+      # in C#; it must not reshape the published absolute stop.
       stop_plan = plan_group_protective_stop(
         direction=direction,
         entry_zone_low=low,
         entry_zone_high=high,
         planned_leg_prices=leg_prices,
-        resolved_leg_volumes=resolved_lots,
+        resolved_leg_volumes=leg_ratios,
         structure_swing=getattr(match, "structure_swing", None),
         atr=atr,
         structure_buffer_atr=structure_buffer_atr,

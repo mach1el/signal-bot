@@ -532,12 +532,16 @@ def plan_group_protective_stop(
   digits: int,
   opposing_zone: OpposingZoneStopContext | None = None,
 ) -> FinalProtectiveStopPlan:
-  """One absolute group stop from the volume-weighted planned entry.
+  """One absolute group stop from structure/zone geometry.
 
-  SELL stop must clear zone high, every planned entry, structural swing and
-  sweep high. BUY stop must clear the corresponding lows. The stop may never
-  remain inside the source entry zone. Envelope distance is measured from the
-  weighted group reference, not per-leg.
+  The stop price itself is absolute (one shared level for every entry leg) —
+  e.g. entries 4108 / 4105 share SL 4103. It must clear zone edge, every
+  planned entry, structural swing and sweep extreme, and must never remain
+  inside the source entry zone.
+
+  ``resolved_leg_volumes`` are relative weights only (declared ratios or
+  broker lots) used to measure the 40–60 pip envelope from a group reference
+  entry. They must not invent an absolute stop from assumed equity/lots.
   """
   direction = str(direction).upper()
   zone_low = decimal_value(entry_zone_low, "entry_zone_low")

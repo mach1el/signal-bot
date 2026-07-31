@@ -261,15 +261,6 @@ class Settings(BaseSettings):
       "AUTO_TRADE_UNFILLED_LEG_AFTER_TP_POLICY",
     ),
   )
-  # When live equity is not yet known at Python publish time, resolve
-  # zone-scale leg lots for group-stop weighting at this total (0.11 =
-  # owner equity-table lot near $1,300 → 0.08/0.03 = 8/11·3/11).
-  auto_trade_stop_planning_total_lots: float = Field(
-    default=0.11,
-    validation_alias=AliasChoices(
-      "AUTO_TRADE_STOP_PLANNING_TOTAL_LOTS",
-    ),
-  )
   auto_trade_xau_price_digits: int = 2
   auto_trade_xau_pip_size: float = Field(
     default=0.1,
