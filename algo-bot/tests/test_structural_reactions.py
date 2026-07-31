@@ -108,16 +108,9 @@ def test_default_detectors_exclude_zone_reaction():
 
 
 def test_live_registry_matches_detector_settings_defaults():
-  """Recovery mission (2026-07-30, extended 2026-07-31): DEFAULT_DETECTORS
-  is now built from LIVE_DETECTOR_REGISTRY filtered by DetectorSettings'
-  own per-detector enabled flags - session_level_reaction and
-  trendline_reaction already defaulted to enabled=True in
-  DetectorSettings/config.py (an existing, fully-wired flag
-  DEFAULT_DETECTORS was silently ignoring), so they are live again.
-  trend_pullback/snap_back/fade_scalp were retrofitted onto the shared
-  evaluate_structural_reaction confirmation path (2026-07-31) and are now
-  live too. box_breakout/break_retest/momentum_ride remain disabled -
-  registered and visible, not silently missing.
+  """DEFAULT_DETECTORS is built from LIVE_DETECTOR_REGISTRY filtered by
+  DetectorSettings defaults. momentum_ride is live; box_breakout/
+  break_retest remain disabled (replay-only with reason).
   """
   names = {item.__name__ for item in detectors.DEFAULT_DETECTORS}
 
@@ -129,13 +122,13 @@ def test_live_registry_matches_detector_settings_defaults():
     "trendline_reaction",
     "range_edge_scalp",
     "trend_pullback",
+    "momentum_ride",
     "snap_back",
     "fade_scalp",
   }
   for disabled in (
     "box_breakout",
     "break_retest",
-    "momentum_ride",
     "zone_reaction",
   ):
     assert disabled not in names, f"{disabled} must not be in the live registry"
@@ -186,6 +179,7 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     trendline_reaction_enabled=False,
     range_scalp_enabled=False,
     trend_pullback_enabled=False,
+    momentum_ride_enabled=False,
     snap_back_enabled=False,
     fade_scalp_enabled=False,
   )
@@ -207,7 +201,7 @@ def test_demand_zone_reaction_buy():
   zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
   result = detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[zone]))
   assert result is not None
-  assert result.setup == "Demand Zone Reaction"
+  assert result.setup == "Zone Reaction"
   assert result.direction == "BUY"
   assert result.structural_source == "supply_demand"
   assert result.structural_kind == "demand"
@@ -223,7 +217,7 @@ def test_supply_zone_reaction_sell():
   zone = Zone(107, 112, "supply", source="supply_demand", score=10, touches=0)
   result = detectors.supply_zone_reaction(_ctx(df, bias="up", zones=[zone]))
   assert result is not None
-  assert result.setup == "Supply Zone Reaction"
+  assert result.setup == "Zone Reaction"
   assert result.direction == "SELL"
   assert result.structural_kind == "supply"
   assert result.bias_relationship == "counter_bias"
@@ -394,7 +388,7 @@ def test_touch_prior_bar_confirmation_within_lookback():
     )
   )
   assert result is not None
-  assert result.setup == "Demand Zone Reaction"
+  assert result.setup == "Zone Reaction"
 
 
 def test_confirmation_older_than_lookback_rejected():
@@ -478,6 +472,7 @@ def test_engulfing_never_overrides_a_stronger_confirmation():
 
 def test_strategy_family_and_stable_thesis_identity():
   assert strategy_family("Key Level Reaction") == "key_level"
+  assert strategy_family("Zone Reaction") == "supply_demand"
   assert strategy_family("Demand Zone Reaction") == "supply_demand"
   assert strategy_family("Supply Zone Reaction") == "supply_demand"
   assert strategy_family("Session Level Reaction") == "session_level"
@@ -586,6 +581,7 @@ def test_independent_sources_remain_separate():
 def test_structural_setups_constant():
   assert STRUCTURAL_SETUPS == {
     "Key Level Reaction",
+    "Zone Reaction",
     "Demand Zone Reaction",
     "Supply Zone Reaction",
     "Session Level Reaction",

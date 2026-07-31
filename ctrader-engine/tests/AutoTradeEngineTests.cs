@@ -1892,6 +1892,7 @@ public sealed partial class AutoTradeEngineTests
 
   [Theory]
   [InlineData("Key Level Reaction", "key_level", "key_level")]
+  [InlineData("Zone Reaction", "supply_demand", "supply_demand")]
   [InlineData("Demand Zone Reaction", "supply_demand", "supply_demand")]
   [InlineData("Supply Zone Reaction", "supply_demand", "supply_demand")]
   [InlineData("Session Level Reaction", "session_level", "session_level")]
@@ -4163,6 +4164,7 @@ public sealed partial class AutoTradeEngineTests
   [Theory]
   [InlineData("Trend Pullback", "trend")]
   [InlineData("Mapped Zone Reaction", "mapped_zone")]
+  [InlineData("Zone Reaction", "supply_demand")]
   [InlineData("Demand Zone Reaction", "supply_demand")]
   [InlineData("Key Level Reaction", "key_level")]
   [InlineData("Session Level Reaction", "session_level")]
