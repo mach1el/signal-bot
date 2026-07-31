@@ -21,15 +21,12 @@ import pytest
 
 from app.autotrade import delivery, worker
 from app.autotrade.setup_lifecycle import (
-  ARMED_WAITING_TRIGGER,
   CANCELLED,
   CONFIRMED,
   PLAN_BUILT,
-  READY_EVENT_ENQUEUED,
   WATCHING,
   TOUCHED,
   FORMING,
-  WORKER_ACKNOWLEDGED,
   create_setup,
   load_setup,
   transition_setup,
@@ -77,10 +74,7 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   await create_setup(
     client, setup_id=setup_id, thesis_id="thesis-1", symbol="XAU",
   )
-  for state in (
-    WATCHING, TOUCHED, FORMING, CONFIRMED, READY_EVENT_ENQUEUED,
-    WORKER_ACKNOWLEDGED, ARMED_WAITING_TRIGGER, PLAN_BUILT,
-  ):
+  for state in (WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT):
     await transition_setup(client, setup_id, state)
 
   # A forming card was posted earlier in the setup's life and never

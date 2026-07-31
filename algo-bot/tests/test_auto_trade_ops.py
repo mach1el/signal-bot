@@ -536,6 +536,58 @@ async def test_opened_event_stores_message_id_with_ttl():
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
+async def test_order_filled_replies_using_v7_plan_id_and_edits_root_status(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "ece2d0168a881f82d8a7fa673c36d40e"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "\n".join([
+        "🔎 <b>XAU M5 · SETUP FORMING</b>",
+        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+        "🟢 <b>BUY · Key Level Reaction</b>",
+      ]),
+    }),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8123)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "candidate_id": f"v7:{setup_id}",
+      "group_id": f"v7:{setup_id}",
+      "message": "ENTRY L1 FILLED volume=800 @ 4074.68; L2 still pending",
+      "position_id": 39000344,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+  assert "ORDER FILLED" in calls[0][0]
+  assert edited
+  assert "ORDER FILLED" in edited[0][2]
+  assert "PLAN PUBLISHED" not in edited[0][2].splitlines()[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_opened_event_replies_to_stored_forming_message():
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"

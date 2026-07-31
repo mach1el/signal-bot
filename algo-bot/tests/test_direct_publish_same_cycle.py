@@ -47,39 +47,21 @@ def _range_match() -> StrategyMatch:
 
 
 @pytest.mark.asyncio
-async def test_fresh_b_grade_trigger_gets_one_bounded_second_pass(monkeypatch):
+async def test_same_cycle_install_is_identity_without_armed_retry(monkeypatch):
+  # ACK/ARMED same-cycle retries are gone. install_same_cycle_publish_retry
+  # keeps the cutover wiring contract but must not re-invoke publish.
   match = _range_match()
-  first = worker.PublishResult(
+  watching = worker.PublishResult(
     status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
     plan_id="v7:range-setup",
-    reason_code="m1_trigger_wait",
+    reason_code="waiting_retest_entry_zone",
     zone_id="zone-1",
     setup_id="range-setup",
   )
-  second = worker.PublishResult(
-    status=worker.PUBLISH_STATUS_PUBLISHED,
-    plan_id="v7:range-setup",
-    reason_code="candidate_published",
-    zone_id="zone-1",
-    setup_id="range-setup",
-  )
-  direct = AsyncMock(side_effect=[first, second])
+  direct = AsyncMock(return_value=watching)
   monkeypatch.setattr(cutover, "_safe_direct_publish", direct)
   monkeypatch.setattr(worker, "try_publish_executable_signal", direct)
   monkeypatch.setattr(retry, "_INSTALLED", False)
-  monkeypatch.setattr(
-    worker,
-    "resolve_existing_v7_state",
-    AsyncMock(return_value=worker.ExistingV7State(
-      plan_id="v7:range-setup",
-      setup_state="armed_waiting_trigger",
-      plan_state=None,
-      plan_exists=False,
-      already_published=False,
-      already_terminal=False,
-      owner_matches=False,
-    )),
-  )
 
   retry.install_same_cycle_publish_retry()
   result = await cutover._safe_direct_publish(
@@ -88,5 +70,5 @@ async def test_fresh_b_grade_trigger_gets_one_bounded_second_pass(monkeypatch):
     symbol="XAU",
   )
 
-  assert result.status == worker.PUBLISH_STATUS_PUBLISHED
-  assert direct.await_count == 2
+  assert result.status == worker.PUBLISH_STATUS_REMAINED_WATCHING
+  assert direct.await_count == 1

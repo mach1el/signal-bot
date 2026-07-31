@@ -185,7 +185,9 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(TradePlanRuntimeStage.FullyOpen, open.Stage);
     Assert.DoesNotContain(store.Events, e => e.Type == "plan_armed");
     Assert.DoesNotContain(
-      runtime.TrackedStates, s => s.Stage == TradePlanRuntimeStage.Armed
+      runtime.TrackedStates,
+      s => s.Stage is TradePlanRuntimeStage.Received
+        or TradePlanRuntimeStage.Submitting
     );
   }
 
@@ -847,8 +849,8 @@ public sealed class TradePlanRuntimeTests
   {
     // P0 production bug: leg 2 erroring (duplicate ClientOrderId, or any
     // other broker rejection) threw before Stage ever became Submitted, so
-    // the plan stayed Armed and the NEXT poll resubmitted leg 1 from
-    // scratch - even though the broker had already accepted it.
+    // the plan stayed Received/Submitting and the NEXT poll resubmitted
+    // leg 1 from scratch - even though the broker had already accepted it.
     var store = new FakeV7Store();
     store.EnqueuePlan(LadderPlanJson);
     var client = new FakeV7TradingClient { ThrowOnCallNumber = 2 };
@@ -865,8 +867,8 @@ public sealed class TradePlanRuntimeTests
     Assert.Single(client.LimitOrders);
     var afterFailure = Assert.Single(runtime.TrackedStates);
     // Stage stays Submitting (not Submitted) after a partial failure -
-    // EvaluatePendingEntryPlansAsync only re-evaluates Received/Submitting/
-    // legacy Armed plans, so this is what makes the retry below come back.
+    // EvaluatePendingEntryPlansAsync only re-evaluates Received/Submitting
+    // plans, so this is what makes the retry below come back.
     Assert.Equal(TradePlanRuntimeStage.Submitting, afterFailure.Stage);
     Assert.Equal(1, afterFailure.SubmittedLegCount);
 
@@ -1176,10 +1178,10 @@ public sealed class TradePlanRuntimeTests
   public async Task DuplicateClaimOnALaterPollNeverResubmitsAnAlreadyFilledPlan()
   {
     // P1-3: a duplicate claim (same plan_id, owner already us) arriving
-    // AFTER the plan has already progressed past Armed - not within the
+    // AFTER the plan has already progressed past Received - not within the
     // same poll cycle DuplicatePlanIsClaimedOnceAndNeverDoubleSubmitted
     // covers, where the second entry is overwritten before it is ever
-    // evaluated. Falling through to a fresh Armed state here used to
+    // evaluated. Falling through to a fresh Received state here used to
     // resurrect an already-filled plan and submit a second broker order.
     var store = new FakeV7Store();
     var planJson = PlanJson();

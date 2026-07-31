@@ -170,7 +170,7 @@ def test_custom_width_overrides_are_respected():
   assert result.max_allowed_width == pytest.approx(2.0)
 
 
-def test_scanner_gate_drops_a_too_narrow_zone_only_when_enabled(monkeypatch):
+def test_scanner_gate_keeps_a_too_narrow_zone_as_preference_telemetry(monkeypatch):
   narrow = [_structural_zone_result(4100.0, 4100.5, structural_id="sd-narrow")]
 
   monkeypatch.setattr(scanner.settings, "scanner_zone_width_gate_enabled", False)
@@ -179,7 +179,11 @@ def test_scanner_gate_drops_a_too_narrow_zone_only_when_enabled(monkeypatch):
 
   monkeypatch.setattr(scanner.settings, "scanner_zone_width_gate_enabled", True)
   merged_on = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
-  assert merged_on == []
+  # Zone-width quality is preference telemetry — merged zone is retained.
+  assert len(merged_on) == 1
+  assert merged_on[0].setup == narrow[0].setup
+  assert float(merged_on[0].entry_zone.low) == pytest.approx(4100.0)
+  assert float(merged_on[0].entry_zone.high) == pytest.approx(4100.5)
 
 
 def test_key_level_band_is_never_width_dropped_regardless_of_the_gate(

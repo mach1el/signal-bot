@@ -622,7 +622,8 @@ async def test_handle_event_manual_cancelled_cancels_armed_signal(monkeypatch):
   assert row["status"] == "cancelled"
   assert row["execution_status"] == "cancelled"
   assert row["algo_armed"] is False
-  send.assert_awaited_once()
+  # Algo-manual cancel must not fan out a VIP/public channel card.
+  send.assert_not_awaited()
 
 
 @pytest.mark.asyncio

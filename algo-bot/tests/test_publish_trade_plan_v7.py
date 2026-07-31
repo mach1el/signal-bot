@@ -33,7 +33,6 @@ from app.autotrade.execution_confirmation import (
   load_execution_confirmation,
 )
 from app.autotrade.setup_lifecycle import (
-  ARMED_WAITING_TRIGGER,
   CONFIRMED,
   EXPIRED,
   INVALIDATED,
@@ -146,13 +145,7 @@ async def _publish_nonreaction_after_m1(
   match,
   **kwargs,
 ):
-  assert await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    spot,
-    match,
-    **kwargs,
-  ) is None
+  # Zone presence alone authorizes publication; M1 is optional stop evidence.
   return await worker._publish_trade_plan_v7(
     client,
     "XAU",
@@ -168,7 +161,14 @@ def _m1_trigger_bar(
 ) -> pd.DataFrame:
   # A wick_rejection bar for a BUY setup: wicks below the zone then closes
   # back above it, lower-wick fraction well past the default 0.5 threshold.
-  index = pd.date_range("2026-07-22 14:45", periods=1, freq="1min", tz="UTC")
+  # Timestamp must be after the match confirmation boundary so the optional
+  # M1 window accepts it as fresh in-zone evidence.
+  index = pd.date_range(
+    pd.Timestamp(int(time.time()), unit="s", tz="UTC") - pd.Timedelta(seconds=30),
+    periods=1,
+    freq="1min",
+    tz="UTC",
+  )
   return pd.DataFrame({
     "open": [entry_high - 1.0],
     "high": [entry_high + 0.5],
@@ -283,15 +283,12 @@ def _intent_for_match(match: StrategyMatch) -> ExecutionIntent:
 
 
 @pytest.mark.asyncio
-async def test_nonreaction_setup_arms_then_uses_next_m1_as_stop_anchor():
+async def test_nonreaction_setup_publishes_with_optional_m1_stop_anchor():
   client = redis_state.get_client()
   match = _match()
   await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  spot = worker.AutoTradeSpot(price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1)
 
-  assert await worker._publish_trade_plan_v7(
-    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
-  ) is None
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
   )
@@ -305,7 +302,7 @@ async def test_nonreaction_setup_arms_then_uses_next_m1_as_stop_anchor():
   assert plan.analysis.bias == "up"
   assert plan.source_structure.kind == "demand"
   assert plan.stop.source == "m1_trigger_wick"
-  # The trigger bar's low (4086.10) drives the stop, not the raw zone edge.
+  # The trigger bar's low (entry_low - 2.0) drives the stop, not the raw zone edge.
   assert float(plan.stop.price) < 4088.10
   assert await read_plan_state(client, plan_id) == "published"
   record = await load_setup(client, "match-v7-1")
@@ -313,7 +310,7 @@ async def test_nonreaction_setup_arms_then_uses_next_m1_as_stop_anchor():
 
 
 @pytest.mark.asyncio
-async def test_nonreaction_setup_arms_and_waits_for_m1():
+async def test_nonreaction_setup_publishes_in_zone_without_m1():
   client = redis_state.get_client()
   match = _match(
     match_id="near-no-m1",
@@ -332,10 +329,12 @@ async def test_nonreaction_setup_arms_and_waits_for_m1():
     client, "XAU", spot, match,
   )
 
-  assert plan_id is None
-  assert (await load_setup(client, match.match_id)).state == (
-    ARMED_WAITING_TRIGGER
-  )
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.stop.source == "m5_structure"
+  assert plan.provenance.confirmation_source == "m5_authoritative"
+  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
 
 
 @pytest.mark.asyncio
@@ -532,7 +531,7 @@ async def test_confirmed_trendline_sell_below_zone_waits_for_fresh_retest():
   assert await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
   ) is None
-  assert (await load_setup(client, match.match_id)).state == ARMED_WAITING_TRIGGER
+  assert (await load_setup(client, match.match_id)).state == CONFIRMED
   state = await load_execution_confirmation(client, match.match_id)
   assert state is not None
   assert state.phase == WAITING_RETEST
@@ -963,7 +962,7 @@ async def test_midpoint_inside_does_not_override_executable_quote_outside(
 
 
 @pytest.mark.asyncio
-async def test_final_v7_gate_labels_new_opposing_major_as_context_change():
+async def test_final_v7_gate_observes_opposing_major_as_preference_telemetry():
   client = redis_state.get_client()
   match = _match(
     match_id="match-v7-opposing-major",
@@ -1004,20 +1003,13 @@ async def test_final_v7_gate_labels_new_opposing_major_as_context_change():
     market_map=market_map,
   )
 
-  assert plan_id is None
-  assert (await load_setup(client, match.match_id)).state == INVALIDATED
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
-  gate = await client.hgetall(
-    "auto_trade:gate_reject:XAU:v7_context_changed_target_room"
-  )
-  assert int(gate["count"]) == 1
+  # Opposing major / target-room preference is telemetry — publish continues.
+  assert plan_id is not None
+  assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
+  assert await read_trade_plan(client, worker._v7_plan_id(match)) is not None
   assert await client.hget(
     "auto_trade:metrics:XAU",
-    "context_changed_revalidation_blocked",
-  ) == "1"
-  assert await client.hget(
-    "auto_trade:metrics:XAU:context_changed_revalidation_blocked",
-    "reason=context_changed_target_room",
+    "target_room_preference_observed",
   ) == "1"
 
 
@@ -1030,9 +1022,10 @@ async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
     structure_swing=4087.5,
   )
   await _confirm_setup(client, match)
+  now = int(time.time())
   spot = worker.AutoTradeSpot(
     price=4089.0,
-    ts=1719999600,
+    ts=now,
     fresh=True,
     bid=4088.9,
     ask=4089.1,
@@ -1048,13 +1041,6 @@ async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
     10.0,
   ))
 
-  assert await worker._publish_trade_plan_v7(
-    client,
-    "XAU",
-    spot,
-    match,
-    market_map=market_map,
-  ) is None
   plan_id = await worker._publish_trade_plan_v7(
     client,
     "XAU",
@@ -1081,7 +1067,9 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   client = redis_state.get_client()
   match = _match(match_id="match-v7-2", thesis_id="thesis-v7-2")
   await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  spot = worker.AutoTradeSpot(
+    price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
+  )
 
   plan_id = await _publish_nonreaction_after_m1(
     client,
@@ -1097,7 +1085,9 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
 @pytest.mark.asyncio
 async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
   client = redis_state.get_client()
-  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  spot = worker.AutoTradeSpot(
+    price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
+  )
 
   first_match = _match(match_id="match-v7-3a", thesis_id="thesis-v7-shared")
   await _confirm_setup(client, first_match)
@@ -1126,7 +1116,9 @@ async def test_setup_not_confirmed_is_rejected():
   # scanner.py's setup lifecycle wiring at all.
   client = redis_state.get_client()
   match = _match(match_id="match-v7-4", thesis_id="thesis-v7-4")
-  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  spot = worker.AutoTradeSpot(
+    price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
+  )
 
   plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
 
@@ -1135,14 +1127,23 @@ async def test_setup_not_confirmed_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_nonreaction_non_qualifying_m1_bar_stays_armed():
+async def test_nonreaction_non_qualifying_m1_still_publishes_on_zone_presence():
   client = redis_state.get_client()
   match = _match(match_id="match-v7-5", thesis_id="thesis-v7-5")
   await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(price=4089.0, ts=1719999600, fresh=True, bid=4088.9, ask=4089.1)
+  now = int(time.time())
+  spot = worker.AutoTradeSpot(
+    price=4089.0, ts=now, fresh=True, bid=4088.9, ask=4089.1,
+  )
   # A tiny, symmetric doji sitting inside the zone with no directional wick,
-  # body, or close - qualifies for none of the six patterns.
-  index = pd.date_range("2026-07-22 14:45", periods=1, freq="1min", tz="UTC")
+  # body, or close - qualifies for none of the six patterns. Zone presence
+  # alone still authorizes publication; M1 is optional preference evidence.
+  index = pd.date_range(
+    pd.Timestamp(now, unit="s", tz="UTC") - pd.Timedelta(seconds=30),
+    periods=1,
+    freq="1min",
+    tz="UTC",
+  )
   flat_bar = pd.DataFrame({
     "open": [4089.0], "high": [4089.05], "low": [4088.95], "close": [4089.0],
     "volume": [100.0],
@@ -1152,6 +1153,10 @@ async def test_nonreaction_non_qualifying_m1_bar_stays_armed():
     client, "XAU", spot, match, frames={"M1": flat_bar},
   )
 
-  assert plan_id is None
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.stop.source == "m5_structure"
+  assert plan.provenance.confirmation_source == "m5_authoritative"
   record = await load_setup(client, "match-v7-5")
-  assert record.state == ARMED_WAITING_TRIGGER
+  assert record.state == PLAN_PUBLISHED

@@ -131,7 +131,7 @@ def test_opposing_barrier_reason_without_exclusion_args_is_unchanged():
     ),
   ],
 )
-def test_entry_inside_opposing_structure_blocks_in_observe_and_strict(
+def test_entry_inside_opposing_structure_is_preference_telemetry(
   direction,
   entry,
   target,
@@ -160,10 +160,12 @@ def test_entry_inside_opposing_structure_blocks_in_observe_and_strict(
     guard_mode="strict",
   )
 
-  assert observed.outcome == "block"
-  assert observed.hard_block
-  assert strict.outcome == "block"
-  assert strict.hard_block
+  assert observed.outcome == "allow_with_warning"
+  assert not observed.hard_block
+  assert observed.reason_code == "entry_inside_opposing_zone"
+  assert strict.outcome == "allow_with_warning"
+  assert not strict.hard_block
+  assert strict.reason_code == "entry_inside_opposing_zone"
 
 
 # ---------------------------------------------------------------------------

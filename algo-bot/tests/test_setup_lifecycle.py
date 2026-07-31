@@ -28,12 +28,17 @@ from app.autotrade.setup_lifecycle import (
   TOUCHED,
   WATCHING,
   SetupLifecycleError,
+  SetupRecord,
   SetupTransitionConflict,
+  WORKER_ACKNOWLEDGED,
   claim_active_thesis,
   create_setup,
+  is_publishable_setup_state,
   load_setup,
+  normalize_setup_state,
   rearm_setup,
   release_active_thesis,
+  setup_key,
   transition_setup,
 )
 from app.autotrade.worker import (
@@ -78,6 +83,17 @@ def test_terminal_preflight_failure_mapping_never_invalidates_post_plan_states()
   assert terminal_state_for_preflight_failure(CONSUMED) is None
 
 
+def test_legacy_handoff_states_normalize_to_confirmed_for_publish():
+  for legacy in (
+    READY_EVENT_ENQUEUED, WORKER_ACKNOWLEDGED, ARMED_WAITING_TRIGGER,
+  ):
+    assert normalize_setup_state(legacy) == CONFIRMED
+    assert is_publishable_setup_state(legacy) is True
+  assert normalize_setup_state(CONFIRMED) == CONFIRMED
+  assert is_publishable_setup_state(PLAN_BUILT) is True
+  assert is_publishable_setup_state(PLAN_PUBLISHED) is False
+
+
 @pytest.mark.asyncio
 async def test_create_setup_is_idempotent():
   client = redis_state.get_client()
@@ -101,8 +117,8 @@ async def test_full_valid_transition_path_reaches_consumed():
   await create_setup(client, setup_id="setup-2", thesis_id="thesis-2", symbol="XAU")
 
   path = [
-    WATCHING, TOUCHED, FORMING, CONFIRMED, ARMED_WAITING_TRIGGER,
-    PLAN_BUILT, PLAN_PUBLISHED, ARMED, CONSUMED,
+    WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT, PLAN_PUBLISHED,
+    ARMED, CONSUMED,
   ]
   for state in path:
     record, changed = await transition_setup(client, "setup-2", state)
@@ -140,10 +156,9 @@ async def test_illegal_transition_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_confirmed_cannot_skip_the_m1_trigger_wait():
-  # M1 candlestick trigger (P3): CONFIRMED must not jump straight to
-  # PLAN_BUILT - it has to wait in ARMED_WAITING_TRIGGER first, so a plan
-  # can only ever be built at the moment a trigger actually fires.
+async def test_confirmed_can_publish_directly_to_plan_built():
+  # Direct publication path: CONFIRMED may jump straight to PLAN_BUILT
+  # without READY / ACK / ARMED wait nodes.
   client = redis_state.get_client()
   await create_setup(client, setup_id="setup-4b", thesis_id="thesis-4b", symbol="XAU")
   await transition_setup(client, "setup-4b", WATCHING)
@@ -151,12 +166,44 @@ async def test_confirmed_cannot_skip_the_m1_trigger_wait():
   await transition_setup(client, "setup-4b", FORMING)
   await transition_setup(client, "setup-4b", CONFIRMED)
 
-  with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
-    await transition_setup(client, "setup-4b", PLAN_BUILT)
-
-  record, changed = await transition_setup(client, "setup-4b", ARMED_WAITING_TRIGGER)
+  record, changed = await transition_setup(client, "setup-4b", PLAN_BUILT)
   assert changed is True
-  assert record.state == ARMED_WAITING_TRIGGER
+  assert record.state == PLAN_BUILT
+
+
+@pytest.mark.asyncio
+async def test_legacy_pre_plan_redis_states_can_only_advance_to_plan_built():
+  # In-flight Redis records may still carry removed handoff nodes. New code
+  # never writes them, but migration allows them to finish into PLAN_BUILT.
+  import json
+  import time
+
+  client = redis_state.get_client()
+  for legacy in (
+    READY_EVENT_ENQUEUED, WORKER_ACKNOWLEDGED, ARMED_WAITING_TRIGGER,
+  ):
+    setup_id = f"setup-legacy-{legacy}"
+    await create_setup(
+      client, setup_id=setup_id, thesis_id=f"thesis-{legacy}", symbol="XAU",
+    )
+    for state in (WATCHING, TOUCHED, FORMING, CONFIRMED):
+      await transition_setup(client, setup_id, state)
+    current = await load_setup(client, setup_id)
+    assert current is not None
+    seeded = SetupRecord(
+      **{**current.to_dict(), "state": legacy, "updated_at": int(time.time())},
+    )
+    await client.set(
+      setup_key(setup_id),
+      json.dumps(seeded.to_dict(), separators=(",", ":")),
+    )
+
+    with pytest.raises(SetupLifecycleError, match="unknown setup state"):
+      await transition_setup(client, setup_id, legacy)
+
+    record, changed = await transition_setup(client, setup_id, PLAN_BUILT)
+    assert changed is True
+    assert record.state == PLAN_BUILT
 
 
 @pytest.mark.asyncio
@@ -170,7 +217,6 @@ async def test_cannot_re_confirm_an_already_planned_setup():
   await transition_setup(client, "setup-5", TOUCHED)
   await transition_setup(client, "setup-5", FORMING)
   await transition_setup(client, "setup-5", CONFIRMED)
-  await transition_setup(client, "setup-5", ARMED_WAITING_TRIGGER)
   await transition_setup(client, "setup-5", PLAN_BUILT)
 
   with pytest.raises(SetupLifecycleError, match="illegal setup transition"):
