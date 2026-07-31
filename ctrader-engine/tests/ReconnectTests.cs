@@ -99,7 +99,9 @@ public sealed class ReconnectTests
         AccessRights: "FullAccess",
         AccountType: "Hedged",
         BrokerName: "IC Markets AU",
-        Balance: 1_000m
+        Balance: 1_000m,
+        Equity: 1_000m,
+        SnapshotTimestamp: 0
       ),
     };
     var runner = new FeedRunner(
@@ -480,7 +482,9 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
     AccessRights: "FullAccess",
     AccountType: "Hedged",
     BrokerName: "Fusion Markets",
-    Balance: 1_000m
+    Balance: 1_000m,
+    Equity: 1_000m,
+    SnapshotTimestamp: 0
   );
 
   public Task ConnectAndAuthorizeAsync(CancellationToken cancellationToken)
@@ -605,7 +609,9 @@ internal sealed class FakeCTraderClient : ICTraderFeedClient, ICTraderTradeClien
         AccessRights: "FullAccess",
         AccountType: "Hedged",
         BrokerName: "Fusion Markets",
-        Balance: 1_000m
+        Balance: 1_000m,
+        Equity: 1_000m,
+        SnapshotTimestamp: 0
       ));
   }
 

@@ -31,7 +31,6 @@ pytestmark = pytest.mark.no_database
     ("BUY", "4100", "4097", "4096", 20, 60, "4095.85", "41.5", "4095.85", False, "wick"),
     ("SELL", "4100", "4103", "4104", 20, 60, "4104.15", "41.5", "4104.15", False, "wick"),
     ("BUY", "4100", "4099.9", None, 20, 60, "4098.00", "20.0", "4099.6", True, "structure"),
-    ("BUY", "4100", "4090", None, 20, 60, "4094.00", "60.0", "4089.7", True, "structure"),
     ("BUY", "4100", "4100.29", None, 20, 60, "4098.00", "20.0", "4099.99", True, "structure"),
     ("BUY", "4100.005", "4097.302", None, 20, 60, "4097.30", "27.05", "4097.302", True, "structure"),
   ],
@@ -70,6 +69,25 @@ def test_protective_stop_table_matches_executor_sequence(
   assert plan.source == source
   assert plan.adjustment == "none"
   assert plan.base_stop_price == plan.final_stop_price
+
+
+def test_structural_stop_beyond_max_envelope_clamps():
+  plan = plan_protective_stop(
+    direction="BUY",
+    entry_price="4100",
+    structure_swing="4090",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=20,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  assert plan.final_stop_pips == Decimal("60")
+  assert plan.clamped is True
+  assert plan.final_stop_price == Decimal("4094.00")
 
 
 def test_wick_beyond_envelope_rejects():
@@ -146,12 +164,8 @@ def test_stop_inside_execution_grade_zone_is_pushed_beyond_it():
 
 
 def test_reaction_family_ceiling_still_allows_a_legitimate_opposing_zone_push():
-  # Live regression: the reaction-family stop bounds fix (20 pip floor)
-  # briefly also lowered the ceiling to 60, and a real SELL got rejected
-  # with stop_inside_opposing_zone because pushing the stop past a real
-  # opposing zone needed more room than that. Only the floor should ever
-  # have been lowered - the ceiling stays at the trend family's 65, since
-  # this push mechanism sometimes legitimately needs it.
+  # Opposing-zone push that needs 63 pips clears under a 65 ceiling and
+  # rejects under the owner 60 max envelope.
   kwargs = dict(
     direction="BUY",
     entry_price="4100.00",
@@ -282,31 +296,83 @@ def test_reward_risk_accepts_near_entry_structure_after_minimum_clamp():
   assert result.measured["reward_risk"] == 1.5
 
 
-def test_reaction_family_stop_floor_is_tighter_than_trend_families():
-  # Owner's trading style: a narrow (~3 point) entry zone with a stop just
-  # beyond it - a genuinely tight, structure-computed stop. The 4 zone-scale
-  # reaction families (Key Level/Demand/Supply/Session Level/Trendline
-  # Reaction) previously fell through to the trend-family floor
-  # (auto_trade_trend_stop_min_pips=40) regardless of how tight their own
-  # structure actually was, dragging a perfectly good reward:risk down to
-  # "insufficient" for no structural reason. They now get their own,
-  # tighter floor (auto_trade_reaction_stop_min_pips=20) instead.
+def test_reaction_family_uses_owner_40_60_envelope():
+  # Zone-scale reaction families share the owner 40–60 group envelope
+  # (legacy reaction 20–65 is deprecated for this path).
   reaction = evaluate_execution_policy(
-    _policy_subject(strategy="Key Level Reaction", targets_pips=(30,)),
+    _policy_subject(strategy="Key Level Reaction", targets_pips=(60,)),
     spot_price=4100.0,
     regime="range",
     pip_size=0.1,
   )
   trend = evaluate_execution_policy(
-    _policy_subject(strategy="Mapped Zone Reaction", targets_pips=(30,)),
+    _policy_subject(strategy="Mapped Zone Reaction", targets_pips=(60,)),
     spot_price=4100.0,
     regime="trend",
     pip_size=0.1,
   )
 
-  assert reaction.measured["planned_stop_pips"] == "20.0"
-  assert reaction.measured["reward_risk"] == 1.5
-  assert reaction.allowed
-
+  assert reaction.measured["planned_stop_pips"] == "40.0"
   assert trend.measured["planned_stop_pips"] == "40.0"
-  assert trend.reason_code == "policy_reward_risk_insufficient"
+  assert reaction.measured["reward_risk"] == trend.measured["reward_risk"]
+
+
+def test_sell_group_stop_clears_zone_high_and_uses_weighted_reference():
+  from app.autotrade.protective_stop import (
+    plan_group_protective_stop,
+    resolve_entry_leg_lots,
+    volume_weighted_reference_entry,
+  )
+
+  leg_prices = ("4098.50", "4100.50")
+  resolved = resolve_entry_leg_lots("0.11", ("0.70", "0.30"))
+  assert resolved == (Decimal("0.08"), Decimal("0.03"))
+  reference = volume_weighted_reference_entry(leg_prices, resolved)
+  assert reference == (
+    Decimal("4098.50") * Decimal("0.08")
+    + Decimal("4100.50") * Decimal("0.03")
+  ) / Decimal("0.11")
+
+  plan = plan_group_protective_stop(
+    direction="SELL",
+    entry_zone_low="4097.07",
+    entry_zone_high="4101.03",
+    planned_leg_prices=leg_prices,
+    resolved_leg_volumes=resolved,
+    structure_swing="4102.00",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme="4102.50",
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  assert plan.entry_price == reference
+  assert plan.final_stop_price > Decimal("4101.03")
+  assert plan.final_stop_price > Decimal("4100.50")
+  assert plan.final_stop_price > Decimal("4102.00")
+  assert Decimal("40") <= plan.final_stop_pips <= Decimal("60")
+
+
+def test_group_structural_stop_beyond_max_rejects_without_inward_clamp():
+  from app.autotrade.protective_stop import plan_group_protective_stop
+
+  with pytest.raises(ProtectiveStopError, match="stop_exceeds_max_envelope"):
+    plan_group_protective_stop(
+      direction="SELL",
+      entry_zone_low="4097.07",
+      entry_zone_high="4101.03",
+      planned_leg_prices=("4098.50", "4100.50"),
+      resolved_leg_volumes=("0.08", "0.03"),
+      structure_swing="4110.00",
+      atr="1",
+      structure_buffer_atr="0.3",
+      sweep_extreme=None,
+      wick_buffer_atr="0.15",
+      minimum_stop_pips=40,
+      maximum_stop_pips=60,
+      pip_size="0.1",
+      digits=2,
+    )

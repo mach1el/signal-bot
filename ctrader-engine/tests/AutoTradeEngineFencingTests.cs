@@ -1441,7 +1441,7 @@ public sealed partial class AutoTradeEngineTests
       null,
       0.15m,
       40,
-      65,
+      60,
       0.1m,
       Symbol,
       zone

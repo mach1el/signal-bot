@@ -185,16 +185,27 @@ public sealed class AutoTradeOptionsTests
   }
 
   [Fact]
-  public void SizingModeDefaultsToMinAndRejectsUnknownValues()
+  public void SizingModeRecordDefaultsToMinAndEnvironmentDefaultsToEquityTable()
   {
     Assert.Equal("min", Options().SizingMode);
+
+    var previous = Environment.GetEnvironmentVariable("AUTO_TRADE_SIZING_MODE");
+    Environment.SetEnvironmentVariable("AUTO_TRADE_SIZING_MODE", null);
+    try
+    {
+      Assert.Equal("equity_table", AutoTradeOptions.FromEnvironment().SizingMode);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable("AUTO_TRADE_SIZING_MODE", previous);
+    }
 
     var error = Assert.Throws<AutoTradeConfigurationException>(
       () => (Options() with { SizingMode = "maximum" }).Validate()
     );
 
     Assert.Contains("AUTO_TRADE_SIZING_MODE", error.Message);
-    Assert.Contains("min, table, risk", error.Message);
+    Assert.Contains("equity_table", error.Message);
   }
 
   [Fact]

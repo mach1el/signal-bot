@@ -141,7 +141,9 @@ public sealed class AutoTradeConfigHealthTests
       AccessRights: "FullAccess",
       AccountType: hedged ? "Hedged" : "Netted",
       BrokerName: "FP Markets SC",
-      Balance: 2_000m
+      Balance: 2_000m,
+      Equity: 2_000m,
+      SnapshotTimestamp: 0
     );
     var symbol = new SymbolInfo("XAU", "XAUUSD", 41, 2);
     return AutoTradeConfigHealth.Build(options, account, symbol, 1_000);
@@ -212,7 +214,7 @@ public sealed class AutoTradeConfigHealthTests
       ["ordinary_stop_max_distance"] = 6.5m,
       ["wick_stop_buffer_atr"] = 0.15m,
       ["trend_stop_min_pips"] = 40,
-      ["trend_stop_max_pips"] = 65,
+      ["trend_stop_max_pips"] = 60,
       ["target_plans"] = new[] { 200, 120, 90, 60, 30 },
       ["range_target_plans"] = rangeTargets ?? [20, 30, 40, 50, 70],
       ["range_tp_buffer"] = numericDecimals ? 3.0m : 3m,
