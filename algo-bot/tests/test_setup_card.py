@@ -97,7 +97,7 @@ async def test_edit_failure_falls_back_to_a_fresh_post():
 
 
 @pytest.mark.asyncio
-async def test_apply_forming_card_stop_patches_trade_area_and_copy_draft():
+async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-stop")
   original = "\n".join([
@@ -105,11 +105,9 @@ async def test_apply_forming_card_stop_patches_trade_area_and_copy_draft():
     "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
     "• <b>Entry zone:</b> <b>4,072.99–4,076.89</b>",
     "• <b>Key level:</b> <b>4,074.94</b>",
+    "• <b>Stop:</b> <b>SL</b>",
     "",
-    "🧭 <b>Context</b>",
-    "",
-    "📋 <b>Copy draft</b>",
-    "<code>gold buy entry zone (4072.99-4076.89) / sl SL / tp TP1/TP2/TP3 / setup key-level-reaction **</code>",
+    "→ Executor owns mechanical entry and risk enforcement.",
   ])
   await setup_card.save_forming_card(
     client,
@@ -128,9 +126,43 @@ async def test_apply_forming_card_stop_patches_trade_area_and_copy_draft():
   )
   text = edited[0][2]
   assert "• <b>Stop:</b> <b>4,070.50</b>" in text
+  assert "• <b>Stop:</b> <b>SL</b>" not in text
+  assert "Copy draft" not in text
+
+
+@pytest.mark.asyncio
+async def test_apply_forming_card_stop_still_patches_legacy_copy_draft_if_present():
+  """Older cards may still carry a manual copy draft; keep Stop+draft in sync."""
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-stop-legacy")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "• <b>Entry zone:</b> <b>4,072.99–4,076.89</b>",
+    "• <b>Key level:</b> <b>4,074.94</b>",
+    "",
+    "📋 <b>Copy draft</b>",
+    "<code>gold buy entry zone (4072.99-4076.89) / sl SL / tp TP1/TP2/TP3 / setup key-level-reaction **</code>",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-stop-legacy",
+    chat_id=123,
+    message_id=556,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  assert await setup_card.edit_forming_card_stop(
+    client, "setup-stop-legacy", 4070.5, edit_fn=edit_fn,
+  )
+  text = edited[0][2]
+  assert "• <b>Stop:</b> <b>4,070.50</b>" in text
   assert "/ sl 4070.50 /" in text
   assert "sl SL" not in text
-
 
 @pytest.mark.asyncio
 async def test_lifecycle_status_replaces_only_the_card_status_line():
@@ -545,3 +577,201 @@ async def test_real_redis_concurrent_card_status_keeps_highest_priority():
   finally:
     await client.flushdb()
     await client.aclose()
+
+
+def _strategy_match_for_card(setup_id: str = "setup-publish-card") -> object:
+  from app.autotrade.strategy_match import StrategyMatch
+
+  return StrategyMatch(
+    version=1,
+    match_id=setup_id,
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="2026-07-31T13:03:00+00:00",
+    issued_at=1_785_502_980,
+    expires_at=1_785_503_400,
+    strategy="Key Level Reaction",
+    strategy_mode="with_bias",
+    direction="BUY",
+    key_level=4050.68,
+    entry_low=4048.73,
+    entry_high=4052.63,
+    current_price=4051.6,
+    confluence=2,
+    reasons=("key reaction x13", "key reaction 4050.68 x13"),
+    atr=4.0,
+    structure_swing=10.0,
+    targets_pips=(20, 40, 60),
+    tags=("key_level",),
+    structural_source="key_level",
+    structural_kind="key_level",
+    structural_timeframe="M5",
+    reaction_type="sweep_reclaim",
+    htf_bias="up (H1)",
+  )
+
+
+@pytest.mark.asyncio
+async def test_ensure_plan_published_root_card_creates_missing_card():
+  """Direct-publish path must create the first PLAN PUBLISHED root card."""
+  client = redis_state.get_client()
+  setup_id = "setup-publish-card"
+  await _confirmed_setup(client, setup_id)
+  match = _strategy_match_for_card(setup_id)
+  sent = []
+
+  async def send_fn(text, **kwargs):
+    sent.append(text)
+    return SimpleNamespace(message_id=4242)
+
+  async def edit_fn(chat_id, message_id, text):
+    raise AssertionError("edit should not run when no card exists yet")
+
+  message_id = await setup_card.ensure_plan_published_root_card(
+    client,
+    match,
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+
+  assert message_id == 4242
+  assert len(sent) == 1
+  text = sent[0]
+  assert "SETUP FORMING" in text
+  assert "PLAN PUBLISHED" in text
+  assert "Trade area" in text
+  assert "Price now" in text
+  assert "Entry zone" in text
+  assert "Key level" in text
+  assert "Stop" in text
+  assert "Context" in text
+  assert "Copy draft" not in text
+  assert "<code>" not in text
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert card["message_id"] == 4242
+  # Reply-thread anchors used by take_profit / stop_moved / position_closed.
+  assert await client.get(setup_card.forming_message_key(setup_id))
+  assert await client.get(setup_card.telegram_root_message_key(setup_id))
+  root = await setup_card.load_telegram_root_message_id(client, setup_id)
+  assert root == 4242
+  status = await setup_card.load_forming_card_status(client, setup_id)
+  assert status is not None
+  assert "PLAN PUBLISHED" in status
+
+
+@pytest.mark.asyncio
+async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monkeypatch):
+  """TP archive / trailing SL / close must reply_to the ensured root card."""
+  from app.autotrade import delivery
+
+  client = redis_state.get_client()
+  setup_id = "setup-publish-thread"
+  await _confirmed_setup(client, setup_id)
+  match = _strategy_match_for_card(setup_id)
+
+  async def send_fn(text, **kwargs):
+    return SimpleNamespace(message_id=6060)
+
+  async def edit_fn(chat_id, message_id, text):
+    return None
+
+  message_id = await setup_card.ensure_plan_published_root_card(
+    client,
+    match,
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+  assert message_id == 6060
+
+  calls = []
+  edited = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=7000 + len(calls))
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+
+  for event in (
+    {
+      "type": "take_profit",
+      "match_id": setup_id,
+      "message": "TP1 +30 pips closed volume 200",
+      "position_id": 1,
+      "stop_pips": 65,
+    },
+    {
+      "type": "stop_moved",
+      "match_id": setup_id,
+      "message": "🛡 ApexVoid Algo stop → 4,044.91 (breakeven)",
+      "price": 4044.91,
+      "position_id": 1,
+    },
+    {
+      "type": "position_closed",
+      "match_id": setup_id,
+      "message": "Highest TP archived TP3 · +81.0 pips",
+      "target_pips": 81.0,
+      "position_id": 1,
+    },
+  ):
+    await delivery._deliver_auto_trade_event(
+      client,
+      event,
+      profile="internal",
+      chat_id=123,
+      send=sent,
+    )
+
+  assert len(calls) == 3
+  assert all(kwargs["reply_to"] == 6060 for _, kwargs in calls)
+  # Trailing / BE must also patch the root Stop line.
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert "4,044.91" in card["text"]
+  assert edited
+
+@pytest.mark.asyncio
+async def test_ensure_plan_published_root_card_edits_existing_status_only():
+  client = redis_state.get_client()
+  setup_id = "setup-publish-existing"
+  await _confirmed_setup(client, setup_id)
+  match = _strategy_match_for_card(setup_id)
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+    "🔴 <b>SELL · Key Level Reaction</b>",
+  ])
+  await setup_card.save_forming_card(
+    client, setup_id, chat_id=123, message_id=777, text=original,
+  )
+  sent = []
+  edited = []
+
+  async def send_fn(text, **kwargs):
+    sent.append(text)
+    return SimpleNamespace(message_id=999)
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  message_id = await setup_card.ensure_plan_published_root_card(
+    client,
+    match,
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+
+  assert message_id == 777
+  assert sent == []
+  assert len(edited) == 1
+  assert "PLAN PUBLISHED" in edited[0][2]
+  assert "Key Level Reaction" in edited[0][2]
+  assert "QUEUED" not in edited[0][2]

@@ -390,6 +390,54 @@ async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   assert watched.last_plan_id == "v7:setup-1"
 
 
+@pytest.mark.asyncio
+async def test_safe_direct_publish_ensures_plan_published_root_card(monkeypatch):
+  """Direct publish must ensure the PLAN PUBLISHED root card exists.
+
+  ZoneWatch cutover suppresses SETUP FORMING until publish and the M1
+  publish path never calls scanner._notify_digest_once, so without this
+  ensure the owner can trade a setup with no Telegram root card.
+  """
+  match = _match()
+  ensure = AsyncMock()
+  monkeypatch.setattr(cutover, "_ensure_published_root_card", ensure)
+  monkeypatch.setattr(
+    cutover,
+    "_ORIGINAL_DIRECT_PUBLISH",
+    AsyncMock(return_value=worker.PublishResult(
+      status=worker.PUBLISH_STATUS_PUBLISHED,
+      plan_id="v7:setup-1",
+      reason_code="candidate_published",
+      zone_id="zone-1",
+      setup_id="setup-1",
+    )),
+  )
+  monkeypatch.setattr(
+    worker,
+    "resolve_existing_v7_state",
+    AsyncMock(return_value=SimpleNamespace(
+      already_published=True,
+      plan_id="v7:setup-1",
+    )),
+  )
+
+  cutover._PUBLISHED_SETUP_IDS.discard(match.match_id)
+  result = await cutover._safe_direct_publish(
+    object(),
+    match,
+    symbol="XAU",
+    event_ts=match.event_ts,
+  )
+
+  assert result.status in {
+    worker.PUBLISH_STATUS_PUBLISHED,
+    worker.PUBLISH_STATUS_DUPLICATE_RECONCILED,
+  }
+  assert match.match_id in cutover._PUBLISHED_SETUP_IDS
+  ensure.assert_awaited_once()
+  assert ensure.await_args.args[1] is match
+
+
 def test_format_detection_cutover_suppresses_the_card_before_publication(
   monkeypatch,
 ):
