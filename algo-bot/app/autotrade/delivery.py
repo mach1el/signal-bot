@@ -505,6 +505,9 @@ _HIGHEST_TP_ARCHIVED_RE = re.compile(
   r"(?i)highest\s+TP\s+archived\s+(?P<target>TP\d+)"
 )
 _NO_TP_ARCHIVED_RE = re.compile(r"(?i)\bno\s+TP\s+archived\b")
+_LOSING_PIPS_RE = re.compile(
+  r"(?i)\blosing\s+(?P<pips>-?\d+(?:\.\d+)?)\s*pips?\b"
+)
 _PLAN_CLOSED_AT_RE = re.compile(
   r"(?i)@\s*(?P<price>[0-9]+(?:\.[0-9]+)?)"
 )
@@ -539,6 +542,18 @@ def _format_position_closed(event: dict, message: str) -> str:
       lines.append(f"@ <b>{escape(at.group('price'))}</b>")
   elif no_tp is not None:
     lines.append("Highest TP archived: <b>none</b>")
+    losing = _event_float(event, "group_realized_pips", "leg_realized_pips")
+    if losing is None and cleaned:
+      losing_match = _LOSING_PIPS_RE.search(cleaned)
+      if losing_match is not None:
+        try:
+          losing = float(losing_match.group("pips"))
+        except (TypeError, ValueError):
+          losing = None
+    if losing is not None and losing < 0:
+      lines.append(f"❌ Losing: <b>{format_signed_pips(losing)} pips</b>")
+    elif losing is not None and losing == 0:
+      lines.append("➖ Result: <b>0 pips (BE)</b>")
     at = _PLAN_CLOSED_AT_RE.search(cleaned)
     if at is not None:
       lines.append(f"@ <b>{escape(at.group('price'))}</b>")
@@ -553,6 +568,15 @@ def _format_position_closed(event: dict, message: str) -> str:
     group_realized = _event_float(event, "group_realized_pips")
     if group_realized is not None:
       lines.append(f"Total: <b>{format_signed_pips(group_realized)} pips</b>")
+  elif (
+    no_tp is None
+    and highest is None
+    and str(event.get("reason_code") or "") == "stop_loss_or_take_profit"
+  ):
+    # One-shot SL before any TP: surface the loss instead of a bare close.
+    group_realized = _event_float(event, "group_realized_pips", "leg_realized_pips")
+    if group_realized is not None and group_realized < 0:
+      lines.append(f"❌ Losing: <b>{format_signed_pips(group_realized)} pips</b>")
   return "\n".join(lines)
 
 

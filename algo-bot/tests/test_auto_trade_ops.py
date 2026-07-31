@@ -138,8 +138,7 @@ def test_position_closed_recaps_total_after_earlier_partial_tps():
 
 
 def test_position_closed_omits_total_when_never_partially_closed():
-  # A position closed in one shot (no prior TP legs) has nothing to recap -
-  # its own leg pips would just duplicate the group total.
+  # A one-shot SL (no prior TP legs) reports Losing, not a Total recap.
   closed = delivery.render_auto_trade_event({
     "type": "position_closed",
     "message": "SELL position is closed",
@@ -147,6 +146,8 @@ def test_position_closed_omits_total_when_never_partially_closed():
     "group_realized_pips": -12.0,
   })
   assert "Total:" not in closed
+  assert "❌ Losing:" in closed
+  assert "-12.0 pips" in closed
 
 
 def test_render_box_open_and_full_tp_as_shareable_cards():

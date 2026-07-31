@@ -163,6 +163,26 @@ def test_public_close_pips_toggle_never_reveals_id(monkeypatch):
   )
 
 
+def test_vip_close_reports_losing_when_net_negative():
+  result = {
+    "action": "close",
+    "ok": True,
+    "row": {
+      "daily_seq": 5,
+      "closed": True,
+      "net": -47,
+    },
+    "pips": -47,
+  }
+
+  assert trade_ops.render_result(result, "XAU", "vip") == (
+    "🛑 #5 closed — losing -47 pips"
+  )
+  assert trade_ops.render_result(result, "XAU", "public") == (
+    "🛑 closed — -47 pips loss"
+  )
+
+
 def test_partial_close_uses_clear_pips_without_at_sign():
   result = {
     "action": "close",
