@@ -314,25 +314,181 @@ def test_reward_risk_accepts_near_entry_structure_after_minimum_clamp():
   assert result.measured["reward_risk"] == 1.5
 
 
-def test_reaction_family_uses_owner_40_60_envelope():
-  # Zone-scale reaction families share the owner 40–60 group envelope
-  # (legacy reaction 20–65 is deprecated for this path).
-  reaction = evaluate_execution_policy(
-    _policy_subject(strategy="Key Level Reaction", targets_pips=(60,)),
+def test_reaction_family_room_synced_stop_tracks_primary_tp():
+  # Near-entry structure clamps to the room-synced envelope (not forced 40).
+  thin = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Key Level Reaction",
+      targets_pips=(25,),
+      structure_swing=4099.9,
+    ),
     spot_price=4100.0,
     regime="range",
     pip_size=0.1,
   )
+  mid = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Session Level Reaction",
+      targets_pips=(50,),
+      structure_swing=4099.9,
+    ),
+    spot_price=4100.0,
+    regime="range",
+    pip_size=0.1,
+  )
+  capped = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Trendline Reaction",
+      targets_pips=(90,),
+      structure_swing=4099.9,
+    ),
+    spot_price=4100.0,
+    regime="range",
+    pip_size=0.1,
+  )
+
+  assert thin.measured["stop_bounds_source"] == "reaction_room"
+  assert thin.measured["primary_tp_pips"] == 25.0
+  assert thin.measured["desired_stop_pips"] == 25
+  assert thin.measured["planned_stop_pips"] == "25.0"
+
+  assert mid.measured["stop_bounds_source"] == "reaction_room"
+  assert mid.measured["desired_stop_pips"] == 50
+  assert mid.measured["planned_stop_pips"] == "50.0"
+
+  assert capped.measured["stop_bounds_source"] == "reaction_room"
+  assert capped.measured["desired_stop_pips"] == 90
+  assert capped.measured["planned_stop_pips"] == "60.0"
+
+
+def test_supply_demand_zone_is_independent_of_reaction_room_stop():
+  # Zone / Demand / Supply are supply_demand family — owner 40–60, not room sync.
+  zone = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Zone Reaction",
+      targets_pips=(30,),
+      structure_swing=4099.9,
+    ),
+    spot_price=4100.0,
+    regime="range",
+    pip_size=0.1,
+  )
+  assert zone.measured.get("stop_bounds_source") == "strategy_default"
+  assert zone.measured["planned_stop_pips"] == "40.0"
+  assert zone.measured.get("desired_stop_pips") is None
+
+
+def test_reaction_room_stop_missing_tp_falls_back_to_legacy_envelope():
+  from app.autotrade.protective_stop import stop_bounds_for_reaction_room
+
+  cfg = SimpleNamespace(
+    auto_trade_trend_stop_min_pips=40,
+    auto_trade_trend_stop_max_pips=60,
+    auto_trade_reaction_room_stop_min_rr=1.0,
+    auto_trade_reaction_room_stop_floor_pips=20,
+  )
+  minimum, maximum, measured = stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=None,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert (minimum, maximum) == (40, 60)
+  assert measured["stop_bounds_source"] == "legacy_envelope"
+
+  # Mapped Zone Reaction is outside the room-synced set.
+  mapped_min, mapped_max, mapped = stop_bounds_for_reaction_room(
+    strategy="Mapped Zone Reaction",
+    primary_tp_pips=25,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert (mapped_min, mapped_max) == (40, 60)
+  assert mapped["stop_bounds_source"] == "strategy_default"
+
+  # Non-room strategies still use the owner 40–60 envelope via policy.
   trend = evaluate_execution_policy(
     _policy_subject(strategy="Mapped Zone Reaction", targets_pips=(60,)),
     spot_price=4100.0,
     regime="trend",
     pip_size=0.1,
   )
-
-  assert reaction.measured["planned_stop_pips"] == "40.0"
   assert trend.measured["planned_stop_pips"] == "40.0"
-  assert reaction.measured["reward_risk"] == trend.measured["reward_risk"]
+  assert trend.measured.get("stop_bounds_source") == "strategy_default"
+
+
+def test_stop_bounds_for_reaction_room_pins_and_caps():
+  from app.autotrade.protective_stop import stop_bounds_for_reaction_room
+
+  cfg = SimpleNamespace(
+    auto_trade_trend_stop_min_pips=40,
+    auto_trade_trend_stop_max_pips=60,
+    auto_trade_reaction_room_stop_min_rr=1.0,
+    auto_trade_reaction_room_stop_floor_pips=20,
+  )
+  # Independent zone family — must not pin to primary TP.
+  assert stop_bounds_for_reaction_room(
+    strategy="Zone Reaction",
+    primary_tp_pips=25,
+    pip_size=0.1,
+    cfg=cfg,
+  )[:2] == (40, 60)
+  assert stop_bounds_for_reaction_room(
+    strategy="Demand Zone Reaction",
+    primary_tp_pips=25,
+    pip_size=0.1,
+    cfg=cfg,
+  )[2]["stop_bounds_source"] == "strategy_default"
+  assert stop_bounds_for_reaction_room(
+    strategy="Supply Zone Reaction",
+    primary_tp_pips=18,
+    pip_size=0.1,
+    cfg=cfg,
+  )[2]["stop_bounds_source"] == "strategy_default"
+  assert stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=18,
+    pip_size=0.1,
+    cfg=cfg,
+  )[:2] == (20, 20)  # floor
+  assert stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=90,
+    pip_size=0.1,
+    cfg=cfg,
+  )[:2] == (60, 60)
+
+def test_scalp_room_synced_stop_allows_thin_targets():
+  scalp = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Range Box Scalp",
+      targets_pips=(15,),
+      structure_swing=4099.9,
+      atr=1.0,
+    ),
+    spot_price=4100.0,
+    regime="chop",
+    pip_size=0.1,
+    cfg=SimpleNamespace(
+      auto_trade_add_min_stop_pips=30,
+      auto_trade_sl_distance=6.5,
+      auto_trade_range_min_rr=1.0,
+      auto_trade_range_room_stop_floor_pips=15,
+      auto_trade_range_max_risk_multiplier=2.0,
+      auto_trade_trend_stop_min_pips=40,
+      auto_trade_trend_stop_max_pips=60,
+      auto_trade_xau_price_digits=2,
+      auto_trade_add_stop_buffer_atr=0.3,
+      auto_trade_wick_stop_buffer_atr=0.15,
+      auto_trade_zone_fill_enabled=False,
+      auto_trade_inside_zone_market_entry_enabled=True,
+      auto_trade_reaction_scale_enabled=False,
+    ),
+  )
+  assert scalp.allowed
+  assert scalp.measured["stop_bounds_source"] == "scalp_room"
+  assert scalp.measured["desired_stop_pips"] == 15
+  assert scalp.measured["planned_stop_pips"] == "15.0"
 
 
 def test_sell_group_stop_clears_zone_high_and_uses_weighted_reference():
