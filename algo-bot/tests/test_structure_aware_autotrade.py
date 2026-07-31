@@ -159,10 +159,11 @@ def test_missing_resistance_fallback_is_symmetric():
 
 
 def test_adaptive_range_targets_ladder():
-  assert select_range_target(48.8, targets=(70, 50, 40, 30, 20), buffer_pips=3) == 40
-  assert select_range_target(40.9, targets=(70, 50, 40, 30, 20), buffer_pips=3) == 30
-  assert select_range_target(26.0, targets=(70, 50, 40, 30, 20), buffer_pips=3) == 20
-  assert select_range_target(10.0, targets=(70, 50, 40, 30, 20), buffer_pips=3) is None
+  assert select_range_target(48.8, targets=(70, 50, 40, 30, 20, 15), buffer_pips=3) == 40
+  assert select_range_target(40.9, targets=(70, 50, 40, 30, 20, 15), buffer_pips=3) == 30
+  assert select_range_target(26.0, targets=(70, 50, 40, 30, 20, 15), buffer_pips=3) == 20
+  assert select_range_target(18.5, targets=(70, 50, 40, 30, 20, 15), buffer_pips=3) == 15
+  assert select_range_target(10.0, targets=(70, 50, 40, 30, 20, 15), buffer_pips=3) is None
 
 
 def test_strategy_aware_drift_caps_by_atr_and_room():
@@ -188,6 +189,8 @@ def test_quality_tiers_and_risk_multipliers():
   assert classify_tier(confluence=0, strategy="Fade Scalp") == "C"
   assert risk_multiplier_for_tier("B") == 0.5
   assert risk_multiplier_for_tier("A", post_impulse=True) == 0.5
+  assert risk_multiplier_for_tier("A", range_scalp=True) == 2.0
+  assert risk_multiplier_for_tier("B", range_scalp=True) == 0.5
 
 
 def _match(
