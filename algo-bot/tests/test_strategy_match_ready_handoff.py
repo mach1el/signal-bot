@@ -486,69 +486,53 @@ async def test_startup_recovery_skips_match_owned_by_another_setup(monkeypatch):
   assert await client.xlen(READY_STREAM) == 0
 
 
-@pytest.mark.real_redis
 @pytest.mark.asyncio
-async def test_pending_ready_event_is_recovered_after_worker_restart(
+async def test_unfinished_confirmed_match_is_not_requeued_on_ready_stream(
   monkeypatch,
-  real_ready_redis,
 ):
+  """READY stream is no longer the recovery path — unfinished matches stay
+  off the stream; ZoneWatch direct publish owns reactivation.
+  """
   now = int(datetime.now(timezone.utc).timestamp())
-  frames = _frames(now)
-  _client, notify = await _configure(
+  client, _notify = await _configure(
     monkeypatch,
     market_map=_market_map(now),
-    frames=frames,
+    frames=_frames(now),
     now=now,
-    bid=4099.0,
-    ask=4099.2,
   )
-  await _scan(real_ready_redis, notify, _reaction(now), now)
-  assert await real_ready_redis.xlen(_plan_count_key()) == 0
-  await ensure_ready_group(real_ready_redis)
-  claimed = await real_ready_redis.xreadgroup(
-    READY_GROUP,
-    "worker-that-stopped",
-    {READY_STREAM: ">"},
-    count=1,
+  match = worker.StrategyMatch(
+    version=1,
+    match_id="confirmed-unfinished",
+    symbol="XAU",
+    source_tf="M5",
+    event_ts=str(now),
+    issued_at=now,
+    expires_at=now + 600,
+    strategy="Key Level Reaction",
+    strategy_mode="with_bias",
+    direction="SELL",
+    key_level=4100.0,
+    entry_low=4099.0,
+    entry_high=4102.0,
+    current_price=4100.5,
+    confluence=3,
+    reasons=("rejection",),
+    atr=2.0,
+    structure_swing=4105.0,
+    targets_pips=(30,),
+    family="key_level",
+    structural_source="key_level",
   )
-  assert len(claimed[0][1]) == 1
-  duplicate_fields = claimed[0][1][0][1]
-  assert (await real_ready_redis.xpending(
-    READY_STREAM,
-    READY_GROUP,
-  ))["pending"] == 1
-
-  # Price has since retested back into the executable zone - the
-  # replacement worker's recovered wake-up must be what actually publishes,
-  # proving the durable ready-stream backstop still works end to end for a
-  # setup that is genuinely still waiting when the ready event is created.
-  monkeypatch.setattr(
-    worker,
-    "_load_spot",
-    AsyncMock(return_value=worker.AutoTradeSpot(
-      price=4101.0, ts=now, fresh=True, bid=4101.0, ask=4101.2,
-    )),
-  )
-
-  consumed = await worker._consume_strategy_match_ready_once(
-    client=real_ready_redis,
-    consumer="replacement-worker",
-    recover_pending=True,
-    pending_min_idle_ms=0,
+  await client.set(strategy_match_key("XAU"), match.to_json(), ex=60)
+  await client.set(
+    f"analysis:setup:{match.match_id}",
+    json.dumps({"state": "confirmed", "match_id": match.match_id}),
+    ex=60,
   )
 
-  assert consumed
-  assert await real_ready_redis.xlen(_plan_count_key()) == 1
-  await real_ready_redis.xadd(READY_STREAM, duplicate_fields)
-  assert await worker._consume_strategy_match_ready_once(
-    client=real_ready_redis,
-    consumer="replacement-worker",
-  )
-  assert await real_ready_redis.xlen(_plan_count_key()) == 1
-  assert (await real_ready_redis.xpending(
-    READY_STREAM,
-    READY_GROUP,
-  ))["pending"] == 0
+  await worker._recover_unfinished_strategy_matches(client)
+
+  assert await client.xlen(READY_STREAM) == 0
 
 
 @pytest.mark.asyncio

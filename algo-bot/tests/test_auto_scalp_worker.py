@@ -966,14 +966,91 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
 
 
 def test_worker_source_has_no_direct_scanner_market_map_or_telegram_import():
-  source = inspect.getsource(worker)
-  forbidden = (
+  """Worker must not pull scanner/detectors/market_map/Telegram client.
+
+  Catches static imports, function-body imports, importlib.import_module,
+  and __import__ string references to the forbidden modules.
+  """
+  import ast
+  from pathlib import Path
+
+  forbidden = frozenset({
+    "app.analysis.scanner",
+    "app.analysis.detectors",
+    "app.analysis.market_map",
+    "app.bot.client",
+  })
+  source_path = Path(inspect.getsourcefile(worker) or worker.__file__)
+  source = source_path.read_text(encoding="utf-8")
+  tree = ast.parse(source, filename=str(source_path))
+  found: set[str] = set()
+
+  for node in ast.walk(tree):
+    if isinstance(node, ast.Import):
+      for alias in node.names:
+        name = alias.name
+        if name in forbidden or any(
+          name.startswith(f"{mod}.") for mod in forbidden
+        ):
+          found.add(name)
+    elif isinstance(node, ast.ImportFrom):
+      module = node.module or ""
+      if module in forbidden or any(
+        module.startswith(f"{mod}.") for mod in forbidden
+      ):
+        found.add(module)
+      # from app.bot import client
+      if module == "app.bot" and any(
+        alias.name == "client" for alias in node.names
+      ):
+        found.add("app.bot.client")
+      if module == "app.analysis" and any(
+        alias.name in {"scanner", "detectors", "market_map"}
+        for alias in node.names
+      ):
+        found.add(f"app.analysis.{next(a.name for a in node.names if a.name in {'scanner', 'detectors', 'market_map'})}")
+    elif isinstance(node, ast.Call):
+      func = node.func
+      is_import_module = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "import_module"
+        and (
+          (isinstance(func.value, ast.Name) and func.value.id == "importlib")
+          or (
+            isinstance(func.value, ast.Attribute)
+            and func.value.attr == "importlib"
+          )
+        )
+      )
+      is_builtin_import = (
+        isinstance(func, ast.Name) and func.id == "__import__"
+      )
+      if (is_import_module or is_builtin_import) and node.args:
+        arg0 = node.args[0]
+        if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+          name = arg0.value
+          if name in forbidden or any(
+            name.startswith(f"{mod}.") for mod in forbidden
+          ):
+            found.add(name)
+
+  # String-literal import targets (e.g. importlib.import_module("app.bot.client"))
+  # already covered via AST; also fail closed on explicit "from app… import"
+  # substrings that somehow evade parse (encoding tricks).
+  for needle in (
     "from app.analysis.scanner",
     "from app.analysis.detectors",
     "from app.analysis.market_map",
     "from app.bot.client",
-  )
-  assert all(item not in source for item in forbidden)
+    "importlib.import_module(\"app.bot.client\")",
+    "importlib.import_module('app.bot.client')",
+    "__import__(\"app.bot.client\")",
+    "__import__('app.bot.client')",
+  ):
+    if needle in source:
+      found.add(needle)
+
+  assert not found, f"worker forbidden layer imports: {sorted(found)}"
 
 
 def test_trend_bias_is_metadata_for_counter_direction_candidate():

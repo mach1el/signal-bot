@@ -6,6 +6,7 @@ import time
 import pytest
 from pydantic import ValidationError
 
+from app.autotrade import execution_confirmation as ec
 from app.autotrade.execution_confirmation import (
   IN_ZONE_WAITING_M1,
   ExecutionConfirmationState,
@@ -97,6 +98,26 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert non_reaction.allow_same_cycle_publish is True
   assert non_reaction.require_quote_inside_zone is False
   assert non_reaction.reason_code == "momentum_continuation"
+
+
+def test_supply_demand_is_zone_confirmation_not_reaction_family_set():
+  assert not hasattr(ec, "_REACTION_FAMILIES")
+  assert "supply_demand" in ec._ZONE_CONFIRMATION_FAMILIES
+  assert "supply_demand" not in ec._M5_AUTHORITATIVE_REACTION_FAMILIES
+  assert "supply_demand" in ec._M5_AUTHORITATIVE_FAMILIES
+
+  zone = confirmation_policy_for(
+    replace(
+      _match(),
+      strategy="Zone Reaction",
+      family="supply_demand",
+      structural_source="supply_demand",
+      structural_zone_id="zone-sd-1",
+    ),
+  )
+  # Confirmation contract still M5-authoritative; product taxonomy is Zone.
+  assert zone.reaction_family is True
+  assert zone.require_quote_inside_zone is True
 
 
 @pytest.mark.parametrize(
