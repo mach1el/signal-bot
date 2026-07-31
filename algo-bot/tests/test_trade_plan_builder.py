@@ -367,3 +367,55 @@ def test_final_reward_risk_uses_retest_trigger_wick_not_structure_fallback():
     )
 
   assert excinfo.value.reason_code == "policy_reward_risk_insufficient"
+
+
+def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
+  # Structure stop lands inside a tight demand zone; push beyond max envelope
+  # must reject with stop_inside_opposing_zone (not a generic wrapper) and
+  # carry stop-side zone + push distances for later improvement evidence.
+  match = replace(
+    _match(
+      strategy="Key Level Reaction",
+      family="key_level",
+      structure_swing=4096.70,
+      entry_low=4099.5,
+      entry_high=4100.5,
+      targets=(30,),
+      regime_kind="chop",
+    ),
+    atr=2.0,
+  )
+  cfg = SimpleNamespace(
+    auto_trade_stop_push_beyond_zone=True,
+    auto_trade_add_stop_buffer_atr=0.3,
+    auto_trade_wick_stop_buffer_atr=0.15,
+    auto_trade_xau_price_digits=2,
+    auto_trade_execution_zone_max_width_atr=2.0,
+    auto_trade_execution_zone_max_width_pips=100,
+    auto_trade_trend_stop_min_pips=20,
+    auto_trade_trend_stop_max_pips=60,
+    auto_trade_zone_fill_enabled=True,
+  )
+  with pytest.raises(TradePlanBuildRejected) as excinfo:
+    _build(
+      match,
+      spot_price=4100.0,
+      executable_quote=4100.0,
+      regime="chop",
+      cfg=cfg,
+      opposing_zone_low=4094.0,
+      opposing_zone_high=4097.0,
+      opposing_zone_id="supply-evidence-1",
+    )
+
+  assert excinfo.value.reason_code == "stop_inside_opposing_zone"
+  measured = excinfo.value.measured
+  assert measured["stop_reject_detail"] == "pushed_exceeds_max_envelope"
+  assert measured["stop_side_opposing_zone_id"] == "supply-evidence-1"
+  assert measured["stop_side_opposing_zone_low"] == 4094.0
+  assert measured["stop_side_opposing_zone_high"] == 4097.0
+  assert measured["stop_side_opposing_execution_grade"] is True
+  assert measured.get("planned_base_stop_price")
+  assert measured.get("planned_pushed_stop_price")
+  assert measured.get("pushed_over_envelope_pips")
+  assert measured["stop_max_envelope_pips"] == 60

@@ -110,7 +110,7 @@ def test_wick_beyond_envelope_rejects():
 
 
 def test_stop_inside_opposing_zone_rejects_when_push_disabled():
-  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone"):
+  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone") as excinfo:
     plan_protective_stop(
       direction="BUY",
       entry_price="4000",
@@ -132,6 +132,14 @@ def test_stop_inside_opposing_zone_rejects_when_push_disabled():
         buffer_atr=Decimal("0.3"),
       ),
     )
+  measured = excinfo.value.measured
+  assert measured["stop_reject_detail"] == "push_disabled"
+  assert measured["stop_side_opposing_zone_id"] == "demand-1"
+  assert measured["stop_side_opposing_zone_low"] == 3997.0
+  assert measured["stop_side_opposing_zone_high"] == 3998.5
+  assert measured["planned_base_stop_price"] is not None
+  assert measured["stop_max_envelope_pips"] == 65
+  assert "planned_pushed_stop_price" not in measured
 
 
 def test_stop_inside_execution_grade_zone_is_pushed_beyond_it():
@@ -192,8 +200,16 @@ def test_reaction_family_ceiling_still_allows_a_legitimate_opposing_zone_push():
   assert plan.final_stop_price == Decimal("4093.70")
   assert plan.final_stop_pips == Decimal("63.0")
 
-  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone"):
+  with pytest.raises(ProtectiveStopError, match="stop_inside_opposing_zone") as excinfo:
     plan_protective_stop(maximum_stop_pips=60, **kwargs)
+  measured = excinfo.value.measured
+  assert measured["stop_reject_detail"] == "pushed_exceeds_max_envelope"
+  assert measured["stop_side_opposing_zone_low"] == 4094.0
+  assert measured["stop_side_opposing_zone_high"] == 4097.0
+  assert measured["planned_pushed_stop_price"] == "4093.70"
+  assert measured["planned_pushed_stop_pips"] == "63.0"
+  assert measured["stop_max_envelope_pips"] == 60
+  assert Decimal(measured["pushed_over_envelope_pips"]) == Decimal("3.0")
 
 
 def test_context_only_opposing_zone_leaves_base_stop():

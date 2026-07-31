@@ -1,6 +1,8 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+import json
 
 import pytest
 
@@ -31,7 +33,7 @@ async def test_hourly_map_sends_once_per_bucket_and_skips_unchanged_next_hour(
   monkeypatch,
 ):
   meta = {}
-  sent = AsyncMock()
+  sent = AsyncMock(return_value=SimpleNamespace(message_id=9001))
   current = {"map": _map()}
   map_calls = []
 
@@ -72,10 +74,12 @@ async def test_hourly_map_sends_once_per_bucket_and_skips_unchanged_next_hour(
     "auto_trade:market_map_display:XAU"
   )) == _map()
   assert 0 < await client.ttl("auto_trade:market_map_display:XAU") <= 7200
+  stored = await client.get("auto_trade:market_map_telegram:XAU")
+  assert stored is not None
 
 
 @pytest.mark.asyncio
-async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
+async def test_hourly_map_deletes_previous_owner_message(monkeypatch):
   previous = _map()
   current = replace(
     previous,
@@ -85,7 +89,14 @@ async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
     "last_map_scan": "2026-07-16T07:00Z",
     "last_market_map:XAU": market_map_payload(previous),
   }
-  sent = AsyncMock()
+  sent = AsyncMock(return_value=SimpleNamespace(message_id=2002))
+  deleted = AsyncMock()
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:market_map_telegram:XAU",
+    '{"chat_id":42,"message_id":1001,"updated_at":1}',
+    ex=60,
+  )
 
   async def get_meta(key):
     return meta.get(key)
@@ -106,6 +117,53 @@ async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
     AsyncMock(return_value=current),
   )
   monkeypatch.setattr(market_map_delivery, "send_scanner_with_retry", sent)
+  monkeypatch.setattr(market_map_delivery, "delete_scanner_message", deleted)
+
+  fired = await market_map_delivery._market_map_scan_tick(
+    datetime(2026, 7, 16, 8, 5, tzinfo=timezone.utc)
+  )
+
+  assert fired
+  deleted.assert_awaited_once_with(42, 1001)
+  sent.assert_awaited_once()
+  stored = json.loads(await client.get("auto_trade:market_map_telegram:XAU"))
+  assert stored["message_id"] == 2002
+  assert stored["chat_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
+  previous = _map()
+  current = replace(
+    previous,
+    entries=[replace(previous.entries[0], lo=4026.0, hi=4029.0)],
+  )
+  meta = {
+    "last_map_scan": "2026-07-16T07:00Z",
+    "last_market_map:XAU": market_map_payload(previous),
+  }
+  sent = AsyncMock(return_value=SimpleNamespace(message_id=8123))
+
+  async def get_meta(key):
+    return meta.get(key)
+
+  async def set_meta(key, value):
+    meta[key] = value
+
+  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
+  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(market_map_delivery.settings, "map_change_min", 1.0)
+  monkeypatch.setattr(market_map_delivery.settings, "map_scan_interval_minutes", 60)
+  monkeypatch.setattr(market_map_delivery, "get_meta", get_meta)
+  monkeypatch.setattr(market_map_delivery, "set_meta", set_meta)
+  monkeypatch.setattr(
+    market_map_delivery,
+    "get_current_market_map",
+    AsyncMock(return_value=current),
+  )
+  monkeypatch.setattr(market_map_delivery, "send_scanner_with_retry", sent)
+  monkeypatch.setattr(market_map_delivery, "delete_scanner_message", AsyncMock())
 
   fired = await market_map_delivery._market_map_scan_tick(
     datetime(2026, 7, 16, 8, 5, tzinfo=timezone.utc)
@@ -146,7 +204,8 @@ async def test_hourly_map_skips_xau_weekend_closure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_on_demand_map_uses_scanner_bot(monkeypatch):
-  sent = AsyncMock()
+  sent = AsyncMock(return_value=SimpleNamespace(message_id=7001))
+  deleted = AsyncMock()
   monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     market_map_delivery,
@@ -154,11 +213,16 @@ async def test_on_demand_map_uses_scanner_bot(monkeypatch):
     AsyncMock(return_value=_map()),
   )
   monkeypatch.setattr(market_map_delivery, "send_scanner_with_retry", sent)
+  monkeypatch.setattr(market_map_delivery, "delete_scanner_message", deleted)
 
   assert await market_map_delivery.send_current_market_map("XAU")
   sent.assert_awaited_once()
   assert "XAU Market Map" in sent.await_args.args[0]
   assert sent.await_args.kwargs == {"chat_id": 42}
+  deleted.assert_not_awaited()
+  client = redis_state.get_client()
+  stored = json.loads(await client.get("auto_trade:market_map_telegram:XAU"))
+  assert stored["message_id"] == 7001
 
 
 def test_scan_bucket_key_uses_configured_interval():
