@@ -386,7 +386,8 @@ async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   direct_publish.assert_awaited_once()
   watched = await zw.load_zone_watch(client, "zone-1")
   assert watched is not None
-  assert watched.state == zw.EXHAUSTED
+  assert watched.state == zw.PUBLISHED_LOCKED
+  assert watched.last_plan_id == "v7:setup-1"
 
 
 def test_format_detection_cutover_suppresses_the_card_before_publication(

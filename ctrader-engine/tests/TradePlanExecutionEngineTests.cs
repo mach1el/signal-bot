@@ -252,6 +252,88 @@ public sealed class TradePlanExecutionEngineTests
   );
 
   [Fact]
+  public void CalculateVolumeSlicesForMarketWithLimitScaleMatchEquity1300()
+  {
+    var plan = new TradePlan(
+      Version: 7,
+      PlanId: "plan-mwls",
+      ThesisId: "thesis-1",
+      SetupId: "setup-1",
+      Symbol: "XAU",
+      CreatedAt: 1_720_000_000,
+      ExpiresAt: 1_720_003_600,
+      Analysis: new TradePlanAnalysis(
+        "Key Level Reaction", "key_level", "BUY",
+        new[] { "M15" }, "M15", "M5", 1, 1, 0.65, 2, "up", "range"
+      ),
+      SourceStructure: new TradePlanSourceStructure(
+        "structure-1", "key_level", "M15", 4085.00m, 4089.50m, 4079.00m
+      ),
+      Entry: new TradePlanEntry(
+        TradePlanContract.EntryTypeMarketWithLimitScale,
+        1_720_003_600,
+        ZoneLow: 4085.00m,
+        ZoneHigh: 4089.50m,
+        Legs: new[]
+        {
+          new TradePlanEntryLeg(
+            "L1", 4089.10m, 0.70m, TradePlanContract.OrderTypeMarket
+          ),
+          new TradePlanEntryLeg(
+            "L2", 4085.00m, 0.30m, TradePlanContract.OrderTypeLimit
+          ),
+        }
+      ),
+      Stop: new TradePlanStop("absolute", 4079.00m, "structural_invalidation"),
+      Targets: new[] { new TradePlanTarget("TP1", "absolute", 4097.00m, 1.0m) },
+      Risk: new TradePlanRisk(1.0m, 1.0m, 100_000, 2.0m),
+      Management: new TradePlanManagement(null, 6, true),
+      ExecutionPolicy: new TradePlanExecutionPolicy(true, true, true, true),
+      Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+      Sizing: new TradePlanSizing(
+        "equity_table",
+        "owner_equity_v1",
+        "zone_scale",
+        new[] { 0.70m, 0.30m }
+      )
+    );
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    Assert.Equal(1_100, result.TotalVolume);
+    Assert.Equal(800, result.Slices.Single(s => s.TargetId == "L1").Volume);
+    Assert.Equal(300, result.Slices.Single(s => s.TargetId == "L2").Volume);
+  }
+
+  [Fact]
+  public void EvaluateEntrySubmitsMarketWithLimitScaleImmediately()
+  {
+    var plan = LimitLadderPlan(leg1Ratio: 0.70m, leg2Ratio: 0.30m) with
+    {
+      Entry = new TradePlanEntry(
+        TradePlanContract.EntryTypeMarketWithLimitScale,
+        1_720_003_600,
+        ZoneLow: 4085.00m,
+        ZoneHigh: 4089.50m,
+        Legs: new[]
+        {
+          new TradePlanEntryLeg("L1", 4089.10m, 0.70m, "market"),
+          new TradePlanEntryLeg("L2", 4085.00m, 0.30m, "limit"),
+        }
+      ),
+    };
+
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan, bid: 4089.0m, ask: 4089.1m, spreadTicks: 1m, nowUnixSeconds: 1_720_000_100
+    );
+
+    Assert.True(decision.ShouldSubmit);
+    Assert.Equal(TradePlanEntryAction.SubmitLadder, decision.Action);
+  }
+
+  [Fact]
   public void CalculateVolumeSlicesForALimitLadderAreProportionalToLegVolumeRatio()
   {
     var plan = LimitLadderPlan(leg1Ratio: 0.70m, leg2Ratio: 0.30m);

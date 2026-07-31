@@ -190,7 +190,7 @@ def test_buy_under_overlapping_sell_major_is_observation_only(
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.0)
 
 
-def test_target_room_is_static_block_even_when_legacy_gate_is_off():
+def test_target_room_is_observation_when_actionability_gate_is_off():
   buy = _result(
     "BUY",
     4041.67,
@@ -211,6 +211,39 @@ def test_target_room_is_static_block_even_when_legacy_gate_is_off():
     atr=2.0,
     pip_size=0.1,
     cfg=_cfg(actionability_gate=False),
+  )
+
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
+  decision = next(
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "opposing_major_no_room"
+  )
+  assert decision.hard_block is False
+  assert decision.allowed is True
+
+
+def test_target_room_hard_blocks_when_actionability_gate_is_on():
+  buy = _result(
+    "BUY",
+    4041.67,
+    4046.73,
+    quality=3,
+    current_price=4045.95,
+  )
+  market_map = _map(
+    _entry("sell", 4046.0, 4055.0, tier="major"),
+    price=4045.95,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=True),
   )
 
   assert resolution.actionable == ()
@@ -372,13 +405,10 @@ def test_room_below_the_floor_still_rejects():
   assert decision.reason_code == "opposing_barrier_no_target"
 
 
-def test_counter_bias_reaction_is_hard_blocked_when_disabled():
-  # Owner's call: Key Level/Demand/Supply Zone/Session Level/Trendline
-  # Reaction all derive direction purely from structural evidence (a
-  # level's role, a zone, a session level, a trendline) - none of them
-  # ever required HTF-bias alignment, only scored it as a confluence
-  # bonus. auto_trade_allow_counter_bias=True remains the default - this
-  # covers the opt-in hard block for whoever turns it off.
+def test_counter_bias_reaction_is_observed_when_disabled():
+  # Counter-bias disabled is a contextual observation. With the actionability
+  # gate on, only documented hard conflicts (geometry / executable overlap /
+  # insufficient target room) hard-block; HTF disagreement stays telemetry.
   buy = _result("BUY", 4100.0, 4101.0, quality=3, current_price=4100.5)
 
   resolution = resolve_actionability(
@@ -388,16 +418,17 @@ def test_counter_bias_reaction_is_hard_blocked_when_disabled():
     context=SimpleNamespace(htf_bias="down"),
     atr=2.0,
     pip_size=0.1,
-    cfg=_cfg(allow_counter_bias=False),
+    cfg=_cfg(allow_counter_bias=False, actionability_gate=True),
   )
 
-  assert resolution.actionable == ()
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
   decision = next(
     decision for _item, decision in resolution.decisions
     if decision.reason_code == "counter_bias_disabled"
   )
-  assert decision.hard_block is True
-  assert decision.allowed is False
+  assert decision.hard_block is False
+  assert decision.allowed is True
 
 
 def test_with_bias_reaction_is_unaffected_by_counter_bias_disabled():
@@ -551,7 +582,7 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
     context=SimpleNamespace(htf_bias="range"),
     atr=2.0,
     pip_size=0.1,
-    cfg=_cfg(),
+    cfg=_cfg(actionability_gate=True),
   )
 
   assert resolution.observed == (buy, sell)
@@ -560,17 +591,11 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
     "contested_corridor",
   }
   assert resolution.conflicts[0]["outcome"] == "contested_corridor"
+  assert resolution.gated[0][1].measured["executable_conflict"] is True
 
 
 def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
-  """P0 zone/M1 simplification: this used to prove the higher-confluence
-  side survives ("decisive side") and only then needs to clear a separate
-  room check. That behavior is deleted, not weakened - a contested
-  corridor is never resolved by score, regardless of how large the
-  confluence gap is or whether one side would otherwise have had map
-  room. Neither side even reaches the room check (see resolve_actionability:
-  once an index is gated, the room-check loop skips it entirely).
-  """
+  """Executable overlap still blocks both sides — score never rescues one."""
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
   no_room = _map(
@@ -585,7 +610,7 @@ def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
     context=SimpleNamespace(htf_bias="up"),
     atr=1.0,
     pip_size=0.1,
-    cfg=_cfg(),
+    cfg=_cfg(actionability_gate=True),
   )
 
   assert resolution.actionable == ()
@@ -596,10 +621,7 @@ def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
 
 
 def test_distant_map_room_does_not_rescue_an_overlapping_pair():
-  """A separate, distant Market Map entry does not matter - the
-  observed_results themselves fully overlap each other, which is what the
-  contested-corridor rule actually looks at.
-  """
+  """A shared executable quote inside both bands is still contested."""
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
 
@@ -613,21 +635,17 @@ def test_distant_map_room_does_not_rescue_an_overlapping_pair():
     context=SimpleNamespace(htf_bias="up"),
     atr=1.0,
     pip_size=0.1,
-    cfg=_cfg(),
+    cfg=_cfg(actionability_gate=True),
   )
 
   assert resolution.actionable == ()
   assert resolution.gated[0][1].reason_code == "contested_corridor"
 
 
-def test_nearby_non_overlapping_bands_still_form_a_contested_corridor():
-  """The original reported incident: two bands that merely touch/sit
-  close together (zero overlap, small gap) - not the >=50% overlap the
-  old scanner_conflict_overlap ratio required - must still be treated as
-  one contested corridor, not two independent opportunities.
-  """
-  buy = _result("BUY", 4001.0, 4007.0, quality=3)
-  sell = _result("SELL", 4007.0, 4019.0, quality=2)
+def test_nearby_non_overlapping_bands_remain_watched():
+  """Proximity alone must not kill both sides — retain nearby opposing bands."""
+  buy = _result("BUY", 4001.0, 4007.0, quality=3, current_price=4004.0)
+  sell = _result("SELL", 4007.0, 4019.0, quality=2, current_price=4013.0)
 
   resolution = resolve_actionability(
     symbol="XAU",
@@ -636,13 +654,15 @@ def test_nearby_non_overlapping_bands_still_form_a_contested_corridor():
     context=SimpleNamespace(htf_bias="down"),
     atr=2.0,
     pip_size=0.1,
-    cfg=_cfg(),
+    cfg=_cfg(actionability_gate=True),
   )
 
-  assert resolution.actionable == ()
-  assert {item[1].reason_code for item in resolution.gated} == {
-    "contested_corridor",
-  }
+  assert len(resolution.actionable) == 2
+  assert resolution.gated == ()
+  assert resolution.conflicts == ()
+  reasons = {decision.reason_code for _item, decision in resolution.decisions}
+  assert "contested_corridor" not in reasons
+  assert "nearby_opposing_structure" in reasons
 
 
 def test_bands_well_separated_beyond_the_gap_threshold_are_not_contested():
@@ -661,6 +681,27 @@ def test_bands_well_separated_beyond_the_gap_threshold_are_not_contested():
 
   reasons = {decision.reason_code for _item, decision in resolution.gated}
   assert "contested_corridor" not in reasons
+
+
+def test_proposed_entry_inside_opposing_band_is_executable_conflict():
+  buy = _result("BUY", 4100.0, 4105.0, quality=3, current_price=4099.0)
+  sell = _result("SELL", 4102.0, 4108.0, quality=3, current_price=4106.0)
+  buy = replace(buy, planned_entry_price=4103.0)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy, sell],
+    market_map=_map(price=4099.0),
+    context=SimpleNamespace(htf_bias="range"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=True),
+  )
+
+  assert resolution.actionable == ()
+  assert {item[1].reason_code for item in resolution.gated} == {
+    "contested_corridor",
+  }
 
 
 @pytest.mark.parametrize(
@@ -1068,7 +1109,7 @@ def test_displacement_override_disabled_by_default_lookback_zero():
   assert resolution.gated[0][1].reason_code == "opposing_entry_contained"
 
 
-def test_empty_market_map_is_valid_but_unavailable_map_fails_structural_closed():
+def test_empty_market_map_is_valid_and_unavailable_map_retains_candidate():
   result = _result("BUY", 4100.0, 4101.0)
   available = resolve_actionability(
     symbol="XAU",
@@ -1086,12 +1127,47 @@ def test_empty_market_map_is_valid_but_unavailable_map_fails_structural_closed()
     context=SimpleNamespace(htf_bias="up"),
     atr=1.0,
     pip_size=0.1,
-    cfg=_cfg(),
+    cfg=_cfg(actionability_gate=True),
   )
 
   assert len(available.actionable) == 1
-  assert unavailable.actionable == ()
-  assert unavailable.gated[0][1].reason_code == "opposing_context_unavailable"
+  assert len(unavailable.actionable) == 1
+  assert unavailable.gated == ()
+  decision = next(
+    decision for _item, decision in unavailable.decisions
+    if decision.reason_code == "context_degraded"
+  )
+  assert decision.hard_block is False
+  assert decision.measured["market_map_available"] is False
+  assert decision.measured["context_degraded"] is True
+  assert (
+    decision.measured["context_degraded_reason"]
+    == "opposing_context_unavailable"
+  )
+
+
+def test_gate_false_retains_contextual_observations_including_contested():
+  buy = _result("BUY", 4100.0, 4101.0, quality=3)
+  sell = _result("SELL", 4100.0, 4101.0, quality=3)
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy, sell],
+    market_map=_map(price=4100.5),
+    context=SimpleNamespace(htf_bias="range"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=False),
+  )
+
+  assert len(resolution.actionable) == 2
+  assert resolution.gated == ()
+  contested = [
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "contested_corridor"
+  ]
+  assert contested
+  assert all(decision.hard_block is False for decision in contested)
 
 
 @pytest.mark.asyncio

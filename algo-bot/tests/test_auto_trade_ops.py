@@ -566,22 +566,27 @@ async def test_opened_event_replies_to_stored_forming_message():
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_rejected_event_deletes_forming_card_and_sends_nothing(monkeypatch):
-  # One forming card per setup (P4): a reject deletes the card (never posts
-  # "EXECUTOR REJECTED") and the setup is never re-carded.
+async def test_rejected_event_retains_root_card_and_sends_nothing(monkeypatch):
+  # One forming card per setup: reject edits the root to terminal and sends
+  # nothing new (single-root retain mode).
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"
   await client.set(
     delivery._forming_message_key(match_id),
-    json.dumps({"chat_id": 123, "message_id": 7001}),
+    json.dumps({"chat_id": 123, "message_id": 7001, "text": "forming"}),
     ex=60,
   )
   deleted = []
+  edited = []
 
   async def fake_delete(chat_id, message_id):
     deleted.append((chat_id, message_id))
 
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
   monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
   calls = []
 
   async def sent(text, **kwargs):
@@ -603,8 +608,9 @@ async def test_rejected_event_deletes_forming_card_and_sends_nothing(monkeypatch
 
   assert result is False
   assert calls == []
-  assert deleted == [(123, 7001)]
-  assert await client.get(delivery._forming_message_key(match_id)) is None
+  assert deleted == []
+  assert edited and edited[0][0] == 123 and edited[0][1] == 7001
+  assert await client.get(delivery._forming_message_key(match_id)) is not None
 
 
 @pytest.mark.asyncio

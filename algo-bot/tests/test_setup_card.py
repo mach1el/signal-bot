@@ -22,6 +22,9 @@ from app.autotrade.setup_lifecycle import (
 from app.persistence import redis_state
 
 
+pytestmark = pytest.mark.no_database
+
+
 async def _confirmed_setup(client, setup_id: str) -> None:
   await create_setup(
     client, setup_id=setup_id, thesis_id=f"thesis-{setup_id}", symbol="XAU",
@@ -189,8 +192,10 @@ async def test_terminal_setup_is_never_re_carded():
 
 
 @pytest.mark.asyncio
-async def test_kill_setup_card_deletes_and_clears_storage():
+async def test_kill_setup_card_deletes_and_clears_storage(monkeypatch):
   client = redis_state.get_client()
+  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", False)
+  monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", True)
   await setup_card.save_forming_card(client, "setup-4", chat_id=123, message_id=5555)
   await setup_card.save_forming_card_status(
     client,
@@ -216,8 +221,10 @@ async def test_kill_setup_card_deletes_and_clears_storage():
 
 
 @pytest.mark.asyncio
-async def test_kill_setup_card_falls_back_to_terminal_edit_when_delete_fails():
+async def test_kill_setup_card_falls_back_to_terminal_edit_when_delete_fails(monkeypatch):
   client = redis_state.get_client()
+  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", False)
+  monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", True)
   await setup_card.save_forming_card(client, "setup-5", chat_id=123, message_id=6666)
   edited = []
 
@@ -272,10 +279,13 @@ async def test_kill_setup_card_is_a_noop_with_no_stored_card():
 
 
 @pytest.mark.asyncio
-async def test_delete_on_terminal_disabled_only_clears_storage(monkeypatch):
+async def test_delete_on_terminal_disabled_edits_and_retains_root(monkeypatch):
   client = redis_state.get_client()
   await setup_card.save_forming_card(client, "setup-6", chat_id=123, message_id=4444)
-  monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", False)
+  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", True)
+  monkeypatch.setattr(
+    setup_card.settings, "auto_trade_telegram_delete_root_on_terminal", False,
+  )
   calls = []
 
   async def delete_fn(chat_id, message_id):
@@ -289,8 +299,36 @@ async def test_delete_on_terminal_disabled_only_clears_storage(monkeypatch):
     delete_fn=delete_fn, edit_fn=edit_fn,
   )
 
-  assert calls == []
-  assert await setup_card.load_forming_card(client, "setup-6") is None
+  assert calls == ["edit"]
+  card = await setup_card.load_forming_card(client, "setup-6")
+  assert card is not None
+  assert int(card["message_id"]) == 4444
+  # Root mapping retained for late replies/audit under single-root-card.
+  assert await setup_card.load_telegram_root_message_id(client, "setup-6") == 4444
+
+
+@pytest.mark.asyncio
+async def test_delete_root_flag_true_still_deletes(monkeypatch):
+  client = redis_state.get_client()
+  await setup_card.save_forming_card(client, "setup-del", chat_id=123, message_id=3333)
+  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", True)
+  monkeypatch.setattr(
+    setup_card.settings, "auto_trade_telegram_delete_root_on_terminal", True,
+  )
+  deleted = []
+
+  async def delete_fn(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  async def edit_fn(chat_id, message_id, text):
+    raise AssertionError("should delete")
+
+  await setup_card.kill_setup_card(
+    client, "setup-del", reason_code="expired",
+    delete_fn=delete_fn, edit_fn=edit_fn,
+  )
+  assert deleted == [(123, 3333)]
+  assert await setup_card.load_telegram_root_message_id(client, "setup-del") is None
 
 
 @pytest.mark.asyncio
@@ -434,7 +472,7 @@ async def test_card_status_is_monotonic_after_plan_publication():
 async def test_real_redis_concurrent_card_status_keeps_highest_priority():
   configured = os.getenv("REAL_REDIS_URL")
   if not configured:
-    pytest.fail("REAL_REDIS_URL is required")
+    pytest.skip("REAL_REDIS_URL is required")
   source = configured.rsplit("/", 1)[0]
   client = Redis.from_url(f"{source}/12", decode_responses=True)
   await client.flushdb()
