@@ -49,16 +49,22 @@ public sealed class EquityResolverTests
   }
 
   [Fact]
-  public void BalanceProxyWithOpenExposureThrows()
+  public void BalanceProxyWithOpenExposureUsesBalanceNotReject()
   {
-    var error = Assert.Throws<TradePlanContractException>(() =>
-      EquityResolver.Resolve(
-        Account(1_300m, 1_300m, EquityResolver.SourceBalanceProxy),
-        openPositionCount: 1,
-        pendingOrderCount: 0
-      )
+    // Production ProtoOATrader has no Equity field — rejecting every plan
+    // while any position/order exists was the equity_unavailable_with_open_exposure
+    // deadlock (Key Level plan published then immediately rejected).
+    var resolved = EquityResolver.Resolve(
+      Account(1_300m, 1_300m, EquityResolver.SourceBalanceProxy),
+      openPositionCount: 1,
+      pendingOrderCount: 0
     );
-    Assert.Equal(EquityResolver.UnavailableWithOpenExposure, error.Message);
+
+    Assert.Equal(1_300m, resolved.Equity);
+    Assert.Equal(
+      EquityResolver.SourceBalanceProxyWithExposure,
+      resolved.EquitySource
+    );
   }
 
   [Fact]
