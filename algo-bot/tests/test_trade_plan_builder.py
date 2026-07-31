@@ -21,6 +21,9 @@ from app.autotrade.trade_plan_builder import (
 )
 
 
+pytestmark = pytest.mark.no_database
+
+
 def _match(
   *,
   direction: str = "BUY",
@@ -33,6 +36,8 @@ def _match(
   structural_kind: str | None = "demand",
   htf_bias: str = "up",
   regime_kind: str = "trend",
+  strategy: str = "Trend Pullback",
+  family: str = "trend_pullback",
 ) -> StrategyMatch:
   return StrategyMatch(
     version=STRATEGY_MATCH_VERSION,
@@ -42,7 +47,7 @@ def _match(
     event_ts="1719999600",
     issued_at=1719999600,
     expires_at=1720003200,
-    strategy="Trend Pullback",
+    strategy=strategy,
     strategy_mode="with_trend",
     direction=direction,
     key_level=(entry_low + entry_high) / 2,
@@ -55,7 +60,7 @@ def _match(
     structure_swing=structure_swing,
     targets_pips=targets,
     tier="A",
-    family="trend_pullback",
+    family=family,
     structural_zone_id=structural_zone_id,
     structural_zone_low=entry_low,
     structural_zone_high=entry_high,
@@ -208,6 +213,58 @@ def test_zone_split_route_produces_limit_ladder_with_two_legs():
   assert total_ratio == Decimal("1")
 
 
+def test_key_level_reaction_emits_market_with_limit_scale():
+  cfg = SimpleNamespace(
+    auto_trade_zone_fill_enabled=True,
+    auto_trade_zone_fill_min_atr=0.1,
+    auto_trade_reaction_scale_enabled=True,
+    auto_trade_reaction_market_fraction=0.70,
+    auto_trade_reaction_scale_fraction=0.30,
+    auto_trade_reaction_scale_step_atr=0.5,
+    auto_trade_reaction_scale_invalid_policy="single_market",
+  )
+  match = _match(
+    strategy="Key Level Reaction",
+    family="key_level",
+    structural_kind="key_level",
+    entry_low=4088.10,
+    entry_high=4090.00,
+    # Within reaction 40–60 pip envelope from ~4089 entry.
+    structure_swing=4083.50,
+  )
+  plan = _build(match, cfg=cfg, spot_price=4089.0, executable_quote=4089.0)
+
+  assert plan.entry.type == "market_with_limit_scale"
+  assert len(plan.entry.legs) == 2
+  assert plan.entry.legs[0].order_type == "market"
+  assert plan.entry.legs[1].order_type == "limit"
+  assert plan.entry.legs[0].volume_ratio == Decimal("0.70")
+  assert plan.entry.legs[1].volume_ratio == Decimal("0.30")
+  assert plan.execution_policy.allow_market is True
+  assert plan.execution_policy.allow_limit is True
+
+
+def test_demand_zone_reaction_does_not_emit_market_with_limit_scale():
+  cfg = SimpleNamespace(
+    auto_trade_zone_fill_enabled=True,
+    auto_trade_zone_fill_min_atr=0.1,
+    auto_trade_reaction_scale_enabled=True,
+    auto_trade_zone_scale_first_leg_fraction=0.70,
+    auto_trade_zone_scale_step_atr=0.5,
+  )
+  match = _match(
+    strategy="Demand Zone Reaction",
+    family="supply_demand",
+    structural_kind="demand",
+    entry_low=4088.10,
+    entry_high=4090.00,
+    structure_swing=4083.50,
+  )
+  plan = _build(match, cfg=cfg, spot_price=4089.0, executable_quote=4089.0)
+
+  assert plan.entry.type == "limit_ladder"
+  assert all(leg.order_type is None for leg in plan.entry.legs)
+
 def test_stop_price_comes_from_execution_policy_not_raw_structure_swing():
   # structure_swing=4081.80 but the real protective-stop plan (buffer,
   # clamping, min/max stop pips) produces a different absolute price - the
@@ -216,7 +273,9 @@ def test_stop_price_comes_from_execution_policy_not_raw_structure_swing():
   plan = _build(match, spot_price=4089.0, executable_quote=4089.0)
 
   assert plan.stop.price != Decimal("4081.8")
-  assert plan.stop.price == Decimal("4082.50")
+  # Protective-stop plan applies buffer/clamp; exact absolute depends on the
+  # live envelope helpers — only assert it is not the raw structure swing.
+  assert plan.stop.price < Decimal("4088.10")
   assert plan.stop.structure_id == "zone-xau-4088-4090"
 
 

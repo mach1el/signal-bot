@@ -10,7 +10,12 @@ that did not previously exist in that dict.
 
 from __future__ import annotations
 
+import pytest
+
 from app.autotrade import delivery
+
+
+pytestmark = pytest.mark.no_database
 
 
 def test_plan_armed_event_stays_silent_and_does_not_crash():

@@ -111,6 +111,7 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   async def delete_card(chat_id, message_id):
     deleted.append((chat_id, message_id))
 
+  monkeypatch.setattr(delivery.settings, "auto_trade_telegram_single_root_card", False)
   monkeypatch.setattr(delivery.settings, "delivery_delete_on_terminal", True)
   monkeypatch.setattr(delivery, "delete_scanner_message", delete_card)
 

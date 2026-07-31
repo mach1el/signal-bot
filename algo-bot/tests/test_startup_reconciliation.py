@@ -51,14 +51,19 @@ async def test_reconcile_repairs_un_indexed_active_setup():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_removes_card_for_missing_canonical_setup(monkeypatch):
+async def test_reconcile_retains_card_for_missing_canonical_setup(monkeypatch):
   client = redis_state.get_client()
   deleted = []
+  edited = []
 
   async def delete_card(chat_id, message_id):
     deleted.append((chat_id, message_id))
 
+  async def edit_card(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
   monkeypatch.setattr(startup_reconciliation, "delete_scanner_message", delete_card)
+  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
   await client.set(
     forming_message_key("startup-ghost"),
     json.dumps({"chat_id": 1, "message_id": 2, "text": "x"}),
@@ -67,21 +72,28 @@ async def test_reconcile_removes_card_for_missing_canonical_setup(monkeypatch):
 
   await reconcile_startup_state(client)
 
-  assert deleted == [(1, 2)]
-  assert await load_forming_card(client, "startup-ghost") is None
+  assert deleted == []
+  assert edited and edited[0][:2] == (1, 2)
+  card = await load_forming_card(client, "startup-ghost")
+  assert card is not None
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("missing_canonical_setup_projection_removed", 0)) >= 1
 
 
 @pytest.mark.asyncio
-async def test_reconcile_removes_orphan_card_for_terminal_setup(monkeypatch):
+async def test_reconcile_retains_orphan_card_for_terminal_setup(monkeypatch):
   client = redis_state.get_client()
   deleted = []
+  edited = []
 
   async def delete_card(chat_id, message_id):
     deleted.append((chat_id, message_id))
 
+  async def edit_card(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
   monkeypatch.setattr(startup_reconciliation, "delete_scanner_message", delete_card)
+  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
   await create_setup(
     client, setup_id="startup-terminal", thesis_id="t1", symbol="XAU",
   )
@@ -94,8 +106,9 @@ async def test_reconcile_removes_orphan_card_for_terminal_setup(monkeypatch):
 
   await reconcile_startup_state(client)
 
-  assert deleted == [(1, 2)]
-  assert await load_forming_card(client, "startup-terminal") is None
+  assert deleted == []
+  assert edited and edited[0][:2] == (1, 2)
+  assert await load_forming_card(client, "startup-terminal") is not None
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("orphan_forming_card_removed", 0)) >= 1
 

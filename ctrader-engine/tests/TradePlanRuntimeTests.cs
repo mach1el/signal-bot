@@ -137,20 +137,20 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task ArmsPlanAndSubmitsMarketOrderWhenQuoteEntersZone()
+  public async Task ReceivesPlanAndSubmitsMarketOrderWhenQuoteEntersZone()
   {
     var store = new FakeV7Store();
     store.EnqueuePlan(PlanJson());
     var client = new FakeV7TradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
-    // Quote outside the zone: plan should arm but not submit yet.
+    // Quote outside the zone: plan should be received but not submit yet.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
     );
     Assert.Empty(client.MarketOrders);
-    var armed = Assert.Single(runtime.TrackedStates);
-    Assert.Equal(TradePlanRuntimeStage.Armed, armed.Stage);
+    var received = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Received, received.Stage);
 
     // Quote enters the zone: should submit a market order now.
     await runtime.PollAsync(
@@ -164,8 +164,29 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(TradePlanRuntimeStage.FullyOpen, open.Stage);
     Assert.NotNull(open.PositionId);
     var events = store.Events.Select(e => e.Type).ToArray();
-    Assert.Contains("plan_armed", events);
+    Assert.DoesNotContain("plan_armed", events);
     Assert.Contains("order_filled", events);
+  }
+
+  [Fact]
+  public async Task FirstPollSubmitsExecutablePlanWithoutArmedStage()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson());
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+
+    Assert.Single(client.MarketOrders);
+    var open = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.FullyOpen, open.Stage);
+    Assert.DoesNotContain(store.Events, e => e.Type == "plan_armed");
+    Assert.DoesNotContain(
+      runtime.TrackedStates, s => s.Stage == TradePlanRuntimeStage.Armed
+    );
   }
 
   [Fact]
@@ -413,8 +434,9 @@ public sealed class TradePlanRuntimeTests
       Options(), store, () => DateTimeOffset.UtcNow, logs.Add
     );
 
-    // The plan is rejected during arming itself (before EvaluateArmedPlansAsync
-    // or SubmitEntryAsync ever run), on this same first poll.
+    // The plan is rejected during receive itself (before
+    // EvaluatePendingEntryPlansAsync or SubmitEntryAsync ever run), on this
+    // same first poll.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
     );
@@ -433,6 +455,117 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4089.60m, 4089.70m, 2), CancellationToken.None
     );
     Assert.Empty(client.MarketOrders);
+  }
+
+  [Fact]
+  public async Task MarketWithLimitScaleSubmitsL1MarketAndL2LimitOnFirstPoll()
+  {
+    const string planJson = """
+    {
+      "version": 7,
+      "plan_id": "v7:plan-mwls",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Key Level Reaction",
+        "strategy_family": "key_level",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "M15",
+        "confirmation_timeframe": "M5",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 0.65,
+        "confluence": 2,
+        "bias": "up",
+        "regime": "range",
+        "reasons": [],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "key:M15:4085.00:4089.50:1719990000",
+        "kind": "key_level",
+        "timeframe": "M15",
+        "low": "4085.00",
+        "high": "4089.50",
+        "invalidation_price": "4079.00"
+      },
+      "entry": {
+        "type": "market_with_limit_scale",
+        "zone_low": "4085.00",
+        "zone_high": "4089.50",
+        "expires_at": 2000000000,
+        "legs": [
+          {"leg_id": "L1", "price": "4089.10", "volume_ratio": "0.70", "order_type": "market"},
+          {"leg_id": "L2", "price": "4085.00", "volume_ratio": "0.30", "order_type": "limit"}
+        ]
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4079.00",
+        "source": "structural_invalidation",
+        "structure_id": "key:M15:4085.00:4089.50:1719990000",
+        "reason": "below distal edge"
+      },
+      "targets": [
+        {"target_id": "TP1", "type": "absolute", "price": "4097.00", "close_ratio": "1.0"}
+      ],
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "sizing": {
+        "mode": "equity_table",
+        "table_version": "owner_equity_v1",
+        "entry_distribution": "zone_scale",
+        "leg_ratios": ["0.70", "0.30"]
+      },
+      "management": {
+        "be_after_target_id": null,
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": true,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan(planJson);
+    var client = new FakeV7TradingClient { AccountEquity = 1_300m, AccountBalance = 1_300m };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    // Quote inside the zone: L1 must PlaceMarketOrder (order_type=market)
+    // even though a marketable-limit check on the L1 reference price would
+    // also choose market; L2 must PlaceLimitOrder (order_type=limit) even
+    // though detection is not consulted.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.00m, 4089.10m, 1), CancellationToken.None
+    );
+
+    var market = Assert.Single(client.MarketOrders);
+    Assert.Equal(800, market.Volume); // 0.08 lots at equity 1300
+    var limit = Assert.Single(client.LimitOrders);
+    Assert.Equal(4085.00m, limit.LimitPrice);
+    Assert.Equal(300, limit.Volume); // 0.03 lots
+    var state = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.PartiallyOpen, state.Stage);
+    Assert.DoesNotContain(store.Events, e => e.Type == "plan_armed");
   }
 
   private const string LadderPlanJson = """
@@ -731,10 +864,10 @@ public sealed class TradePlanRuntimeTests
     // Leg 1 (only) was accepted and durably recorded before leg 2 threw.
     Assert.Single(client.LimitOrders);
     var afterFailure = Assert.Single(runtime.TrackedStates);
-    // Stage deliberately stays Armed (not Submitted) after a partial
-    // failure - EvaluateArmedPlansAsync only re-evaluates Armed plans, so
-    // this is what makes the retry below come back at all.
-    Assert.Equal(TradePlanRuntimeStage.Armed, afterFailure.Stage);
+    // Stage stays Submitting (not Submitted) after a partial failure -
+    // EvaluatePendingEntryPlansAsync only re-evaluates Received/Submitting/
+    // legacy Armed plans, so this is what makes the retry below come back.
+    Assert.Equal(TradePlanRuntimeStage.Submitting, afterFailure.Stage);
     Assert.Equal(1, afterFailure.SubmittedLegCount);
 
     // Retry: must resume at leg 2, never resend leg 1.
@@ -799,7 +932,7 @@ public sealed class TradePlanRuntimeTests
 
     Assert.Empty(client.MarketOrders);
     var state = Assert.Single(runtime.TrackedStates);
-    Assert.Equal(TradePlanRuntimeStage.Armed, state.Stage);
+    Assert.Equal(TradePlanRuntimeStage.Received, state.Stage);
   }
 
   [Fact]
@@ -996,7 +1129,7 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task RestartRecoversArmedStateFromRedis()
+  public async Task RestartRecoversReceivedStateFromRedis()
   {
     var store = new FakeV7Store();
     store.EnqueuePlan(PlanJson());
@@ -1006,6 +1139,7 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
     );
     Assert.Single(first.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.Received, first.TrackedStates.Single().Stage);
     Assert.Null(store.Value("execution:plan:v7:plan-1"));
     Assert.NotNull(store.Value("execution:plan_recovery:v7:plan-1"));
 
@@ -1073,7 +1207,7 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillArms()
+  public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillReceives()
   {
     var store = new FakeV7Store();
     store.EnqueuePlan("""{"version":7,"plan_id":"v7:broken","targets":[]}""");
@@ -1092,11 +1226,11 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
-    Assert.Equal("armed", store.Value("execution:plan_state:v7:after-broken"));
+    Assert.Equal("received", store.Value("execution:plan_state:v7:after-broken"));
     Assert.Equal("2-0", store.TradePlanCursor);
     Assert.Single(runtime.TrackedStates);
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
-    Assert.Contains(logs, line => line.Contains("auto_trade_plan_armed"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_received_ready"));
   }
 
   [Fact]
@@ -1190,7 +1324,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.Equal(
-      "armed",
+      "received",
       await store.GetStringAsync(
         $"execution:plan_state:{prepublishedPlanId}", CancellationToken.None
       )
@@ -1201,7 +1335,7 @@ public sealed class TradePlanRuntimeTests
     ));
     Assert.Single(runtime.TrackedStates);
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
-    Assert.Contains(logs, line => line.Contains("auto_trade_plan_armed"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_received_ready"));
     await db.ExecuteAsync("FLUSHDB");
   }
 

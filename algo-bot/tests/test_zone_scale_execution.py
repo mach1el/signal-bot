@@ -34,6 +34,11 @@ def _cfg(**overrides):
     "auto_trade_xau_price_digits": 2,
     "auto_trade_zone_scale_first_leg_fraction": 0.70,
     "auto_trade_zone_scale_step_atr": 0.5,
+    "auto_trade_reaction_scale_enabled": True,
+    "auto_trade_reaction_market_fraction": 0.70,
+    "auto_trade_reaction_scale_fraction": 0.30,
+    "auto_trade_reaction_scale_step_atr": 0.5,
+    "auto_trade_reaction_scale_invalid_policy": "single_market",
   }
   values.update(overrides)
   return SimpleNamespace(**values)
@@ -61,13 +66,32 @@ def _policy_match(**overrides):
   "strategy",
   [
     "Key Level Reaction",
-    "Demand Zone Reaction",
-    "Supply Zone Reaction",
     "Session Level Reaction",
     "Trendline Reaction",
   ],
 )
-def test_all_reaction_families_use_the_zone_scale_ladder(strategy):
+def test_key_session_trendline_use_market_with_limit_scale(strategy):
+  evaluation = evaluate_execution_policy(
+    _policy_match(strategy=strategy),
+    spot_price=4035.5,
+    executable_quote=4035.5,
+    regime="range",
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert evaluation.allowed
+  assert evaluation.measured["planned_execution_route"] == "market_with_limit_scale"
+  assert evaluation.measured["planned_leg_volume_ratios"] == pytest.approx([0.70, 0.30])
+
+
+@pytest.mark.parametrize(
+  "strategy",
+  [
+    "Demand Zone Reaction",
+    "Supply Zone Reaction",
+  ],
+)
+def test_demand_supply_keep_zone_scale_limit_ladder(strategy):
   evaluation = evaluate_execution_policy(
     _policy_match(strategy=strategy),
     spot_price=4035.5,
@@ -82,11 +106,26 @@ def test_all_reaction_families_use_the_zone_scale_ladder(strategy):
   assert evaluation.measured["planned_execution_route"] == "zone_split"
 
 
+def test_all_reaction_families_use_the_zone_scale_ladder():
+  # Backward-compat name: Demand/Supply still use zone_scale → zone_split;
+  # Key/Session/Trendline use market_with_limit_scale instead.
+  for strategy in (
+    "Demand Zone Reaction",
+    "Supply Zone Reaction",
+  ):
+    test_demand_supply_keep_zone_scale_limit_ladder(strategy)
+  for strategy in (
+    "Key Level Reaction",
+    "Session Level Reaction",
+    "Trendline Reaction",
+  ):
+    test_key_session_trendline_use_market_with_limit_scale(strategy)
+
+
 def test_sell_zone_first_leg_is_proximal_low_at_seventy_percent():
-  # SELL zone 4035-4036.5, price still at the low edge (proximal, first
-  # touched rising into resistance from below) when the signal fires.
+  # Demand Zone (not market_with_limit_scale) still anchors L1 at proximal.
   evaluation = evaluate_execution_policy(
-    _policy_match(direction="SELL"),
+    _policy_match(direction="SELL", strategy="Demand Zone Reaction"),
     spot_price=4035.0,
     executable_quote=4035.0,
     regime="range",
@@ -94,19 +133,15 @@ def test_sell_zone_first_leg_is_proximal_low_at_seventy_percent():
     cfg=_cfg(),
   )
   measured = evaluation.measured
+  assert measured["planned_execution_route"] == "zone_split"
   assert measured["planned_leg_entry_prices"][0] == pytest.approx(4035.0)
   assert measured["planned_leg_volume_ratios"] == pytest.approx([0.70, 0.30])
-  # Second leg is one momentum step (0.5 * ATR=1.0 = 0.5) deeper into the
-  # zone, toward the far edge (4036.5), never past it.
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4035.5)
 
 
 def test_sell_zone_already_inside_anchors_first_leg_at_current_price():
-  # Detection latency means price is often already past the near edge by
-  # the time the signal confirms (e.g. sweep_reclaim needs a full bar to
-  # confirm). A resting SELL limit left at the stale 4035 edge would sit
-  # below the current quote - not a valid resting order, so it would never
-  # place/fill. Leg 1 must anchor to the current quote instead.
+  # Key Level market_with_limit_scale: L1 is the live quote (market), L2 is
+  # one step deeper into the zone as a resting limit.
   evaluation = evaluate_execution_policy(
     _policy_match(direction="SELL"),
     spot_price=4035.5,
@@ -116,13 +151,13 @@ def test_sell_zone_already_inside_anchors_first_leg_at_current_price():
     cfg=_cfg(),
   )
   measured = evaluation.measured
+  assert measured["planned_execution_route"] == "market_with_limit_scale"
   assert measured["planned_leg_entry_prices"][0] == pytest.approx(4035.5)
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4036.0)
 
 
 def test_buy_zone_first_leg_is_proximal_high_at_seventy_percent():
-  # BUY zone 4035-4036.5, price still at the high edge (proximal, first
-  # touched falling into demand from above) when the signal fires.
+  # BUY Key Level at the high edge: L1 market at quote, L2 deeper limit.
   evaluation = evaluate_execution_policy(
     _policy_match(direction="BUY", structure_swing=4033.5),
     spot_price=4036.5,
@@ -132,16 +167,13 @@ def test_buy_zone_first_leg_is_proximal_high_at_seventy_percent():
     cfg=_cfg(),
   )
   measured = evaluation.measured
+  assert measured["planned_execution_route"] == "market_with_limit_scale"
   assert measured["planned_leg_entry_prices"][0] == pytest.approx(4036.5)
   assert measured["planned_leg_volume_ratios"] == pytest.approx([0.70, 0.30])
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4036.0)
 
 
 def test_buy_zone_already_inside_anchors_first_leg_at_current_price():
-  # Same detection-latency case as the SELL side: price already fell past
-  # the near (high) edge into the zone by confirmation time - a resting
-  # BUY limit left at the stale 4036.5 edge would sit above the current
-  # quote and never place/fill. Leg 1 must anchor to the current quote.
   evaluation = evaluate_execution_policy(
     _policy_match(direction="BUY", structure_swing=4033.5),
     spot_price=4036.0,
@@ -151,6 +183,7 @@ def test_buy_zone_already_inside_anchors_first_leg_at_current_price():
     cfg=_cfg(),
   )
   measured = evaluation.measured
+  assert measured["planned_execution_route"] == "market_with_limit_scale"
   assert measured["planned_leg_entry_prices"][0] == pytest.approx(4036.0)
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4035.5)
 
