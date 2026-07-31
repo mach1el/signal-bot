@@ -2152,3 +2152,134 @@ async def test_status_shows_market_map_reason_when_idle(monkeypatch):
   assert "none · waiting for touch" in text
   assert "Why: nearest mapped SELL zone 4087.00-4095.00" in text
   assert len(text) < 500
+
+
+@pytest.mark.asyncio
+async def test_status_includes_today_algo_scorecard(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  await store.init_db()
+  now = int(datetime.now(timezone.utc).timestamp())
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": now - 120,
+    "position_id": 88001,
+    "group_id": "v7:status-score-win",
+    "candidate_id": "v7:status-score-win",
+    "stream": "algo_auto",
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4050.0,
+    "stop_loss": 4045.0,
+    "volume": 100,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": now - 60,
+    "position_id": 88001,
+    "group_id": "v7:status-score-win",
+    "candidate_id": "v7:status-score-win",
+    "stream": "algo_auto",
+    "direction": "BUY",
+    "price": 4054.0,
+    "target_pips": 40,
+    "message": "PLAN CLOSED · highest TP archived TP1",
+  })
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": now - 50,
+    "position_id": 88002,
+    "group_id": "v7:status-score-loss",
+    "candidate_id": "v7:status-score-loss",
+    "stream": "algo_auto",
+    "direction": "SELL",
+    "setup": "Supply Zone Reaction",
+    "symbol": "XAU",
+    "price": 4060.0,
+    "stop_loss": 4065.0,
+    "volume": 100,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": now - 10,
+    "position_id": 88002,
+    "group_id": "v7:status-score-loss",
+    "candidate_id": "v7:status-score-loss",
+    "stream": "algo_auto",
+    "direction": "SELL",
+    "price": 4065.0,
+    "group_realized_pips": -50,
+    "message": "PLAN CLOSED · no TP archived",
+  })
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Today · <b>1W/1L</b> · net <b>−10p</b>" in text
+  assert len(text) < 4000
+
+
+@pytest.mark.asyncio
+async def test_status_lists_open_v7_plan_book(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+
+  async def _fake_read_trade_plan(_client, plan_id: str):
+    assert plan_id == "plan-status-open-1"
+    return SimpleNamespace(
+      analysis=SimpleNamespace(strategy="Supply Zone Reaction"),
+    )
+
+  monkeypatch.setattr(
+    "app.autotrade.trade_plan_stream.read_trade_plan",
+    _fake_read_trade_plan,
+  )
+  await client.set("execution:trade_plan_runtime_ids", "plan-status-open-1")
+  await client.set(
+    "execution:plan_runtime:plan-status-open-1",
+    json.dumps({
+      "PlanId": "plan-status-open-1",
+      "SetupId": "setup-status-1",
+      "Direction": "SELL",
+      "Stage": "FullyOpen",
+      "GroupStage": "managing",
+      "GroupWeightedFillPrice": 4054.2,
+      "TotalFilledVolume": 200,
+      "RemainingVolume": 200,
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Open: <b>SELL</b> · Supply Zone Reaction · managing" in text
+  assert "Open book: none" not in text
+  assert len(text) < 4000
+
+
+@pytest.mark.asyncio
+async def test_status_open_book_caps_at_three_plans(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+  plan_ids = [f"plan-status-cap-{i}" for i in range(1, 5)]
+  await client.set("execution:trade_plan_runtime_ids", ",".join(plan_ids))
+  for plan_id in plan_ids:
+    await client.set(
+      f"execution:plan_runtime:{plan_id}",
+      json.dumps({
+        "PlanId": plan_id,
+        "Direction": "BUY",
+        "Stage": "FullyOpen",
+        "GroupStage": "fully_open",
+        "GroupWeightedFillPrice": 4000.0 + plan_ids.index(plan_id),
+        "TotalFilledVolume": 100,
+        "RemainingVolume": 100,
+      }),
+    )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert text.count("Open: <b>BUY</b>") == 3
+  assert "+1 more" in text
+  assert len(text) < 4000
