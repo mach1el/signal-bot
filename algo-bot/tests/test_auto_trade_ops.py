@@ -638,6 +638,458 @@ async def test_order_filled_prefers_live_forming_card_over_stale_root(monkeypatc
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
+async def test_tp_booked_does_not_overwrite_forming_card_head(monkeypatch):
+  """TP stays on the manage reply; keep ORDER FILLED on the forming head."""
+  client = redis_state.get_client()
+  setup_id = "tp-head-setup"
+  head = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "✅ <b>ORDER FILLED</b> · ENTRY L1 FILLED",
+    "🔴 <b>SELL · Key Level Reaction</b>",
+  ])
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({"chat_id": 123, "message_id": 9003, "text": head}),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8124)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "tp_booked",
+      "match_id": setup_id,
+      "message": "TP COMPLETED TP3 closed L1 lot=0.02 L2 lot=0.01 remaining lot=0.03 (2/2)",
+      "price": 4030.0,
+      "target_pips": 50,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  # No manage reply yet → one fallback create; never edit the forming head.
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 9003
+  assert "🎯 ·" in calls[0][0]
+  assert "TP3" in calls[0][0]
+  assert "TP COMPLETED" not in calls[0][0]
+  head_edits = [e for e in edited if e[1] == 9003]
+  assert head_edits == []
+  card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
+  assert "ORDER FILLED" in card["text"].splitlines()[1]
+  assert "TP COMPLETED" not in card["text"].splitlines()[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_order_filled_stores_manage_keys_and_second_fill_edits(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "manage-fill-setup"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "\n".join([
+        "🔎 <b>XAU M5 · SETUP FORMING</b>",
+        "🟢 <b>PLAN PUBLISHED</b>",
+        "🟢 <b>BUY · Key Level Reaction</b>",
+      ]),
+    }),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8123)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": setup_id,
+      "message": "ENTRY L1 FILLED lot=0.08 @ 4034.50; L2 still pending",
+      "position_id": 1,
+      "reason_code": "l1_fill",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+  assert len(calls) == 1
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "8123"
+  assert "ORDER FILLED" in (await client.get(delivery._manage_text_key(setup_id)) or "")
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": setup_id,
+      "message": "ENTRY GROUP FULLY FILLED BUY lot=0.11 weighted=4034.20",
+      "position_id": 1,
+      "reason_code": "l2_fill",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+  assert len(calls) == 1  # second fill edits, does not send
+  manage_edits = [e for e in edited if e[1] == 8123]
+  assert manage_edits
+  assert "FULLY FILLED" in manage_edits[-1][2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "manage-tp-setup"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "\n".join([
+        "🔎 <b>XAU M5 · SETUP FORMING</b>",
+        "✅ <b>ORDER FILLED</b> · L1 filled",
+        "🟢 <b>BUY · Key Level Reaction</b>",
+      ]),
+    }),
+    ex=60,
+  )
+  fill_body = "\n".join([
+    "🤖 <b>ApexVoid Algo</b>",
+    "✅ <b>ORDER FILLED</b>",
+    "",
+    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
+  ])
+  await delivery._save_manage_message(
+    client, setup_id, message_id=8123, text=fill_body,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=9999)
+
+  for target, price, pips in (("TP1", 4029.98, 41.0), ("TP2", 4010.0, 60.0)):
+    await delivery._deliver_auto_trade_event(
+      client,
+      {
+        "type": "tp_booked",
+        "match_id": setup_id,
+        "message": f"TP COMPLETED {target} closed L1 lot=0.02 remaining lot=0.06 (1/2)",
+        "price": price,
+        "target_pips": pips,
+        "position_id": 1,
+        "reason_code": f"{target.lower()}_booked",
+      },
+      profile="internal",
+      chat_id=123,
+      send=sent,
+    )
+
+  assert calls == []
+  manage_edits = [e for e in edited if e[1] == 8123]
+  assert len(manage_edits) == 2
+  final = manage_edits[-1][2]
+  assert "ORDER FILLED" in final
+  assert "🎯 ·" in final and "TP1" in final and "TP2" in final
+  assert "4029.98" in final and "+41.0 pips" in final
+  head_edits = [e for e in edited if e[1] == 7001]
+  assert head_edits == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_sl_moved_be_updates_head_only_no_reply(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "manage-be-setup"
+  head = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "✅ <b>ORDER FILLED</b> · filled",
+    "🟢 <b>BUY · Key Level Reaction</b>",
+    "Trade area: Entry 4034.50 · Stop 4020.00",
+  ])
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({"chat_id": 123, "message_id": 7001, "text": head}),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=1)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "sl_moved",
+      "match_id": setup_id,
+      "message": "GROUP SL MOVED TO BE 4034.99 (2/2)",
+      "price": 4034.99,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert calls == []
+  head_edits = [e for e in edited if e[1] == 7001]
+  assert head_edits
+  assert "BE" in head_edits[0][2]
+  assert "4034.99" in head_edits[0][2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_sl_moved_trail_updates_head_only_no_reply(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "manage-trail-setup"
+  head = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🔐 <b>BE</b> · 4034.99",
+    "🟢 <b>BUY · Key Level Reaction</b>",
+    "Trade area: Entry 4034.50 · Stop 4034.99",
+  ])
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({"chat_id": 123, "message_id": 7001, "text": head}),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=1)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "sl_moved",
+      "match_id": setup_id,
+      "message": "SL MOVED to 4070.31 (trail TP1)",
+      "price": 4070.31,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert calls == []
+  assert any("Trail" in e[2] and "4070.31" in e[2] for e in edited)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "manage-close-setup"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "🔎 <b>XAU M5 · SETUP FORMING</b>\n🛰️ <b>Trail</b> · 4070.31",
+    }),
+    ex=60,
+  )
+  fill_body = "\n".join([
+    "🤖 <b>ApexVoid Algo</b>",
+    "✅ <b>ORDER FILLED</b>",
+    "",
+    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
+    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
+  ])
+  await delivery._save_manage_message(
+    client, setup_id, message_id=8123, text=fill_body,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=9001)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "match_id": setup_id,
+      "message": "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
+      "price": 4106.0,
+      "target_pips": 90,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert calls == []
+  manage_edits = [e for e in edited if e[1] == 8123]
+  assert manage_edits
+  final = manage_edits[-1][2]
+  assert "ORDER FILLED" in final
+  assert "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
+  assert "🎯 · TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in final
+  assert "🏁 · POSITION CLOSED" in final
+  assert "Highest TP archived" not in final
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
+  """Engine skips tp_booked on final target — close must still show that TP."""
+  client = redis_state.get_client()
+  setup_id = "manage-close-final-tp"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "🔎 <b>XAU M5 · SETUP FORMING</b>\n🛰️ <b>Trail</b>",
+    }),
+    ex=60,
+  )
+  fill_body = "\n".join([
+    "🤖 <b>ApexVoid Algo</b>",
+    "✅ <b>ORDER FILLED</b>",
+    "",
+    "ENTRY L1 FILLED lot=0.08 @ 4034.50",
+    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
+  ])
+  await delivery._save_manage_message(
+    client, setup_id, message_id=8123, text=fill_body,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=9001)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "match_id": setup_id,
+      "message": "PLAN CLOSED · highest TP archived TP3",
+      "price": 4010.0,
+      "target_pips": 81.0,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert calls == []
+  final = edited[-1][2]
+  assert "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
+  assert "🎯 · TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
+  assert "🏁 · POSITION CLOSED" in final
+  assert "Highest TP archived" not in final
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_position_closed_fallback_creates_manage_reply(monkeypatch):
+  """No prior fill manage msg → one reply under the card with close line."""
+  client = redis_state.get_client()
+  setup_id = "manage-close-fallback"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "🔎 <b>XAU M5 · SETUP FORMING</b>\n🛰️ <b>Trail</b> · 4070.31",
+    }),
+    ex=60,
+  )
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=9001)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "match_id": setup_id,
+      "message": "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
+      "price": 4106.0,
+      "target_pips": 90,
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+  assert "🏁 · POSITION CLOSED" in calls[0][0]
+  assert (
+    "🎯 · TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips"
+    in calls[0][0]
+  )
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "9001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_order_filled_skips_standalone_when_reply_rejected_after_card_edit(
   monkeypatch,
 ):
@@ -868,14 +1320,31 @@ async def test_take_profit_prefers_the_forming_card_over_position_chain():
 
 
 @pytest.mark.asyncio
-async def test_stop_moved_and_position_closed_also_thread_to_forming_card():
+@pytest.mark.no_database
+async def test_stop_moved_and_position_closed_also_thread_to_forming_card(
+  monkeypatch,
+):
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"
   await client.set(
     delivery._forming_message_key(match_id),
-    json.dumps({"chat_id": 123, "message_id": 7001}),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "\n".join([
+        "🔎 <b>XAU M5 · SETUP FORMING</b>",
+        "✅ <b>ORDER FILLED</b>",
+        "Trade area: Entry 4090.00 · Stop 4080.00",
+      ]),
+    }),
     ex=60,
   )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
   calls = []
 
   async def sent(text, **kwargs):
@@ -907,7 +1376,11 @@ async def test_stop_moved_and_position_closed_also_thread_to_forming_card():
     send=sent,
   )
 
-  assert [call[1]["reply_to"] for call in calls] == [7001, 7001]
+  # BE/trail is head-only; close falls back to one manage reply under the card.
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+  assert edited
+  assert "POSITION CLOSED" in calls[0][0]
 
 
 @pytest.mark.asyncio
@@ -1679,3 +2152,134 @@ async def test_status_shows_market_map_reason_when_idle(monkeypatch):
   assert "none · waiting for touch" in text
   assert "Why: nearest mapped SELL zone 4087.00-4095.00" in text
   assert len(text) < 500
+
+
+@pytest.mark.asyncio
+async def test_status_includes_today_algo_scorecard(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  await store.init_db()
+  now = int(datetime.now(timezone.utc).timestamp())
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": now - 120,
+    "position_id": 88001,
+    "group_id": "v7:status-score-win",
+    "candidate_id": "v7:status-score-win",
+    "stream": "algo_auto",
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4050.0,
+    "stop_loss": 4045.0,
+    "volume": 100,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": now - 60,
+    "position_id": 88001,
+    "group_id": "v7:status-score-win",
+    "candidate_id": "v7:status-score-win",
+    "stream": "algo_auto",
+    "direction": "BUY",
+    "price": 4054.0,
+    "target_pips": 40,
+    "message": "PLAN CLOSED · highest TP archived TP1",
+  })
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": now - 50,
+    "position_id": 88002,
+    "group_id": "v7:status-score-loss",
+    "candidate_id": "v7:status-score-loss",
+    "stream": "algo_auto",
+    "direction": "SELL",
+    "setup": "Supply Zone Reaction",
+    "symbol": "XAU",
+    "price": 4060.0,
+    "stop_loss": 4065.0,
+    "volume": 100,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": now - 10,
+    "position_id": 88002,
+    "group_id": "v7:status-score-loss",
+    "candidate_id": "v7:status-score-loss",
+    "stream": "algo_auto",
+    "direction": "SELL",
+    "price": 4065.0,
+    "group_realized_pips": -50,
+    "message": "PLAN CLOSED · no TP archived",
+  })
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Today · <b>1W/1L</b> · net <b>−10p</b>" in text
+  assert len(text) < 4000
+
+
+@pytest.mark.asyncio
+async def test_status_lists_open_v7_plan_book(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+
+  async def _fake_read_trade_plan(_client, plan_id: str):
+    assert plan_id == "plan-status-open-1"
+    return SimpleNamespace(
+      analysis=SimpleNamespace(strategy="Supply Zone Reaction"),
+    )
+
+  monkeypatch.setattr(
+    "app.autotrade.trade_plan_stream.read_trade_plan",
+    _fake_read_trade_plan,
+  )
+  await client.set("execution:trade_plan_runtime_ids", "plan-status-open-1")
+  await client.set(
+    "execution:plan_runtime:plan-status-open-1",
+    json.dumps({
+      "PlanId": "plan-status-open-1",
+      "SetupId": "setup-status-1",
+      "Direction": "SELL",
+      "Stage": "FullyOpen",
+      "GroupStage": "managing",
+      "GroupWeightedFillPrice": 4054.2,
+      "TotalFilledVolume": 200,
+      "RemainingVolume": 200,
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Open: <b>SELL</b> · Supply Zone Reaction · managing" in text
+  assert "Open book: none" not in text
+  assert len(text) < 4000
+
+
+@pytest.mark.asyncio
+async def test_status_open_book_caps_at_three_plans(monkeypatch):
+  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(delivery.settings, "auto_trade_dry_run", False)
+  client = redis_state.get_client()
+  plan_ids = [f"plan-status-cap-{i}" for i in range(1, 5)]
+  await client.set("execution:trade_plan_runtime_ids", ",".join(plan_ids))
+  for plan_id in plan_ids:
+    await client.set(
+      f"execution:plan_runtime:{plan_id}",
+      json.dumps({
+        "PlanId": plan_id,
+        "Direction": "BUY",
+        "Stage": "FullyOpen",
+        "GroupStage": "fully_open",
+        "GroupWeightedFillPrice": 4000.0 + plan_ids.index(plan_id),
+        "TotalFilledVolume": 100,
+        "RemainingVolume": 100,
+      }),
+    )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert text.count("Open: <b>BUY</b>") == 3
+  assert "+1 more" in text
+  assert len(text) < 4000

@@ -96,6 +96,20 @@ async def test_edit_failure_falls_back_to_a_fresh_post():
   }
 
 
+def test_apply_forming_card_stop_does_not_duplicate_existing_stop():
+  """Card already has Stop after Key level — patch must not insert a second."""
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "• <b>Key level:</b> <b>4,034.85</b>",
+    "• <b>Stop:</b> <b>4,039.68</b>",
+    "",
+    "🧭 <b>Context</b>",
+  ])
+  text = setup_card.apply_forming_card_stop(original, 4039.68)
+  assert text.count("• <b>Stop:</b>") == 1
+  assert "• <b>Stop:</b> <b>4,039.68</b>" in text
+
+
 @pytest.mark.asyncio
 async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   client = redis_state.get_client()
@@ -729,12 +743,17 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
       send=sent,
     )
 
-  assert len(calls) == 3
-  assert all(kwargs["reply_to"] == 6060 for _, kwargs in calls)
-  # Trailing / BE must also patch the root Stop line.
+  # TP creates the manage reply; BE/trail is head-only; close edits manage.
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 6060
+  assert "🎯" in calls[0][0] and "TP1" in calls[0][0]
+  close_edits = [text for _, _mid, text in edited if "POSITION CLOSED" in text]
+  assert close_edits
+  assert "TP3" in close_edits[-1] or "+81.0" in close_edits[-1]
+  # Trailing / BE must also patch the root Stop line (no BE/trail reply).
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
-  assert "4,044.91" in card["text"]
+  assert "4,044.91" in card["text"] or "4044.91" in card["text"]
   assert edited
 
 @pytest.mark.asyncio
