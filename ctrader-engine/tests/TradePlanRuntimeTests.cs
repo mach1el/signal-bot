@@ -357,7 +357,7 @@ public sealed class TradePlanRuntimeTests
       "created_at": 1719999600,
       "expires_at": 2000000000,
       "analysis": {
-        "strategy": "Structural Zone Reaction",
+        "strategy": "Zone Reaction",
         "strategy_family": "structural_zone",
         "direction": "BUY",
         "context_timeframes": ["M15"],
@@ -580,7 +580,7 @@ public sealed class TradePlanRuntimeTests
     "created_at": 1719999600,
     "expires_at": 2000000000,
     "analysis": {
-      "strategy": "Structural Zone Reaction",
+      "strategy": "Zone Reaction",
       "strategy_family": "structural_zone",
       "direction": "BUY",
       "context_timeframes": ["M15"],
@@ -1231,6 +1231,34 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal("received", store.Value("execution:plan_state:v7:after-broken"));
     Assert.Equal("2-0", store.TradePlanCursor);
     Assert.Single(runtime.TrackedStates);
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
+    Assert.Contains(logs, line => line.Contains("auto_trade_plan_received_ready"));
+  }
+
+  [Fact]
+  public async Task MalformedPlanWithUnsupportedExceptionStillYieldsToValidPlan()
+  {
+    // Source-gen / required-member failures can surface as NotSupportedException
+    // rather than JsonException — must not abort the poll batch.
+    var store = new FakeV7Store();
+    store.EnqueuePlan("""{"version":7,"plan_id":"v7:unsupported-shape"}""");
+    store.EnqueuePlan(PlanJson(planId: "v7:after-unsupported"));
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      new FakeV7TradingClient(),
+      Symbol,
+      new SpotPrice("XAU", 4080.0m, 4080.2m, 1),
+      CancellationToken.None
+    );
+
+    Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
+    Assert.Equal("received", store.Value("execution:plan_state:v7:after-unsupported"));
+    Assert.Equal("2-0", store.TradePlanCursor);
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_received_ready"));
   }

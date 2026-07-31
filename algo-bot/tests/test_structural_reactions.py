@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pandas as pd
+import pytest
 
 from app.analysis import detectors
 from app.analysis.structural_reaction_support import (
@@ -19,6 +20,9 @@ from app.analysis.types import Break, DealingRange, Grab, Pool, SessionLevel
 from app.autotrade.execution_policy import strategy_family
 from app.autotrade.multi_match import dedupe_matches, same_thesis
 from app.autotrade.strategy_match import StrategyMatch
+
+
+pytestmark = pytest.mark.no_database
 
 
 def _df(rows: list[tuple[float, float, float, float, float]]) -> pd.DataFrame:
@@ -497,6 +501,24 @@ def test_strategy_family_and_stable_thesis_identity():
     touch_bar_ts="t1",
     confirmation_bar_ts="c1",
   )
+  canonical = structural_thesis_id(
+    symbol="XAU",
+    strategy="Zone Reaction",
+    direction="BUY",
+    structural_source="supply_demand",
+    structural_id="abc",
+    touch_bar_ts="t1",
+    confirmation_bar_ts="c1",
+  )
+  supply_legacy = structural_thesis_id(
+    symbol="XAU",
+    strategy="Supply Zone Reaction",
+    direction="BUY",
+    structural_source="supply_demand",
+    structural_id="abc",
+    touch_bar_ts="t1",
+    confirmation_bar_ts="c1",
+  )
   other = structural_thesis_id(
     symbol="XAU",
     strategy="Demand Zone Reaction",
@@ -507,7 +529,41 @@ def test_strategy_family_and_stable_thesis_identity():
     confirmation_bar_ts="c1",
   )
   assert first == moved_entry
+  assert first == canonical
+  assert first == supply_legacy
   assert first != other
+
+
+def test_legacy_zone_reaction_aliases_same_thesis_without_shared_sid():
+  demand = replace(
+    _match(match_id="demand-legacy"),
+    strategy="Demand Zone Reaction",
+    structural_zone_id=None,
+    zone_id=None,
+  )
+  zone = replace(
+    _match(match_id="zone-canonical"),
+    strategy="Zone Reaction",
+    structural_zone_id=None,
+    zone_id=None,
+  )
+  assert same_thesis(demand, zone, atr=2.0)
+  kept, _ = dedupe_matches([demand, zone], atr=2.0)
+  assert len(kept) == 1
+
+
+def test_legacy_zone_reaction_aliases_same_thesis_with_shared_sid():
+  demand = replace(
+    _match(match_id="demand-sid"),
+    strategy="Demand Zone Reaction",
+    structural_zone_id="sid-shared",
+  )
+  zone = replace(
+    _match(match_id="zone-sid"),
+    strategy="Zone Reaction",
+    structural_zone_id="sid-shared",
+  )
+  assert same_thesis(demand, zone, atr=2.0)
 
 
 def _match(**kwargs) -> StrategyMatch:

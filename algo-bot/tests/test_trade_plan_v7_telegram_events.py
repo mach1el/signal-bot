@@ -175,7 +175,7 @@ def test_tp_compact_line_format():
     "TP COMPLETED TP1 closed L1 lot=0.02 remaining lot=0.06 (1/2)",
   )
   assert line == (
-    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips"
+    "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips"
   )
 
 
@@ -190,8 +190,8 @@ def test_tp_compact_lines_stack_like_owner_sample():
   )
   body = "\n".join([tp1, tp2])
   assert body == "\n".join([
-    "🎯 · TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
-    "🎯 · TP2 · 💰 Fill: 4033.00 · ✅ Achieved: +45.0 pips",
+    "• 🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips",
+    "• 🎯 TP2 · 💰 Fill: 4033.00 · ✅ Achieved: +45.0 pips",
   ])
 
 
@@ -219,14 +219,18 @@ def test_position_closed_compact_line_format():
     {"target_pips": 90},
     "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
   )
-  assert line == "🏁 · POSITION CLOSED · @ 4106.00"
+  assert line == "\n".join([
+    "• 🏁 POSITION CLOSED",
+    "• @ 4106.00",
+  ])
 
   losing = delivery._format_position_closed_compact_line(
     {"group_realized_pips": -47},
     "PLAN CLOSED · no TP archived · losing -47 pips · @ 4090.50",
   )
-  assert "🛡 SL" in losing
-  assert "❌ Losing: -47.0 pips" in losing
+  assert "• 🛡 SL" in losing
+  assert "• ❌ Losing: -47.0 pips" in losing
+  assert "• @ 4090.50" in losing
   assert "Highest TP archived" not in losing
 
 
@@ -237,7 +241,7 @@ def test_tp_compact_line_from_final_close_message():
     "PLAN CLOSED · highest TP archived TP3 · @ 4010.00",
   )
   assert line == (
-    "🎯 · TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips"
+    "• 🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips"
   )
 
 

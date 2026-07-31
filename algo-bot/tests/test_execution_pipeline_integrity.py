@@ -423,7 +423,7 @@ def test_entry_plan_fields_reach_the_published_candidate_contract():
   assert forwarded["planned_entry_price"] == 4100.2
 
 
-def test_execution_policy_rejects_wide_and_unknown_strategies():
+def test_execution_policy_prefers_wide_zone_and_rejects_unknown_strategies():
   wide = evaluate_execution_policy(
     _policy_match(entry_high=4103.0),
     spot_price=4100.5,
@@ -437,9 +437,11 @@ def test_execution_policy_rejects_wide_and_unknown_strategies():
     pip_size=0.1,
   )
 
-  assert not wide.allowed
-  assert wide.terminal
+  # Zone-width is preference telemetry — plan may still publish with notes.
+  assert wide.allowed
+  assert not wide.terminal
   assert wide.reason_code == "policy_zone_too_wide"
+  assert wide.measured.get("preference_telemetry") is True
   assert not unknown.allowed
   assert unknown.terminal
   assert unknown.reason_code == "unknown_strategy_policy"
@@ -483,9 +485,11 @@ async def test_preflight_rejects_unavailable_zone_split_capability(
 
 
 @pytest.mark.asyncio
-async def test_preflight_blocks_opposite_initial_group(monkeypatch):
+async def test_active_opposite_initial_group_helper_detects_sell_book():
+  """Opposite-initial blocking lives outside _common_preflight now (C# /
+  exposure path). Keep the Redis helper contract covered.
+  """
   from app.autotrade import worker
-  from app.autotrade.trend import RegimeInfo
 
   client = redis_state.get_client()
   await client.sadd("auto_trade:positions", "39000344")
@@ -493,42 +497,22 @@ async def test_preflight_blocks_opposite_initial_group(monkeypatch):
     "auto_trade:position:39000344",
     json.dumps({
       "position_id": 39000344,
-      "direction": 1,
+      "direction": 1,  # ProtoOA SELL
       "remaining_volume": 400,
       "group_id": "group-sell-1",
       "parent_group_id": None,
     }),
     ex=60,
   )
-  subject = _policy_match(
-    strategy="Key Level Reaction",
-    direction="BUY",
-    entry_low=4090.8,
-    entry_high=4094.13,
-    current_price=4093.31,
-    structure_swing=4092.47,
-  )
-  intent = _intent("buy-key-level", direction="BUY")
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
 
-  decision = await worker._common_preflight(
-    client,
-    intent,
-    subject,
-    spot=worker.AutoTradeSpot(4093.31, 1_000, True),
-    regime=RegimeInfo(
-      "trend", "up", 3, 1.0, True, None, ("test",),
-    ),
-    htf_zones=[],
-    htf_levels=[],
-    market_map=None,
-    frames={},
+  opposite = await worker._active_opposite_initial_group(
+    client, direction="BUY",
   )
-
-  assert not decision.executable
-  assert decision.terminal
-  assert decision.reason_code == "opposite_initial_group_active"
-  assert decision.measured["active_direction"] == "SELL"
+  assert opposite is not None
+  assert opposite["group_id"] == "group-sell-1"
+  assert await worker._active_opposite_initial_group(
+    client, direction="SELL",
+  ) is None
 
 
 @pytest.mark.asyncio

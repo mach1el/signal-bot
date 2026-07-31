@@ -274,10 +274,10 @@ async def test_terminal_setup_is_never_re_carded():
 
 
 @pytest.mark.asyncio
-async def test_kill_setup_card_deletes_and_clears_storage(monkeypatch):
+async def test_kill_setup_card_deletes_when_forced(monkeypatch):
+  """Legacy delete path remains reachable only via explicit monkeypatch."""
   client = redis_state.get_client()
-  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", False)
-  monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", True)
+  monkeypatch.setattr(setup_card, "should_delete_root_on_terminal", lambda: True)
   await setup_card.save_forming_card(client, "setup-4", chat_id=123, message_id=5555)
   await setup_card.save_forming_card_status(
     client,
@@ -305,8 +305,7 @@ async def test_kill_setup_card_deletes_and_clears_storage(monkeypatch):
 @pytest.mark.asyncio
 async def test_kill_setup_card_falls_back_to_terminal_edit_when_delete_fails(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", False)
-  monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", True)
+  monkeypatch.setattr(setup_card, "should_delete_root_on_terminal", lambda: True)
   await setup_card.save_forming_card(client, "setup-5", chat_id=123, message_id=6666)
   edited = []
 
@@ -323,9 +322,7 @@ async def test_kill_setup_card_falls_back_to_terminal_edit_when_delete_fails(mon
 
   assert len(edited) == 1
   assert edited[0][:2] == (123, 6666)
-  assert "setup closed" in edited[0][2].lower()
-  # Redis bookkeeping is cleared either way - no actionable card remains
-  # tracked even though the message itself is still in the chat (edited).
+  assert "structure broke" in edited[0][2].lower()
   assert await setup_card.load_forming_card(client, "setup-5") is None
 
 
@@ -390,27 +387,28 @@ async def test_delete_on_terminal_disabled_edits_and_retains_root(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delete_root_flag_true_still_deletes(monkeypatch):
+async def test_delete_root_flag_true_still_retains(monkeypatch):
+  """Config delete flags are ignored — reject/expire always edit+retain."""
   client = redis_state.get_client()
   await setup_card.save_forming_card(client, "setup-del", chat_id=123, message_id=3333)
   monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", True)
   monkeypatch.setattr(
     setup_card.settings, "auto_trade_telegram_delete_root_on_terminal", True,
   )
-  deleted = []
+  calls = []
 
   async def delete_fn(chat_id, message_id):
-    deleted.append((chat_id, message_id))
+    calls.append("delete")
 
   async def edit_fn(chat_id, message_id, text):
-    raise AssertionError("should delete")
+    calls.append("edit")
 
   await setup_card.kill_setup_card(
     client, "setup-del", reason_code="expired",
     delete_fn=delete_fn, edit_fn=edit_fn,
   )
-  assert deleted == [(123, 3333)]
-  assert await setup_card.load_telegram_root_message_id(client, "setup-del") is None
+  assert calls == ["edit"]
+  assert await setup_card.load_telegram_root_message_id(client, "setup-del") == 3333
 
 
 @pytest.mark.asyncio

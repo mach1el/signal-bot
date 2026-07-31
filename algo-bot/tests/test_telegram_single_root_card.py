@@ -1,4 +1,4 @@
-"""Telegram one-root-card minimum: silent plan_armed + delete flag."""
+"""Telegram one-root-card minimum: silent plan_armed + retain-on-terminal."""
 
 from __future__ import annotations
 
@@ -28,18 +28,14 @@ def test_generic_plan_published_is_silent():
   assert text is None
 
 
-def test_should_delete_root_respects_single_root_flag(monkeypatch):
+def test_should_delete_root_always_retains(monkeypatch):
+  """Reject/expire must edit the root card — delete is permanently off."""
   monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", True)
-  monkeypatch.setattr(
-    setup_card.settings, "auto_trade_telegram_delete_root_on_terminal", False,
-  )
-  assert setup_card.should_delete_root_on_terminal() is False
-
   monkeypatch.setattr(
     setup_card.settings, "auto_trade_telegram_delete_root_on_terminal", True,
   )
-  assert setup_card.should_delete_root_on_terminal() is True
+  assert setup_card.should_delete_root_on_terminal() is False
 
   monkeypatch.setattr(setup_card.settings, "auto_trade_telegram_single_root_card", False)
   monkeypatch.setattr(setup_card.settings, "delivery_delete_on_terminal", True)
-  assert setup_card.should_delete_root_on_terminal() is True
+  assert setup_card.should_delete_root_on_terminal() is False

@@ -35,6 +35,9 @@ from app.autotrade.strategy_match import (
 )
 
 
+pytestmark = pytest.mark.no_database
+
+
 def _cfg(**overrides):
   values = {
     "range_scalp_lookback": 36,
