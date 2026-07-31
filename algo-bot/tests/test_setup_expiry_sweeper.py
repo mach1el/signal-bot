@@ -17,7 +17,6 @@ import pytest
 from app.autotrade.setup_expiry_sweeper import sweep_expired_setups_once
 from app.autotrade.setup_lifecycle import (
   ARMED,
-  ARMED_WAITING_TRIGGER,
   CONFIRMED,
   DISCOVERED,
   EXPIRED,
@@ -25,10 +24,8 @@ from app.autotrade.setup_lifecycle import (
   INVALIDATED,
   PLAN_BUILT,
   PLAN_PUBLISHED,
-  READY_EVENT_ENQUEUED,
   TOUCHED,
   WATCHING,
-  WORKER_ACKNOWLEDGED,
   create_setup,
   load_setup,
   rearm_setup,
@@ -73,13 +70,10 @@ async def test_sweep_never_expires_a_published_or_armed_plan():
   past = int(time.time()) - 10
 
   for terminal_target, chain in (
-    (PLAN_BUILT, (WATCHING, TOUCHED, FORMING, CONFIRMED, READY_EVENT_ENQUEUED,
-                  WORKER_ACKNOWLEDGED, ARMED_WAITING_TRIGGER, PLAN_BUILT)),
-    (PLAN_PUBLISHED, (WATCHING, TOUCHED, FORMING, CONFIRMED,
-                       READY_EVENT_ENQUEUED, WORKER_ACKNOWLEDGED,
-                       ARMED_WAITING_TRIGGER, PLAN_BUILT, PLAN_PUBLISHED)),
-    (ARMED, (WATCHING, TOUCHED, FORMING, CONFIRMED, READY_EVENT_ENQUEUED,
-             WORKER_ACKNOWLEDGED, ARMED_WAITING_TRIGGER, PLAN_BUILT,
+    (PLAN_BUILT, (WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT)),
+    (PLAN_PUBLISHED, (WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT,
+                       PLAN_PUBLISHED)),
+    (ARMED, (WATCHING, TOUCHED, FORMING, CONFIRMED, PLAN_BUILT,
              PLAN_PUBLISHED, ARMED)),
   ):
     setup_id = f"sweep-published-{terminal_target}"

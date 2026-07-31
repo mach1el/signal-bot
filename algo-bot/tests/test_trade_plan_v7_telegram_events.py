@@ -35,7 +35,8 @@ def test_plan_armed_event_stays_silent_and_does_not_crash():
 def test_v7_order_submitted_event_renders_without_crashing():
   # "order_submitted" (no v7_ prefix) is already claimed by the V6
   # lifecycle as an always-silent type (TELEGRAM_SILENT_LIFECYCLE_TYPES) -
-  # confirm it stays silent, and that the V7-distinct name renders.
+  # confirm it stays silent, and that the V7-distinct name is also silent
+  # (owner does not want ORDERS SUBMITTED cards).
   silent = delivery.render_auto_trade_event({
     "type": "order_submitted",
     "message": "should stay silent",
@@ -47,18 +48,48 @@ def test_v7_order_submitted_event_renders_without_crashing():
     "message": "ORDERS SUBMITTED BUY L1=800 L2=300 (pending=1)",
   })
 
-  assert text is not None
-  assert "ORDERS SUBMITTED" in text
+  assert text is None
+  assert "v7_order_submitted" in delivery.TELEGRAM_SILENT_LIFECYCLE_TYPES
+
+
+def test_event_setup_id_strips_v7_plan_prefix():
+  assert delivery._event_match_id({
+    "match_id": "abc123",
+    "candidate_id": "v7:abc123",
+  }) == "abc123"
+  assert delivery._event_match_id({
+    "candidate_id": "v7:setup-only",
+  }) == "setup-only"
+  assert delivery._event_match_id({
+    "plan_id": "v7:from-plan",
+  }) == "from-plan"
 
 
 def test_order_filled_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "order_filled",
-    "message": "ENTRY GROUP FULLY FILLED BUY volume=1100 weighted=4089.10",
+    "message": (
+      "ENTRY GROUP FULLY FILLED BUY volume=1100 "
+      "weighted=4074.1181818181818181818181818"
+    ),
   })
 
   assert text is not None
   assert "ORDER FILLED" in text
+  assert "lot=1100" in text
+  assert "volume=" not in text
+  assert "weighted=4074.12" in text
+  assert "4074.118181818" not in text
+
+
+def test_clean_message_formats_partial_fill_lot_and_price():
+  cleaned = delivery._clean_message(
+    "ENTRY L1 FILLED volume=800 @ 4074.6812345; L2 still pending"
+  )
+  assert "lot=800" in cleaned
+  assert "volume=" not in cleaned
+  assert "@ 4074.68" in cleaned
+  assert "4074.6812345" not in cleaned
 
 
 def test_tp_booked_event_renders_without_crashing():

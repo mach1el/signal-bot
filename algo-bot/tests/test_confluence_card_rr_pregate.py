@@ -16,7 +16,6 @@ from app.analysis.market_map import MarketMap
 from app.analysis.types import Zone
 from app.autotrade import delivery, worker
 from app.autotrade.setup_lifecycle import (
-  ARMED_WAITING_TRIGGER,
   CONFIRMED,
   EXPIRED,
   create_setup,
@@ -309,7 +308,7 @@ async def test_distinct_same_side_zones_still_form_two_cards(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
+async def test_opposing_sides_keep_identity_and_remain_actionable(
   monkeypatch,
 ):
   client = redis_state.get_client()
@@ -332,7 +331,7 @@ async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
 
   assert len(merged) == 2
   assert {item.direction for item in merged} == {"BUY", "SELL"}
-  # Gate on: executable quote inside both bands hard-blocks both sides.
+  # Contested corridor is preference telemetry — both sides stay actionable.
   monkeypatch.setattr(
     scanner.settings, "scanner_actionability_gate_enabled", True,
   )
@@ -346,8 +345,15 @@ async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
     cfg=scanner.settings,
   )
   assert resolution.observed == tuple(merged)
-  assert resolution.actionable == ()
+  assert len(resolution.actionable) == 2
+  assert resolution.gated == ()
   assert resolution.conflicts[0]["outcome"] == "contested_corridor"
+  contested = [
+    decision for _item, decision in resolution.decisions
+    if decision.reason_code == "contested_corridor"
+  ]
+  assert len(contested) == 2
+  assert all(decision.hard_block is False for decision in contested)
 
   match = await scanner._sync_strategy_match(
     client,
@@ -357,7 +363,7 @@ async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
     ctx,
     list(resolution.actionable),
   )
-  assert match is None
+  assert match is not None
   monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(scanner.settings, "scanner_card_top_n", 2)
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9003))
@@ -370,13 +376,13 @@ async def test_opposing_sides_keep_identity_but_create_no_cards_or_lifecycle(
     list(resolution.actionable),
     notify,
     ["M30"],
-    execution_match=None,
-    execution_matches=[],
+    execution_match=match,
+    execution_matches=[match],
   )
 
-  assert cards == []
-  notify.assert_not_awaited()
-  assert [key async for key in client.scan_iter("analysis:setup:*")] == []
+  assert len(cards) >= 1
+  notify.assert_awaited()
+  assert [key async for key in client.scan_iter("analysis:setup:*")]
 
 
 @pytest.mark.asyncio
@@ -566,13 +572,10 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   outside its zone (see the handoff branch feeding _preflight_decision),
   intending _publish_trade_plan_v7's own confirmation-phase persist to
   immediately correct it back to the durable "waiting_retest_entry_zone"
-  reason. That correction used to only fire on the one-time
-  WORKER_ACKNOWLEDGED -> ARMED_WAITING_TRIGGER transition tick - on every
-  later cycle nothing re-persisted it, so the stale intermediate reason
-  became the permanent last word in route_outcome. This reproduces a
-  second cycle (setup already ARMED_WAITING_TRIGGER, still outside its
-  zone) after simulating the preflight pass's stale overwrite, and asserts
-  the durable reason wins back.
+  reason. Outside-zone setups now remain CONFIRMED while waiting (no
+  ARMED_WAITING_TRIGGER node). This reproduces a second waiting cycle
+  after simulating the preflight pass's stale overwrite, and asserts the
+  durable reason wins back.
   """
   client = redis_state.get_client()
   zone_id = "merged-zone-repeat-wait"
@@ -616,7 +619,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   await _confirm(client, match)
 
   # Quote well below the entry zone on both cycles - execution stays
-  # ineligible throughout, so the setup remains WAITING_RETEST.
+  # ineligible throughout, so the setup remains CONFIRMED + WAITING_RETEST.
   spot = worker.AutoTradeSpot(
     price=4095.0, ts=1722168600, fresh=True, bid=4094.9, ask=4095.1,
   )
@@ -624,7 +627,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   first = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
   assert first is None
   record = await load_setup(client, setup_id)
-  assert record.state == ARMED_WAITING_TRIGGER
+  assert record.state == CONFIRMED
 
   outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
   assert json.loads(outcome_raw)["reason_code"] == "waiting_retest_entry_zone"
@@ -651,7 +654,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   )
   assert second is None
   record = await load_setup(client, setup_id)
-  assert record.state == ARMED_WAITING_TRIGGER, "still waiting, not terminal"
+  assert record.state == CONFIRMED, "still waiting, not terminal"
 
   outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
   assert json.loads(outcome_raw)["reason_code"] == "waiting_retest_entry_zone", (

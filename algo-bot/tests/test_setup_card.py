@@ -97,6 +97,42 @@ async def test_edit_failure_falls_back_to_a_fresh_post():
 
 
 @pytest.mark.asyncio
+async def test_apply_forming_card_stop_patches_trade_area_and_copy_draft():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-stop")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "• <b>Entry zone:</b> <b>4,072.99–4,076.89</b>",
+    "• <b>Key level:</b> <b>4,074.94</b>",
+    "",
+    "🧭 <b>Context</b>",
+    "",
+    "📋 <b>Copy draft</b>",
+    "<code>gold buy entry zone (4072.99-4076.89) / sl SL / tp TP1/TP2/TP3 / setup key-level-reaction **</code>",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-stop",
+    chat_id=123,
+    message_id=555,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  assert await setup_card.edit_forming_card_stop(
+    client, "setup-stop", 4070.5, edit_fn=edit_fn,
+  )
+  text = edited[0][2]
+  assert "• <b>Stop:</b> <b>4,070.50</b>" in text
+  assert "/ sl 4070.50 /" in text
+  assert "sl SL" not in text
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_status_replaces_only_the_card_status_line():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-status")

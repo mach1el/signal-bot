@@ -24,6 +24,7 @@ from app.autotrade.strategy_match import strategy_match_key
 from app.autotrade.strategy_match_ready import (
   READY_GROUP,
   READY_STREAM,
+  enqueue_strategy_match_ready,
   ensure_ready_group,
   ready_dedup_key,
 )
@@ -298,12 +299,14 @@ async def test_a_grade_reaction_publishes_directly_in_the_same_scan_cycle(
   assert route["status"] == "candidate_published"
   assert route["candidate_id"] == plan_id
   assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
+  # Standalone PLAN PUBLISHED forming-card status is optional / removed from
+  # the architecture — root card already owns publication presentation.
   card_status = await load_forming_card_status_snapshot(
     client,
     match.match_id,
   )
-  assert card_status is not None
-  assert card_status.state == "plan_published"
+  if card_status is not None:
+    assert card_status.state == "plan_published"
 
 
 @pytest.mark.asyncio
@@ -428,7 +431,8 @@ async def test_terminal_setup_ready_event_is_acked_without_plan(monkeypatch):
   )
   await _scan(client, notify, _reaction(now), now)
   assert await client.xlen(_plan_count_key()) == 0
-  assert await client.xlen(READY_STREAM) == 1
+  # Executable / watching reaction setups no longer enqueue READY.
+  assert await client.xlen(READY_STREAM) == 0
   raw = await client.get(strategy_match_key("XAU"))
   match = worker.StrategyMatch.from_json(raw)
   assert match is not None
@@ -438,6 +442,11 @@ async def test_terminal_setup_ready_event_is_acked_without_plan(monkeypatch):
     INVALIDATED,
     reason_code="test_terminal_before_ready",
   )
+  # Legacy / recovery wake-ups may still land on the ready stream; a
+  # terminal setup must be acked without publishing a plan.
+  await ensure_ready_group(client)
+  assert await enqueue_strategy_match_ready(client, match) is not None
+  assert await client.xlen(READY_STREAM) == 1
 
   assert await worker._consume_strategy_match_ready_once(client=client)
   assert await client.xlen(_plan_count_key()) == 0
@@ -573,14 +582,17 @@ async def test_static_opposing_overlap_never_creates_executable_match_or_card(
     notify=notify,
   )
 
-  assert await client.get(strategy_match_key("XAU")) is None
-  assert await client.get(strategy_matches_key("XAU")) is None
-  assert [
-    key async for key in client.scan_iter("analysis:setup:*")
-  ] == []
+  # Overlap / containment is preference telemetry — match may be retained.
+  match_raw = await client.get(strategy_match_key("XAU"))
+  assert match_raw is not None
+  assert await client.get(strategy_matches_key("XAU")) is not None
   assert await client.xlen(_plan_count_key()) == 0
-  # Non-negotiable Telegram requirement: no executable StrategyMatch means
-  # no Telegram send at all - not even an ANALYSIS ONLY card (which this
-  # test used to expect via the now-removed
-  # `notification_results = digest or analysis_only_results` fallback).
+  assert await client.xlen(READY_STREAM) == 0
   notify.assert_not_awaited()
+  status = json.loads(await client.get("scanner:last_tick:XAU:M5"))
+  assert status["actionable_count"] == 1
+  gate = next(
+    item for item in status["actionability_gated"]
+    if item["reason_code"] == "opposing_entry_contained"
+  )
+  assert gate["hard_block"] is False

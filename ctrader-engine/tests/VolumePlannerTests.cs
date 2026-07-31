@@ -313,6 +313,71 @@ public sealed class VolumePlannerTests
     Assert.Equal(plan.Slices, fixed_.Slices);
   }
 
+  [Fact]
+  public void PlanPartialCloseVolumeUsesFilledRemainderAndSnapsToStep()
+  {
+    // Live: L2 cancelled unfilled; only L1 remaining=800, step=800.
+    // 20% TP desired=160 cannot be sent — a single-step position closes
+    // fully at this target instead of TRADING_BAD_VOLUME.
+    var step800 = Symbol with { MinVolume = 800, StepVolume = 800 };
+    Assert.Equal(
+      800,
+      VolumePlanner.PlanPartialCloseVolume(800, 160, step800, isFinalTarget: false)
+    );
+    Assert.Equal(
+      800,
+      VolumePlanner.PlanPartialCloseVolume(800, 160, step800, isFinalTarget: true)
+    );
+    // Larger filled remainder that can leave a valid leftover: skip partial
+    // rather than send a sub-step close.
+    Assert.Equal(
+      0,
+      VolumePlanner.PlanPartialCloseVolume(1600, 160, step800, isFinalTarget: false)
+    );
+  }
+
+  [Fact]
+  public void PlanPartialCloseVolumeBooksValidPartialAgainstFilledL1()
+  {
+    // Filled L1=1600 after L2 cancel; step=100; 20% → 320 snapped to 300,
+    // leftover 1300 stays min/step valid.
+    var close = VolumePlanner.PlanPartialCloseVolume(
+      1600, 320, Symbol, isFinalTarget: false
+    );
+    Assert.Equal(300, close);
+    Assert.Equal(0, close % Symbol.StepVolume);
+    Assert.True(1600 - close >= Symbol.MinVolume);
+  }
+
+  [Fact]
+  public void PlanPartialCloseVolumeClosesAllWhenLeftoverWouldBeDust()
+  {
+    // remaining=200, desired=150 → snap 100, leftover 100 == MinVolume ok
+    Assert.Equal(
+      100,
+      VolumePlanner.PlanPartialCloseVolume(200, 150, Symbol, isFinalTarget: false)
+    );
+    // remaining=150, desired=100 → snap 100, leftover 50 < MinVolume → all
+    Assert.Equal(
+      150,
+      VolumePlanner.PlanPartialCloseVolume(150, 100, Symbol, isFinalTarget: false)
+    );
+  }
+
+  [Fact]
+  public void AllocateProRataSteppedKeepsBrokerStepOnEachLeg()
+  {
+    var slices = VolumePlanner.AllocateProRataStepped(
+      [800, 400],
+      300,
+      Symbol
+    );
+    Assert.Equal(300, slices.Sum());
+    Assert.All(slices, slice => Assert.Equal(0, slice % Symbol.StepVolume));
+    Assert.True(slices[0] <= 800);
+    Assert.True(slices[1] <= 400);
+  }
+
   private static TargetVolumePlan Plan(long volume) =>
     VolumePlanner.BuildTargetPlan(
       volume,

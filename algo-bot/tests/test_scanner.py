@@ -66,6 +66,42 @@ def test_scanner_copy_draft_becomes_valid_manual_signal_after_filling_risk():
   assert parsed["confluence"] == 3
 
 
+def test_scanner_copy_draft_includes_planned_stop_price():
+  from app.analysis.execution_eligibility import (
+    EXECUTION_ELIGIBILITY_VERSION,
+    STATIC_ELIGIBLE,
+    ExecutionEligibility,
+  )
+
+  result = scanner.DetectionResult(
+    "Key Level Reaction",
+    "BUY",
+    4075.0,
+    Zone(4072.99, 4076.89, "demand"),
+    4074.94,
+    2,
+    ["HTF bias up"],
+    execution_eligibility=ExecutionEligibility(
+      version=EXECUTION_ELIGIBILITY_VERSION,
+      allowed=True,
+      state=STATIC_ELIGIBLE,
+      reason_code="static_eligibility_passed",
+      message="ok",
+      hard_block=False,
+      direction="BUY",
+      entry_low=4072.99,
+      entry_high=4076.89,
+      planned_entry_price=4075.0,
+      measured={"planned_stop_price": "4070.50"},
+    ),
+  )
+
+  draft = scanner._copy_draft("XAU", result)
+  assert draft is not None
+  assert "/ sl 4070.5 /" in draft or "/ sl 4070.50 /" in draft
+  assert "sl SL" not in draft
+
+
 @pytest.mark.asyncio
 async def test_redis_ohlc_source_returns_oldest_to_newest_window():
   client = redis_state.get_client()
@@ -2076,6 +2112,9 @@ async def test_structure_invalidation_deletes_card_for_tracked_setup(monkeypatch
     deleted.append((chat_id, message_id))
 
   monkeypatch.setattr(scanner, "delete_scanner_message", delete_fn)
+  monkeypatch.setattr(
+    setup_card_module, "should_delete_root_on_terminal", lambda: True,
+  )
   standalone_calls = []
 
   async def notify(text, **kwargs):
@@ -2098,21 +2137,24 @@ async def test_structure_invalidation_deletes_card_for_tracked_setup(monkeypatch
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
   "handoff_state",
-  ["ready_event_enqueued", "worker_acknowledged"],
+  ["ready_event_enqueued", "worker_acknowledged", "armed_waiting_trigger"],
 )
 async def test_structure_invalidation_covers_the_durable_handoff_states(
   monkeypatch, handoff_state,
 ):
-  """P1-1: a setup sitting in the durable CONFIRMED -> READY_EVENT_ENQUEUED
-  -> WORKER_ACKNOWLEDGED -> ARMED_WAITING_TRIGGER handoff window must still
-  be invalidated and have its card cleared if structure breaks while it
-  waits - this window can span real wall-clock time (a worker round trip
-  through the ready stream), not just an instant.
+  """P1-1: legacy Redis handoff values (normalized to CONFIRMED for publish
+  eligibility) must still be invalidated and have their card cleared if
+  structure breaks while they wait. New code never writes these states, but
+  in-flight records may still carry them.
   """
+  import time
+  from dataclasses import replace
+
   from app.autotrade.setup_lifecycle import (
     CONFIRMED,
     create_setup,
     load_setup,
+    setup_key,
     transition_setup,
   )
   from app.autotrade import setup_card as setup_card_module
@@ -2122,8 +2164,15 @@ async def test_structure_invalidation_covers_the_durable_handoff_states(
   await create_setup(
     client, setup_id=setup_id, thesis_id="thesis-handoff", symbol="XAU",
   )
-  for state in ("watching", "touched", "forming", CONFIRMED, handoff_state):
+  for state in ("watching", "touched", "forming", CONFIRMED):
     await transition_setup(client, setup_id, state)
+  current = await load_setup(client, setup_id)
+  assert current is not None
+  seeded = replace(current, state=handoff_state, updated_at=int(time.time()))
+  await client.set(
+    setup_key(setup_id),
+    json.dumps(seeded.to_dict(), separators=(",", ":")),
+  )
   await setup_card_module.save_forming_card(
     client, setup_id, chat_id=4242, message_id=7778,
   )
@@ -2145,6 +2194,9 @@ async def test_structure_invalidation_covers_the_durable_handoff_states(
     deleted.append((chat_id, message_id))
 
   monkeypatch.setattr(scanner, "delete_scanner_message", delete_fn)
+  monkeypatch.setattr(
+    setup_card_module, "should_delete_root_on_terminal", lambda: True,
+  )
   standalone_calls = []
 
   async def notify(text, **kwargs):
