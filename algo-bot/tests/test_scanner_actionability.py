@@ -517,6 +517,7 @@ def test_tier_c_is_allowed_as_preference_telemetry_by_static_pre_gate():
   "entry_inside_opposing_zone",
   "policy_regime_not_permitted",
   "protective_stop_unavailable",
+  "stop_inside_opposing_zone",
 ])
 def test_static_pre_gate_honors_full_policy_denial_with_sufficient_rr(
   monkeypatch,

@@ -95,11 +95,28 @@ def test_clean_message_formats_partial_fill_lot_and_price():
 def test_tp_booked_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "tp_booked",
-    "message": "TP1 COMPLETED TP1 closed L1=320 L2=120 remaining=660 (2/2)",
+    "message": "TP COMPLETED TP1 closed L1=320 L2=120 remaining=660 (2/2)",
+    "setup": "Key Level Reaction",
   })
 
   assert text is not None
   assert "TP COMPLETED" in text
+  assert "TP1" in text
+  assert "L1" in text and "320" in text
+  assert "Remaining" in text
+  assert "660" in text
+  assert "📦" in text
+  assert "🎯" in text
+
+
+def test_clean_message_formats_tp_leg_and_remaining_as_lot():
+  cleaned = delivery._clean_message(
+    "TP1 COMPLETED TP2 closed L1=100 remaining=700 (1/1)"
+  )
+  assert "L1 lot=100" in cleaned
+  assert "remaining lot=700" in cleaned
+  assert "L1=100" not in cleaned
+  assert "remaining=700" not in cleaned
 
 
 def test_sl_moved_event_renders_without_crashing():
@@ -110,17 +127,48 @@ def test_sl_moved_event_renders_without_crashing():
 
   assert text is not None
   assert "GROUP SL MOVED" in text
+  assert "Break-even" in text
+  assert "4089.10" in text
+  assert "🔐" in text or "🛡" in text
 
 
-def test_plan_closed_event_renders_without_crashing():
+def test_sl_moved_trail_renders_trail_kind():
   text = delivery.render_auto_trade_event({
-    "type": "position_closed",
-    "message": "GROUP STOP LOSS (2/2)",
+    "type": "sl_moved",
+    "message": "SL MOVED to 4070.31 (trail TP1)",
   })
 
   assert text is not None
-  assert "PLAN CLOSED" in text or "GROUP STOP LOSS" in text
+  assert "Trail" in text
+  assert "4070.31" in text
+  assert "trail TP1" in text
 
+
+def test_plan_closed_event_renders_highest_tp_only():
+  text = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
+  })
+
+  assert text is not None
+  assert "POSITION CLOSED" in text
+  assert "Highest TP archived" in text
+  assert "TP2" in text
+  assert "4106.00" in text
+  assert "L1" not in text
+  assert "lot=" not in text.lower()
+
+
+def test_plan_closed_no_tp_archived_renders_none():
+  text = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "PLAN CLOSED · no TP archived · @ 4090.50",
+  })
+
+  assert text is not None
+  assert "Highest TP archived" in text
+  assert "none" in text
+  assert "4090.50" in text
 
 def test_plan_rejected_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({

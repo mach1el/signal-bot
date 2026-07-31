@@ -194,15 +194,16 @@ public sealed class EquityZoneLadderGroupE2ETests
       (l1Fill * 800m + l2Fill * 300m) / 1_100m;
     Assert.Equal(expectedWeighted, full.GroupWeightedFillPrice);
 
-    // 8: TP1 closes pro-rata across both (40% of 1100 = 440 → 320+120)
+    // 8: TP1 closes pro-rata across both (40% of 1100 = 440 → step-snapped
+    // to 400 as L1 300 + L2 100; 320/120 are not multiples of StepVolume 100)
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4089.90m, 4090.00m, 2), CancellationToken.None
     );
     Assert.Equal(2, client.Closes.Count);
-    Assert.Equal(440, client.Closes.Sum(item => item.Volume));
+    Assert.Equal(400, client.Closes.Sum(item => item.Volume));
     Assert.Contains(
       store.Events,
-      item => item.Type == "tp_booked" && item.Message.Contains("TP1 COMPLETED")
+      item => item.Type == "tp_booked" && item.Message.Contains("TP COMPLETED")
     );
     // L2 already filled before TP1, so no pending cancel is required.
     Assert.Empty(client.PendingOrders);
@@ -230,11 +231,17 @@ public sealed class EquityZoneLadderGroupE2ETests
     Assert.Empty(runtime.TrackedStates);
     Assert.Contains(
       store.Events,
-      item => item.Type == "position_closed" && item.Message.Contains("GROUP STOP LOSS")
+      item => item.Type == "position_closed"
+        && item.Message.Contains("highest TP archived", StringComparison.OrdinalIgnoreCase)
     );
     Assert.Contains(
       store.Events,
-      item => item.Message == "PLAN CLOSED"
+      item => item.Type == "position_closed" && item.Message.Contains("PLAN CLOSED")
+    );
+    // Close must not dump per-leg lot detail.
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "position_closed" && item.Message.Contains("lot=", StringComparison.Ordinal)
     );
 
     // 11: no cannot-reconstruct for V7
@@ -245,7 +252,7 @@ public sealed class EquityZoneLadderGroupE2ETests
     // Dedup: restart must not republish orders_submitted / tp / plan_closed
     var submittedBefore = store.Events.Count(item => item.Type == "v7_order_submitted");
     var closedBefore = store.Events.Count(
-      item => item.Message == "PLAN CLOSED"
+      item => item.Type == "position_closed" && item.Message.Contains("PLAN CLOSED")
     );
     store.EnqueuePlan(PlanJson); // same plan_id claim already owned
     var restarted = new TradePlanRuntime(
@@ -258,7 +265,9 @@ public sealed class EquityZoneLadderGroupE2ETests
     );
     Assert.Equal(
       closedBefore,
-      store.Events.Count(item => item.Message == "PLAN CLOSED")
+      store.Events.Count(
+        item => item.Type == "position_closed" && item.Message.Contains("PLAN CLOSED")
+      )
     );
     // No duplicate L1/L2 broker orders from the republished stream entry.
     Assert.Single(client.MarketOrders);

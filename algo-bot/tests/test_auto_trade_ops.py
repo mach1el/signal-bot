@@ -6,6 +6,7 @@ import pytest
 from aiogram.exceptions import TelegramBadRequest
 
 from app.autotrade import delivery
+from app.autotrade import setup_card
 from app.autotrade.strategy_match_ready import save_ready_consumer_health
 from app.persistence import redis_state, store
 
@@ -584,6 +585,106 @@ async def test_order_filled_replies_using_v7_plan_id_and_edits_root_status(monke
   assert edited
   assert "ORDER FILLED" in edited[0][2]
   assert "PLAN PUBLISHED" not in edited[0][2].splitlines()[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_order_filled_prefers_live_forming_card_over_stale_root(monkeypatch):
+  client = redis_state.get_client()
+  setup_id = "stale-root-setup"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 9002,
+      "text": "🔎 <b>XAU M5 · SETUP FORMING</b>\n🟢 <b>PLAN PUBLISHED</b>",
+    }),
+    ex=60,
+  )
+  await client.set(
+    setup_card.telegram_root_message_key(setup_id),
+    json.dumps({"chat_id": 123, "root_message_id": 1111, "updated_at": 1}),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    return SimpleNamespace(message_id=8123)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": setup_id,
+      "message": "ENTRY L1 FILLED lot=800 @ 4063.41; L2 still pending",
+      "position_id": 39758961,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 9002
+  assert edited and edited[0][1] == 9002
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_order_filled_skips_standalone_when_reply_rejected_after_card_edit(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  setup_id = "reply-reject-setup"
+  await client.set(
+    delivery._forming_message_key(setup_id),
+    json.dumps({
+      "chat_id": 123,
+      "message_id": 7001,
+      "text": "🔎 <b>XAU M5 · SETUP FORMING</b>\n🟢 <b>PLAN PUBLISHED</b>",
+    }),
+    ex=60,
+  )
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append((text, kwargs))
+    if kwargs.get("reply_to") is not None:
+      raise TelegramBadRequest(
+        method=SimpleNamespace(),
+        message="Bad Request: message to be replied not found",
+      )
+    return SimpleNamespace(message_id=9999)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": setup_id,
+      "message": "ENTRY L1 FILLED lot=800 @ 4063.41",
+      "position_id": 1,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  assert edited
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
 
 
 @pytest.mark.asyncio
@@ -1240,6 +1341,46 @@ async def test_execution_stream_is_persisted_at_fill_and_queryable_with_manual()
   assert by_stream["algo_manual"]["trade_key"] == f"manual:{signal['id']}"
   assert by_stream["algo_manual"]["pips"] == 48
   assert persisted["trade_stream"] == "algo_manual"
+
+
+@pytest.mark.asyncio
+async def test_v7_order_filled_and_position_closed_feed_trade_stats():
+  """V7 emits order_filled (not opened) and often omits stream=algo_auto."""
+  await store.init_db()
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 10,
+    "position_id": 39760749,
+    "group_id": "v7:17ab03ca932a19b11d374d2ae9de8f30",
+    "candidate_id": "v7:17ab03ca932a19b11d374d2ae9de8f30",
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4060.85,
+    "stop_loss": 4056.55,
+    "volume": 1100,
+    "message": "ENTRY GROUP FULLY FILLED BUY lot=1100 weighted=4060.85",
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 20,
+    "position_id": 39760749,
+    "group_id": "v7:17ab03ca932a19b11d374d2ae9de8f30",
+    "candidate_id": "v7:17ab03ca932a19b11d374d2ae9de8f30",
+    "direction": "BUY",
+    "price": 4064.85,
+    "remaining_volume": 0,
+    "message": "PLAN CLOSED · highest TP archived TP1",
+  })
+
+  records = await store.get_pips_records(0, 4_000_000_000)
+  assert len(records) == 1
+  row = records[0]
+  assert row["stream"] == "algo_auto"
+  assert row["trade_key"] == "algo:v7:17ab03ca932a19b11d374d2ae9de8f30"
+  assert row["sign"] == "+"
+  assert row["pips"] == 40  # (4064.85 - 4060.85) / 0.1
+  assert row["stop_pips"] == pytest.approx(43.0)  # (4060.85 - 4056.55) / 0.1
 
 
 @pytest.mark.asyncio
