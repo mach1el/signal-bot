@@ -20,7 +20,7 @@ from app.configuration.metadata import RiskClassification
 from app.configuration.metadata import config_field
 from app.configuration.models.base import FrozenConfigModel
 from app.configuration.models.bootstrap import BootstrapConfig
-from app.configuration.models.bootstrap import TelegramBootstrapConfig
+from app.configuration.models.bootstrap import BootstrapTelegramConfig
 from app.configuration.models.root import ApexVoidConfig
 from app.configuration.models.runtime import RuntimeConfig
 from app.configuration.traversal import iter_config_metadata
@@ -169,7 +169,7 @@ def test_metadata_is_derived_by_recursive_model_traversal():
 
 
 def test_secret_shell_metadata_never_contains_a_value():
-  field = TelegramBootstrapConfig.model_fields["bot_token"]
+  field = BootstrapTelegramConfig.model_fields["bot_token"]
   metadata = field.json_schema_extra["apexvoid_config"]
   assert field.is_required()
   assert metadata["secret"] is True
