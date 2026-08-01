@@ -200,11 +200,13 @@ def test_catalog_validator_rejects_path_reuse(catalog):
 
 def test_metadata_serialization_is_deterministic():
   metadata = ConfigMetadata(
+    item_id="python.settings.auto_trade_enabled",
     legacy_attr="auto_trade_enabled",
     canonical_env="AUTO_TRADE_ENABLED",
     deprecated_aliases=(),
     owner=ConfigOwner.SHARED,
     reload_policy=ReloadPolicy.RESTART,
+    runtime_reload_policy=ReloadPolicy.RESTART,
     unit=ConfigUnit.BOOLEAN,
     risk_classification=RiskClassification.CROSS_SERVICE_CONTRACT,
     kind=ConfigKind.CONFIGURABLE,
