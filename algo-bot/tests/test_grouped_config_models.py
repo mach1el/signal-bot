@@ -155,10 +155,13 @@ def test_metadata_is_derived_by_recursive_model_traversal():
     "secret": False,
     "shared_with_ctrader": True,
     "mismatch_policy": "fatal",
-    "description": "TradePlan protocol version implemented by both services.",
+    "description": (
+      "Config-like hardcoded value proposed at "
+      "contract.versions.trade_plan."
+    ),
     "default_contexts": [],
     "allowed_values": [],
-    "validation_summary": None,
+    "validation_summary": "none; source constant",
     "catalog_version": 1,
     "introduced_in": "config-catalog-v1",
     "deprecated": False,
