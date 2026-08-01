@@ -132,6 +132,12 @@ def test_representative_declarations_match_phase2a_oracle():
       expected_default = item["default"]
       if item["type"] == "decimal":
         expected_default = Decimal(str(expected_default))
+      elif item["type"] == "list[int]":
+        expected_default = [
+          int(value) for value in str(expected_default).split(",")
+        ]
+      elif item["type"] == "list[string]":
+        expected_default = str(expected_default).split(",")
       assert field.default == expected_default, path
 
 
@@ -162,6 +168,7 @@ def test_metadata_is_derived_by_recursive_model_traversal():
     "default_contexts": [],
     "allowed_values": [],
     "validation_summary": "none; source constant",
+    "evidence_notes": [],
     "catalog_version": 1,
     "introduced_in": "config-catalog-v1",
     "deprecated": False,
