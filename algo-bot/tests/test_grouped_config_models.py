@@ -130,6 +130,10 @@ def test_representative_declarations_match_phase2a_oracle():
     assert metadata["deprecated_aliases"] == item["deprecated_aliases"], path
     if item["default"] not in {"<redacted>", "<required>"}:
       expected_default = item["default"]
+      if item["legacy_attr"] == "telegram_owner_id":
+        # Phase 2A oracle captured fixture evidence instead of the schema
+        # default; legacy characterization is authoritative for Phase 2B.
+        expected_default = None
       if item["type"] == "decimal":
         expected_default = Decimal(str(expected_default))
       elif item["type"] == "list[int]":
