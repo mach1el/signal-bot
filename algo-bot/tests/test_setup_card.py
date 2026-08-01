@@ -692,6 +692,8 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert "Key level" in text
   assert "Stop" in text
   assert "Context" in text
+  assert "Identity" not in text
+  assert "Kind:" not in text
   assert "Copy draft" not in text
   assert "<code>" not in text
   card = await setup_card.load_forming_card(client, setup_id)
@@ -775,18 +777,21 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
       send=sent,
     )
 
-  # TP creates the manage reply; BE/trail is head-only; close edits manage.
+  # TP creates the manage reply; BE/trail edits manage only; close edits manage.
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 6060
   assert "🎯" in calls[0][0] and "TP1" in calls[0][0]
   close_edits = [text for _, _mid, text in edited if "POSITION CLOSED" in text]
   assert close_edits
   assert "TP3" in close_edits[-1] or "+81.0" in close_edits[-1]
-  # Trailing / BE must also patch the root Stop line (no BE/trail reply).
+  # Trailing / BE update the manage reply; Trade-area Stop stays as published.
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
-  assert "4,044.91" in card["text"] or "4044.91" in card["text"]
+  assert "4,044.91" not in card["text"] and "4044.91" not in card["text"]
+  assert "🛰️" not in card["text"] and "🔐" not in card["text"]
+  assert any("BE" in text or "Trail" in text or "Stop" in text for _, _, text in edited)
   assert edited
+
 
 @pytest.mark.asyncio
 async def test_ensure_plan_published_root_card_edits_existing_status_only():
@@ -825,4 +830,5 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
   assert len(edited) == 1
   assert "PLAN PUBLISHED" in edited[0][2]
   assert "Key Level Reaction" in edited[0][2]
+  assert "Identity" not in edited[0][2]
   assert "QUEUED" not in edited[0][2]
