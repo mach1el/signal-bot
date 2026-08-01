@@ -5,11 +5,15 @@ from __future__ import annotations
 import pytest
 
 from app.autotrade.strategy_taxonomy import (
+  CANONICAL_FAMILY_RANGE,
   CANONICAL_FAMILY_REACTION,
   CANONICAL_FAMILY_ZONE,
+  RANGE_STRATEGIES,
   REACTION_STRATEGIES,
   ZONE_STRATEGIES,
+  bypasses_opposing_structure_gates,
   canonical_family,
+  is_range_strategy,
   is_reaction_strategy,
   is_zone_strategy,
 )
@@ -73,3 +77,13 @@ def test_strategy_names_are_not_classified_by_substring():
   assert "Demand Zone Reaction" not in REACTION_STRATEGIES
   assert canonical_family("Something Reaction Something") != CANONICAL_FAMILY_REACTION
   assert canonical_family("Demand Zoneish") != CANONICAL_FAMILY_ZONE
+
+
+def test_range_strategies_bypass_opposing_structure_gates():
+  for name in RANGE_STRATEGIES:
+    assert is_range_strategy(name)
+    assert bypasses_opposing_structure_gates(name)
+    assert canonical_family(name) == CANONICAL_FAMILY_RANGE
+  assert not bypasses_opposing_structure_gates("Key Level Reaction")
+  assert not bypasses_opposing_structure_gates("Zone Reaction")
+  assert not bypasses_opposing_structure_gates("Liquidity Sweep")
