@@ -93,7 +93,7 @@ def test_be_ticks_alias_conflict_is_detected():
   })
   conflict = result.conflicts[0]
   assert conflict.path == "execution.stops.be_buffer_ticks"
-  assert conflict.code == "source_alias_conflict"
+  assert conflict.code == "be_alias_conflict"
   assert "17" not in conflict.message
   assert "18" not in conflict.message
 

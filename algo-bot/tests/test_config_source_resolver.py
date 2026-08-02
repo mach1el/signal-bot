@@ -63,6 +63,7 @@ def test_equal_alias_values_are_accepted_with_warning():
   assert not result.conflicts
   assert {warning.code for warning in result.warnings} >= {
     "duplicate_source_names",
+    "deprecated_alias",
   }
 
 
@@ -111,3 +112,31 @@ def test_parse_error_is_secret_safe():
   conflict = result.conflicts[0]
   assert conflict.code == "source_parse_error"
   assert "not-an-id" not in conflict.message
+
+
+def test_optional_string_preserves_whitespace_and_blank():
+  whitespace = _resolve(process_environment={
+    "SCANNER_TELEGRAM_BOT_TOKEN": "  token with space  ",
+  })
+  blank = _resolve(process_environment={"SCANNER_TELEGRAM_BOT_TOKEN": ""})
+  path = "delivery.telegram.scanner_telegram_bot_token"
+  assert whitespace.flat_values[path] == "  token with space  "
+  assert blank.flat_values[path] == ""
+
+
+def test_optional_integer_accepts_signed_value_and_rejects_blank():
+  signed = _resolve(process_environment={"TELEGRAM_OWNER_ID": " -7 "})
+  blank = _resolve(process_environment={"TELEGRAM_OWNER_ID": ""})
+  assert signed.flat_values["delivery.telegram.telegram_owner_id"] == -7
+  assert blank.conflicts[0].code == "source_parse_error"
+
+
+def test_decimal_and_float_sources_use_declared_types():
+  result = _resolve(process_environment={
+    "CTRADER_TOKEN_CHECK_INTERVAL_HOURS": " 2.5 ",
+    "AUTO_TRADE_XAU_PIP_SIZE": " 0.01 ",
+  })
+  assert str(result.flat_values[
+    "bootstrap.ctrader.token_rotation.check_interval_hours"
+  ]) == "2.5"
+  assert result.flat_values["contract.instrument.pip_size"] == 0.01
