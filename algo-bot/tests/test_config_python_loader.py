@@ -104,4 +104,3 @@ def test_active_canonical_facade_repr_is_secret_safe():
   assert isinstance(_load().facade, CanonicalSettingsFacade)
   assert _SAFE["TELEGRAM_BOT_TOKEN"] not in rendered
   assert _SAFE["POSTGRES_PASSWORD"] not in rendered
-

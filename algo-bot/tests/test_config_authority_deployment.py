@@ -23,4 +23,3 @@ def test_production_template_defaults_authority_to_legacy():
   text = (_ROOT / "deployment-template/docker-compose.yml.j2").read_text(encoding="utf-8")
   assert "'APEXVOID_CONFIG_AUTHORITY': 'legacy'" in text
   assert "combine(apexvoid_trading_bot_env)" in text
-

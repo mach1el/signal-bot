@@ -62,4 +62,3 @@ def test_python_projection_is_frozen():
 def test_python_projection_forbids_extra_fields():
   with pytest.raises(ValidationError, match="extra_forbidden"):
     PythonRuntimeConfig.model_validate({"not_catalogued": True})
-

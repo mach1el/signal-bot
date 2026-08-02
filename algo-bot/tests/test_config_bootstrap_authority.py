@@ -39,4 +39,3 @@ def test_runtime_authority_rejects_explicit_blank():
     resolve_runtime_configuration_authority({
       "APEXVOID_CONFIG_AUTHORITY": "  ",
     })
-
