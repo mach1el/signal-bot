@@ -79,4 +79,3 @@ def test_migrated_modules_do_not_mutate_runtime_config():
 def test_generated_artifacts_are_current():
   for path, expected in render_artifacts().items():
     assert (REPOSITORY_ROOT / path).read_bytes() == expected, path
-

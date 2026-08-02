@@ -174,4 +174,3 @@ def test_watcher_configuration_equal_under_both_authorities():
 
 def test_ohlc_lookbacks_equal_under_both_authorities():
   _equal_section("ohlc")
-

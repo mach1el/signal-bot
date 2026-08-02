@@ -68,4 +68,3 @@ def test_legacy_canonical_view_repr_is_secret_safe():
   rendered = f"{view!r} {view.delivery.telegram!r}"
   assert "secret-view-probe" not in rendered
   assert "telegram_bot_token" not in rendered
-
