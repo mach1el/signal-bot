@@ -45,6 +45,24 @@ def test_canonical_rehearsal_is_non_authoritative():
   assert bundle.selected_is_authoritative is False
 
 
+def test_canonical_authority_selects_python_facade_as_authoritative():
+  environment = {
+    "TELEGRAM_BOT_TOKEN": "phase-2d2-token",
+    "SIGNAL_VIP_CHANNEL_ID": "-100123456789",
+    "POSTGRES_PASSWORD": "phase-2d2-postgres",
+  }
+  legacy = _legacy(environment)
+  bundle = build_configuration_runtime_bundle(
+    source_bundle=ConfigurationSourceBundle(process_environment=environment),
+    legacy_settings=legacy,
+    requested_authority=ConfigurationAuthority.CANONICAL,
+  )
+  assert bundle.selected_object is bundle.canonical_facade
+  assert bundle.authoritative_object is bundle.canonical_facade
+  assert bundle.selected_is_authoritative is True
+  assert type(bundle.canonical_facade.canonical_config).__name__ == "PythonRuntimeConfig"
+
+
 def test_no_environment_authority_switch_exists():
   source, legacy = _inputs()
   with patch.dict(
