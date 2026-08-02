@@ -428,15 +428,17 @@ def test_configuration_package_does_not_import_active_settings():
     ), source
 
 
-def test_active_config_module_does_not_import_grouped_root():
+def test_active_config_module_imports_selectable_runtime_not_full_grouped_root():
   source = (
     Path(__file__).parents[1] / "app/core/config.py"
   ).read_text(encoding="utf-8")
-  assert "app.configuration" not in source
-  assert "settings = Settings()" in source
+  assert "app.configuration.python_loader" in source
+  assert "app.configuration.models.root" not in source
+  assert ".generated.json" not in source
+  assert "settings = _ACTIVE_CONFIGURATION.settings" in source
 
 
-def test_application_startup_still_uses_legacy_settings():
+def test_application_startup_uses_no_generated_json_runtime_inputs():
   source = (
     Path(__file__).parents[1] / "app/main.py"
   ).read_text(encoding="utf-8")

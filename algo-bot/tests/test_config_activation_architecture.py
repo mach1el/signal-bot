@@ -1,4 +1,4 @@
-"""Phase 2D1 production-isolation and inactive-runtime architecture guards."""
+"""Phase 2D2 selectable-runtime architecture guards."""
 
 import ast
 from pathlib import Path
@@ -32,11 +32,13 @@ def _imports(path):
   return result
 
 
-def test_active_config_does_not_import_facade():
+def test_active_config_uses_strict_bootstrap_and_production_loader():
   imports = _imports(_APP / "core/config.py")
-  assert not imports & _ACTIVATION_MODULES
+  assert "app.configuration.bootstrap_authority" in imports
+  assert "app.configuration.python_loader" in imports
   source = (_APP / "core/config.py").read_text(encoding="utf-8")
-  assert "settings = Settings()" in source
+  assert "settings = _ACTIVE_CONFIGURATION.settings" in source
+  assert "CanonicalSettingsFacade(" not in source
 
 
 def test_main_does_not_import_activation_modules():
@@ -61,6 +63,8 @@ def test_active_settings_remains_legacy_instance():
 def test_production_consumers_do_not_read_generated_contracts():
   for path in _APP.rglob("*.py"):
     if "configuration" in path.parts:
+      continue
+    if path == _APP / "core/config.py":
       continue
     source = path.read_text(encoding="utf-8")
     assert ".generated.json" not in source, path
@@ -94,7 +98,7 @@ def test_activation_rehearsal_has_no_import_time_execution():
       ), name
 
 
-def test_no_environment_authority_variable_exists():
+def test_only_production_authority_values_are_documented():
   paths = (
     _ROOT / ".env.example",
     _ROOT / "docker-compose.yml",
@@ -102,7 +106,7 @@ def test_no_environment_authority_variable_exists():
   )
   for path in paths:
     source = path.read_text(encoding="utf-8")
-    assert "CONFIGURATION_AUTHORITY" not in source
+    assert "APEXVOID_CONFIG_AUTHORITY" in source
     assert "CANONICAL_REHEARSAL" not in source
 
 

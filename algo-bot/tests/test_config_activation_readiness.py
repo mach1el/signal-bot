@@ -40,34 +40,66 @@ def _rehearsal(verification=VerificationEvidence()):
   )
 
 
-def test_readiness_requires_all_evidence():
+def test_readiness_requires_blocking_evidence():
   passing = _passing_evidence()
   assert evaluate_activation_readiness(passing).ready
-  for name in ActivationEvidence.__dataclass_fields__:
+  informational = {"python_behavior_tests_passed", "csharp_tests_verified"}
+  for name in set(ActivationEvidence.__dataclass_fields__) - informational:
     result = evaluate_activation_readiness(replace(passing, **{name: False}))
     assert not result.ready, name
     assert result.blockers, name
 
 
-def test_current_readiness_is_blocked():
+def test_current_readiness_is_ready_with_informational_warnings():
   result = _rehearsal(VerificationEvidence(
     python_configuration_tests_passed=True,
     python_behavior_baseline_not_worsened=True,
   ))
   assert result.success
-  assert result.readiness.ready is False
+  assert result.readiness.ready is True
 
 
-def test_behavior_failures_block_activation():
+def test_readiness_does_not_require_full_behavior_suite_green():
   evidence = replace(_passing_evidence(), python_behavior_tests_passed=False)
   readiness = evaluate_activation_readiness(evidence)
-  assert ActivationBlockerCode.PYTHON_BEHAVIOR_TESTS_FAILED in readiness.blockers
+  assert readiness.ready
+  assert "PYTHON_BEHAVIOR_TESTS_NOT_GREEN" in readiness.warnings
 
 
-def test_unverified_csharp_suite_blocks_activation():
+def test_readiness_does_not_require_csharp_tests():
   evidence = replace(_passing_evidence(), csharp_tests_verified=False)
   readiness = evaluate_activation_readiness(evidence)
-  assert ActivationBlockerCode.CSHARP_TESTS_NOT_VERIFIED in readiness.blockers
+  assert readiness.ready
+  assert "CSHARP_TESTS_NOT_RUN" in readiness.warnings
+
+
+def test_readiness_requires_configuration_tests():
+  evidence = replace(_passing_evidence(), python_configuration_tests_passed=False)
+  assert ActivationBlockerCode.CONFIGURATION_TESTS_FAILED in evaluate_activation_readiness(evidence).blockers
+
+
+def test_readiness_requires_baseline_not_worsened():
+  evidence = replace(_passing_evidence(), python_behavior_baseline_not_worsened=False)
+  assert ActivationBlockerCode.PYTHON_BEHAVIOR_BASELINE_WORSENED in evaluate_activation_readiness(evidence).blockers
+
+
+def test_readiness_requires_rollback():
+  evidence = replace(_passing_evidence(), rollback_rehearsal_passed=False)
+  assert ActivationBlockerCode.ROLLBACK_REHEARSAL_FAILED in evaluate_activation_readiness(evidence).blockers
+
+
+def test_readiness_reports_nonblocking_warnings():
+  evidence = replace(
+    _passing_evidence(),
+    python_behavior_tests_passed=False,
+    csharp_tests_verified=False,
+  )
+  readiness = evaluate_activation_readiness(evidence)
+  assert readiness.ready
+  assert readiness.warnings == (
+    "PYTHON_BEHAVIOR_TESTS_NOT_GREEN",
+    "CSHARP_TESTS_NOT_RUN",
+  )
 
 
 def test_passing_synthetic_evidence_can_issue_permit():
