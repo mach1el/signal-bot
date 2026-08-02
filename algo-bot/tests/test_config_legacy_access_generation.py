@@ -9,6 +9,8 @@ from app.configuration.generate import REPOSITORY_ROOT
 from app.configuration.generate import render_artifacts
 from app.configuration.generated.legacy_access import DERIVED_LEGACY_PROPERTIES
 from app.configuration.generated.legacy_access import DIRECT_LEGACY_PATHS
+from app.configuration.generated.legacy_access import CANONICAL_LEGACY_PATH_PREFIXES
+from app.configuration.generated.legacy_access import CANONICAL_PATH_TO_LEGACY_ATTR
 from app.configuration.generated.legacy_access import SECRET_LEGACY_FIELDS
 
 
@@ -54,3 +56,23 @@ def test_generated_legacy_access_contains_no_secret_values():
 def test_generated_legacy_mappings_are_immutable():
   with pytest.raises(TypeError):
     DIRECT_LEGACY_PATHS["log_level"] = ("other",)  # type: ignore[index]
+
+
+def test_generated_reverse_legacy_map_contains_316_paths():
+  assert len(CANONICAL_PATH_TO_LEGACY_ATTR) == 316
+
+
+def test_generated_reverse_legacy_map_is_one_to_one():
+  assert len(set(CANONICAL_PATH_TO_LEGACY_ATTR.values())) == 316
+  assert {
+    path: attribute for attribute, path in DIRECT_LEGACY_PATHS.items()
+  } == CANONICAL_PATH_TO_LEGACY_ATTR
+
+
+def test_generated_legacy_prefixes_are_complete():
+  expected = {
+    path[:length]
+    for path in CANONICAL_PATH_TO_LEGACY_ATTR
+    for length in range(1, len(path) + 1)
+  }
+  assert CANONICAL_LEGACY_PATH_PREFIXES == expected
