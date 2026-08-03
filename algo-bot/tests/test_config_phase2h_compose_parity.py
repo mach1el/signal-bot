@@ -196,7 +196,7 @@ def test_bot_compose_env_is_minimal():
     "LOG_RETENTION_DAYS",
     "LOG_FILE_ENABLED",
   }
-  assert bot["APEXVOID_CONFIG_AUTHORITY"] == "legacy"
+  assert bot["APEXVOID_CONFIG_AUTHORITY"] == "canonical"
   assert bot["AUTO_TRADE_PROFILE"] == "demo_eval"
   assert str(bot["AUTO_TRADE_MAPPED_ZONE_ENABLED"]).lower() == "false"
   assert str(bot["AUTO_TRADE_MARKET_MAP_GUARD_ENABLED"]).lower() == "false"

@@ -193,7 +193,7 @@ def test_deployment_identity_defaults(monkeypatch):
 
 def test_env_example_is_secret_safe_and_points_to_reference():
   text = render_env_example()
-  assert "APEXVOID_CONFIG_AUTHORITY=legacy" in text
+  assert "APEXVOID_CONFIG_AUTHORITY=canonical" in text
   assert "AUTO_TRADE_PROFILE=demo_eval" in text
   assert "AUTO_TRADE_MAPPED_ZONE_ENABLED=false" in text
   assert "AUTO_TRADE_MARKET_MAP_GUARD_ENABLED=false" in text

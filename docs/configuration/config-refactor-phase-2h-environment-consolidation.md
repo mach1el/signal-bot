@@ -6,6 +6,11 @@ duplicated environment registry from the docker-compose bot service. It changes
 no trading behavior and no profile values: the legacy authority remains the
 default and stays fully selectable for rollback.
 
+> Superseded default: as of Phase 2I-A, managed deployments default to
+> **canonical** and every production `runtime_config_facade()` call is removed.
+> The legacy authority stays selectable for rollback. See
+> `config-refactor-phase-2i-a-canonical-cutover.md`.
+
 ## Entry gate (verified)
 
 - Production flat `Settings` reads: `0`
