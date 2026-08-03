@@ -18,6 +18,7 @@ are each strategy's own structural source, not a genuinely separate barrier.
 """
 
 from dataclasses import replace
+from app.core.config import settings
 from datetime import datetime, timezone
 import json
 from unittest.mock import AsyncMock
@@ -241,7 +242,7 @@ async def test_only_confirmed_stop_loss_can_enforce_cooldown(
   confidence,
 ):
   client = redis_state.get_client()
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", True)
   await client.set(
     worker._zone_cooldown_key("XAU", "BUY"),
     json.dumps({
@@ -433,12 +434,12 @@ async def test_candidate_publishes_inside_its_own_structural_source(
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _match(direction=direction, event_ts=str(now))
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_stream", "auto_trade:replay")
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_opposing_barrier_veto_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_overlap_veto_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:replay")
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_veto_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   candidate_id = await worker._publish_strategy_match(
@@ -464,7 +465,7 @@ async def test_candidate_publishes_inside_its_own_structural_source(
 async def test_demo_eval_ignores_even_confirmed_zone_cooldown(monkeypatch):
   client = redis_state.get_client()
   monkeypatch.setattr(
-    worker.settings, "auto_trade_zone_cooldown_enabled", False,
+    settings, "auto_trade_zone_cooldown_enabled", False,
   )
   await client.set(
     worker._zone_cooldown_key("XAU", "BUY"),
@@ -620,10 +621,10 @@ async def test_news_wait_preserves_active_match(monkeypatch):
     strategy_matches_key("XAU"),
     serialize_matches([match]),
   )
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_multi_match_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_multi_match_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value={
     "title": "US high impact",
   }))
@@ -699,14 +700,14 @@ async def test_temporary_entry_drift_wait_preserves_match(monkeypatch):
     strategy_matches_key("XAU"),
     serialize_matches([match]),
   )
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_multi_match_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_max_entry_distance_pips", 10.0)
-  monkeypatch.setattr(worker.settings, "auto_trade_map_min_entry_drift_pips", 10.0)
-  monkeypatch.setattr(worker.settings, "auto_trade_map_max_entry_drift_atr", 0.4)
-  monkeypatch.setattr(worker.settings, "auto_trade_map_hard_entry_drift_pips", 20.0)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_multi_match_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_max_entry_distance_pips", 10.0)
+  monkeypatch.setattr(settings, "auto_trade_map_min_entry_drift_pips", 10.0)
+  monkeypatch.setattr(settings, "auto_trade_map_max_entry_drift_atr", 0.4)
+  monkeypatch.setattr(settings, "auto_trade_map_hard_entry_drift_pips", 20.0)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   candidate_id = await worker._publish_strategy_match(
@@ -743,10 +744,10 @@ async def test_crossed_invalidation_is_terminal_for_only_that_match(monkeypatch)
     strategy_matches_key("XAU"),
     serialize_matches([invalid, sibling]),
   )
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_multi_match_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_multi_match_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
 
   candidate_id = await worker._publish_strategy_match(
     client,
@@ -783,12 +784,12 @@ async def test_observe_overlap_allows_both_direct_route_evaluations(monkeypatch)
     strategy_matches_key("XAU"),
     serialize_matches([waiting, publishable]),
   )
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_multi_match_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_stream", "auto_trade:replay")
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_overlap_veto_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_multi_match_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:replay")
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", False)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   waiting_result = await worker._publish_strategy_match(

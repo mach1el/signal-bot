@@ -41,7 +41,7 @@ def test_phase2e_migrated_paths_are_legacy_backed():
     row for row in _manifest()["reads"]
     if row["migration_status"] == "migrated"
   ]
-  assert len(migrated) == _manifest()["counts"]["migrated_reads"] == 127
+  assert len(migrated) == _manifest()["counts"]["migrated_reads"] == 130
   for row in migrated:
     path = tuple(row["canonical_path"].split("."))
     assert CANONICAL_PATH_TO_LEGACY_ATTR[path] == row["legacy_attribute"]

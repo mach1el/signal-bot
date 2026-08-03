@@ -1,4 +1,5 @@
 from dataclasses import replace
+from app.core.config import settings
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -48,11 +49,11 @@ async def test_hourly_map_sends_once_per_bucket_and_skips_unchanged_next_hour(
     map_calls.append(symbol)
     return current["map"]
 
-  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
-  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(market_map_delivery.settings, "map_change_min", 1.0)
-  monkeypatch.setattr(market_map_delivery.settings, "map_scan_interval_minutes", 60)
+  monkeypatch.setattr(settings, "map_session_send", True)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(settings, "map_change_min", 1.0)
+  monkeypatch.setattr(settings, "map_scan_interval_minutes", 60)
   monkeypatch.setattr(market_map_delivery, "get_meta", get_meta)
   monkeypatch.setattr(market_map_delivery, "set_meta", set_meta)
   monkeypatch.setattr(market_map_delivery, "get_current_market_map", get_map)
@@ -104,11 +105,11 @@ async def test_hourly_map_deletes_previous_owner_message(monkeypatch):
   async def set_meta(key, value):
     meta[key] = value
 
-  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
-  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(market_map_delivery.settings, "map_change_min", 1.0)
-  monkeypatch.setattr(market_map_delivery.settings, "map_scan_interval_minutes", 60)
+  monkeypatch.setattr(settings, "map_session_send", True)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(settings, "map_change_min", 1.0)
+  monkeypatch.setattr(settings, "map_scan_interval_minutes", 60)
   monkeypatch.setattr(market_map_delivery, "get_meta", get_meta)
   monkeypatch.setattr(market_map_delivery, "set_meta", set_meta)
   monkeypatch.setattr(
@@ -150,11 +151,11 @@ async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
   async def set_meta(key, value):
     meta[key] = value
 
-  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
-  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(market_map_delivery.settings, "map_change_min", 1.0)
-  monkeypatch.setattr(market_map_delivery.settings, "map_scan_interval_minutes", 60)
+  monkeypatch.setattr(settings, "map_session_send", True)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(settings, "map_change_min", 1.0)
+  monkeypatch.setattr(settings, "map_scan_interval_minutes", 60)
   monkeypatch.setattr(market_map_delivery, "get_meta", get_meta)
   monkeypatch.setattr(market_map_delivery, "set_meta", set_meta)
   monkeypatch.setattr(
@@ -178,9 +179,9 @@ async def test_hourly_map_resends_when_band_moves_by_threshold(monkeypatch):
 async def test_hourly_map_skips_xau_weekend_closure(monkeypatch):
   sent = AsyncMock()
   get_map = AsyncMock(return_value=_map())
-  monkeypatch.setattr(market_map_delivery.settings, "map_session_send", True)
-  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(market_map_delivery.settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(settings, "map_session_send", True)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
   monkeypatch.setattr(
     market_map_delivery,
     "get_meta",
@@ -206,7 +207,7 @@ async def test_hourly_map_skips_xau_weekend_closure(monkeypatch):
 async def test_on_demand_map_uses_scanner_bot(monkeypatch):
   sent = AsyncMock(return_value=SimpleNamespace(message_id=7001))
   deleted = AsyncMock()
-  monkeypatch.setattr(market_map_delivery.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     market_map_delivery,
     "get_current_market_map",

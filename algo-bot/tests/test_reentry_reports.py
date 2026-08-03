@@ -12,6 +12,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.persistence import store
 from app.bot import wiring
 from app.signals import trade_ops
@@ -170,7 +171,7 @@ def test_short_entry_endpoint_expands_near_anchor(zone, expected):
 
 @pytest.mark.asyncio
 async def test_tag_command_updates_metadata(tmp_path, monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   await store.init_db()
   rec = await _new_signal(1, setup_type=None, confluence=None)
   msg = SimpleNamespace(

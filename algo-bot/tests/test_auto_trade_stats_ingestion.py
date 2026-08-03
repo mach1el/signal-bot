@@ -1,4 +1,5 @@
 import json
+from app.core.config import settings
 
 import pytest
 
@@ -118,7 +119,7 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
   await store.init_db()
   client = redis_state.get_client()
   stream = "auto_trade:test_stats_events"
-  monkeypatch.setattr(stats_ingestion.settings, "auto_trade_event_stream", stream)
+  monkeypatch.setattr(settings, "auto_trade_event_stream", stream)
   fill = {
     "type": "order_filled",
     "timestamp": 100,

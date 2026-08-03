@@ -120,19 +120,14 @@ def test_phase2f_modules_do_not_read_nonlegacy_canonical_paths():
     assert tuple(path.split(".")) in CANONICAL_PATH_TO_LEGACY_ATTR, row
 
 
-def test_phase2g_roots_remain_deferred():
+def test_phase2g_roots_are_fully_migrated():
   deferred = [
     row for row in _manifest()["reads"]
     if row["migration_status"] == "deferred"
   ]
-  assert len(deferred) == _manifest()["counts"]["deferred_reads"] == 147
-  assert {row["root_domain"] for row in deferred} >= _DEFERRED_ROOTS
-  for row in deferred:
-    if row["root_domain"] in _DEFERRED_ROOTS:
-      assert row["migration_classification"] in {
-        "PHASE_2G_DEFER", "RUNTIME_DEFER",
-      }
-      assert row["deferred_reason"]
+  assert len(deferred) == _manifest()["counts"]["deferred_reads"] == 0
+  for root in _DEFERRED_ROOTS:
+    _assert_no_flat_reads(root)
 
 
 def test_generated_artifacts_are_current():

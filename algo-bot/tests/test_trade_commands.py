@@ -10,6 +10,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.persistence import store
 from app.core import symbols
 from app.bot import wiring
@@ -38,7 +39,7 @@ def _channel(text: str, chat_id: int = -100123456789):
 @pytest.mark.asyncio
 async def test_scoped_command_menu(monkeypatch):
   target = SimpleNamespace(set_my_commands=AsyncMock())
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
 
   await wiring.setup_commands(target)
 
@@ -59,7 +60,7 @@ async def test_scoped_command_menu(monkeypatch):
 @pytest.mark.asyncio
 async def test_signal_bot_exposes_public_start_and_owner_trade_map(monkeypatch):
   target = SimpleNamespace(set_my_commands=AsyncMock())
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
 
   await wiring.setup_scanner_commands(target)
 
@@ -101,7 +102,7 @@ async def test_signal_bot_start_handler_uses_shared_welcome(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_start_welcomes_public_users(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   msg = _dm("/start", user_id=999)
 
   await wiring.handle_start(msg)
@@ -118,7 +119,7 @@ async def test_start_welcomes_public_users(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_map_is_owner_gated_and_returns_current_board(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   send = AsyncMock(return_value=True)
   monkeypatch.setattr(wiring, "send_current_market_map", send)
   owner = _dm("/trade_map XAU")
@@ -136,7 +137,7 @@ async def test_trade_map_is_owner_gated_and_returns_current_board(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_open_lists_open_signals(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     wiring,
     "get_open_signals",
@@ -157,7 +158,7 @@ async def test_trade_open_lists_open_signals(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_open_empty(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(wiring, "get_open_signals", AsyncMock(return_value=[]))
   msg = _dm("/trade_open")
 
@@ -168,7 +169,7 @@ async def test_trade_open_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_channel_and_dm_close_share_executor(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     wiring,
     "_resolve_sid",
@@ -199,7 +200,7 @@ async def test_channel_and_dm_close_share_executor(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_manual_tp_command_is_notify_only(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     wiring,
     "_resolve_sid",
@@ -232,7 +233,7 @@ async def test_manual_tp_command_is_notify_only(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_uncclose_command_resolves_closed_signal(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     wiring,
     "_resolve_any_sid",
@@ -266,7 +267,7 @@ async def test_uncclose_command_resolves_closed_signal(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_delete_command_resolves_any_state(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     wiring,
     "_resolve_any_sid",
@@ -372,7 +373,7 @@ def test_review_uses_symbol_pip_size(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_stats_symbol_filter_and_all(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setitem(
     SYMBOLS,
     "US30",
@@ -394,7 +395,7 @@ async def test_trade_stats_symbol_filter_and_all(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_aggregate_outputs_stay_in_owner_dm(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   channel_target = AsyncMock()
   monkeypatch.setattr(wiring, "post_result", channel_target)
   monkeypatch.setattr(
@@ -457,7 +458,7 @@ async def test_aggregate_outputs_stay_in_owner_dm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_help_is_owner_only_and_documents_both_surfaces(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   owner = _dm("/help")
   stranger = _dm("/help", user_id=99)
 

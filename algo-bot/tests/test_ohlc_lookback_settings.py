@@ -7,6 +7,7 @@ to every timeframe.
 """
 
 from __future__ import annotations
+from app.core.config import settings
 
 import pytest
 
@@ -30,19 +31,19 @@ class _RecordingSource:
 
 
 def test_default_lookback_settings_fall_inside_the_documented_xau_ranges():
-  assert 300 <= ohlc_source.settings.xau_lookback_h1_bars <= 500
-  assert 500 <= ohlc_source.settings.xau_lookback_m15_bars <= 800
-  assert 800 <= ohlc_source.settings.xau_lookback_m5_bars <= 1200
-  assert 100 <= ohlc_source.settings.xau_lookback_m1_bars <= 200
+  assert 300 <= settings.xau_lookback_h1_bars <= 500
+  assert 500 <= settings.xau_lookback_m15_bars <= 800
+  assert 800 <= settings.xau_lookback_m5_bars <= 1200
+  assert 100 <= settings.xau_lookback_m1_bars <= 200
 
 
 def test_window_for_timeframe_resolves_each_timeframe_independently(
   monkeypatch,
 ):
-  monkeypatch.setattr(ohlc_source.settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(ohlc_source.settings, "xau_lookback_m15_bars", 650)
-  monkeypatch.setattr(ohlc_source.settings, "xau_lookback_m5_bars", 1000)
-  monkeypatch.setattr(ohlc_source.settings, "xau_lookback_m1_bars", 150)
+  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
+  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 650)
+  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 1000)
+  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 150)
 
   assert ohlc_source.window_for_timeframe("H1") == 400
   assert ohlc_source.window_for_timeframe("M15") == 650
@@ -52,7 +53,7 @@ def test_window_for_timeframe_resolves_each_timeframe_independently(
 
 
 def test_window_for_timeframe_clamps_a_misconfigured_low_value(monkeypatch):
-  monkeypatch.setattr(ohlc_source.settings, "xau_lookback_m1_bars", 1)
+  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 1)
   assert ohlc_source.window_for_timeframe("M1") == 50
 
 
@@ -60,9 +61,9 @@ def test_window_for_timeframe_clamps_a_misconfigured_low_value(monkeypatch):
 async def test_scanner_load_frames_requests_the_deepest_window_for_m5(
   monkeypatch,
 ):
-  monkeypatch.setattr(scanner.settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(scanner.settings, "xau_lookback_m15_bars", 650)
-  monkeypatch.setattr(scanner.settings, "xau_lookback_m5_bars", 1000)
+  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
+  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 650)
+  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 1000)
   source = _RecordingSource()
 
   await scanner._load_frames(source, "XAU", "M5", ["H1", "M15"])
@@ -76,10 +77,10 @@ async def test_scanner_load_frames_requests_the_deepest_window_for_m5(
 async def test_worker_load_frames_gives_m1_a_shallow_trigger_only_window(
   monkeypatch,
 ):
-  monkeypatch.setattr(worker.settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(worker.settings, "xau_lookback_m15_bars", 650)
-  monkeypatch.setattr(worker.settings, "xau_lookback_m5_bars", 1000)
-  monkeypatch.setattr(worker.settings, "xau_lookback_m1_bars", 150)
+  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
+  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 650)
+  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 1000)
+  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 150)
   source = _RecordingSource()
 
   await worker._load_frames(source, "XAU")

@@ -102,8 +102,8 @@ def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
 
 @pytest.mark.asyncio
 async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeypatch):
-  monkeypatch.setattr(manual_execution.settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(manual_execution.settings, "auto_trade_stream_maxlen", 100)
+  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
+  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
   client = redis_state.get_client()
   intent_payload = {
     "intent_id": "manual:5:0",
@@ -141,7 +141,7 @@ async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeyp
 async def test_process_intent_entries_skips_malformed_payload_but_advances_cursor(
   monkeypatch,
 ):
-  monkeypatch.setattr(manual_execution.settings, "auto_trade_stream", "auto_trade:test2")
+  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test2")
   client = redis_state.get_client()
   entries = [("55-0", {"payload": "not json"})]
 
@@ -169,9 +169,9 @@ async def test_reconcile_events_loop_is_a_no_op_when_disabled():
 async def test_manual_intent_bypasses_worker_strategy_gates(
   monkeypatch,
 ):
-  monkeypatch.setattr(manual_execution.settings, "auto_trade_stream", "auto_trade:test3")
-  monkeypatch.setattr(manual_execution.settings, "auto_trade_stream_maxlen", 100)
-  monkeypatch.setattr(manual_execution.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test3")
+  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
+  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
   sent = AsyncMock()
   monkeypatch.setattr(manual_execution, "send_scanner_with_retry", sent)
   client = redis_state.get_client()
@@ -740,7 +740,7 @@ async def test_handle_event_command_error_marks_execution_status_error(monkeypat
 @pytest.mark.asyncio
 async def test_request_cancel_xadds_cancel_pending_command(monkeypatch):
   monkeypatch.setattr(
-    manual_execution.settings, "manual_trade_command_stream", "manual_trade:cmd1",
+    settings, "manual_trade_command_stream", "manual_trade:cmd1",
   )
   client = redis_state.get_client()
 
@@ -755,7 +755,7 @@ async def test_request_cancel_xadds_cancel_pending_command(monkeypatch):
 @pytest.mark.asyncio
 async def test_request_close_xadds_close_command_and_remembers_frac(monkeypatch):
   monkeypatch.setattr(
-    manual_execution.settings, "manual_trade_command_stream", "manual_trade:cmd2",
+    settings, "manual_trade_command_stream", "manual_trade:cmd2",
   )
   client = redis_state.get_client()
 
@@ -771,7 +771,7 @@ async def test_request_close_xadds_close_command_and_remembers_frac(monkeypatch)
 @pytest.mark.asyncio
 async def test_request_move_sl_xadds_move_sl_command(monkeypatch):
   monkeypatch.setattr(
-    manual_execution.settings, "manual_trade_command_stream", "manual_trade:cmd3",
+    settings, "manual_trade_command_stream", "manual_trade:cmd3",
   )
   client = redis_state.get_client()
 

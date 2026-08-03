@@ -1,6 +1,7 @@
 """Range retirement + Market Map reaction memory hotfix tests."""
 
 from __future__ import annotations
+from app.core.config import settings
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -141,7 +142,7 @@ def _map(*entries: MapEntry, price: float = 4055.0) -> MarketMap:
 @pytest.mark.asyncio
 async def test_broken_range_disarms_both_rails(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(worker.settings, "auto_trade_box_retire_seconds", 3600)
+  monkeypatch.setattr(settings, "auto_trade_box_retire_seconds", 3600)
   context = _context(state="confirmed")
   await worker._persist_range_side_states(
     client,
@@ -399,8 +400,8 @@ async def test_auto_status_reports_breakout_retest_instead_of_no_detection(
     "auto_trade:range_context:XAU",
     retired.to_json(),
   )
-  monkeypatch.setattr(delivery.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(delivery.settings, "auto_trade_symbols", "XAU")
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
   text = await delivery.auto_trade_status_text()
   assert "breakout-retest" in text
   assert "no_detection_result" not in text

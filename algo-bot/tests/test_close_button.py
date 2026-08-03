@@ -10,6 +10,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.bot import wiring
 
 OWNER = 424242
@@ -33,7 +34,7 @@ def _cb(data: str, uid: int = OWNER, html: str = "🎯 TP HIT | #2"):
 
 @pytest.fixture(autouse=True)
 def _owner(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", OWNER)
+  monkeypatch.setattr(settings, "telegram_owner_id", OWNER)
   monkeypatch.setattr(wiring, "symbol_for_channel", lambda _cid: "XAU")
 
 

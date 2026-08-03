@@ -1,5 +1,5 @@
 import json
-from types import SimpleNamespace
+from app.core.config import settings
 
 import fakeredis
 import pytest
@@ -213,15 +213,8 @@ def test_accepted_breakout_retires_range_over_stale_active_source():
 @pytest.mark.asyncio
 async def test_lifecycle_keeps_history_not_only_latest(monkeypatch):
   client = fakeredis.FakeAsyncRedis(decode_responses=True)
-  monkeypatch.setattr(
-    "app.autotrade.lifecycle.settings",
-    SimpleNamespace(
-      auto_trade_profile="demo_eval",
-      auto_trade_candidate_ttl=86400,
-      auto_trade_event_stream="auto_trade:events",
-      auto_trade_stream_maxlen=1000,
-    ),
-  )
+  monkeypatch.setattr(settings, "auto_trade_profile", "demo_eval")
+  monkeypatch.setattr(settings, "auto_trade_candidate_ttl", 86400)
   await emit_lifecycle(
     client, "detected", symbol="XAU", candidate_id="candidate-1",
   )
@@ -250,7 +243,7 @@ async def test_both_range_rails_stay_independent(monkeypatch):
   context = _context("merged", 4000, 4010)
   decision = AutoScalpDecision("candidate", direction="BUY")
   monkeypatch.setattr(
-    worker.settings, "auto_trade_box_retire_seconds", 14400,
+    settings, "auto_trade_box_retire_seconds", 14400,
   )
 
   await worker._persist_range_side_states(

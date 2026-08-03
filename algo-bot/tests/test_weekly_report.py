@@ -12,6 +12,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.core import symbols
 from app.signals import weekly_report
 from app.signals.reports import build_stats, format_stats
@@ -66,10 +67,10 @@ def _stats(values=(70, -30)):
 
 
 def _configure(monkeypatch, skip_empty=False):
-  monkeypatch.setattr(weekly_report.settings, "weekly_report_dow", 6)
-  monkeypatch.setattr(weekly_report.settings, "weekly_report_hour", 8)
+  monkeypatch.setattr(settings, "weekly_report_dow", 6)
+  monkeypatch.setattr(settings, "weekly_report_hour", 8)
   monkeypatch.setattr(
-    weekly_report.settings,
+    settings,
     "weekly_report_skip_empty",
     skip_empty,
   )
@@ -221,7 +222,7 @@ async def test_empty_skip_and_multi_symbol_delivery(monkeypatch):
   set_meta.assert_awaited_once()
 
   monkeypatch.setattr(
-    weekly_report.settings,
+    settings,
     "weekly_report_skip_empty",
     False,
   )

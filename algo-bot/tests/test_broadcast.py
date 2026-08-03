@@ -10,6 +10,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.signals import broadcast, trade_ops
 from app.persistence import store
 from app.core import symbols
@@ -145,7 +146,7 @@ def test_public_close_pips_toggle_never_reveals_id(monkeypatch):
     "pips": 70,
   }
 
-  monkeypatch.setattr(trade_ops.settings, "public_show_pips", True)
+  monkeypatch.setattr(settings, "public_show_pips", True)
   assert trade_ops.render_result(result, "XAU", "public") == (
     "✅ closed — +70 pips win 💸"
   )
@@ -153,7 +154,7 @@ def test_public_close_pips_toggle_never_reveals_id(monkeypatch):
     "✅ #7 closed — achieved +70 pips 💸"
   )
 
-  monkeypatch.setattr(trade_ops.settings, "public_show_pips", False)
+  monkeypatch.setattr(settings, "public_show_pips", False)
   public = trade_ops.render_result(result, "XAU", "public")
   assert public == "✅ closed — win"
   assert "#7" not in public
@@ -225,7 +226,7 @@ def test_partial_close_with_tp_number_labels_which_target_was_hit():
 
 
 def test_final_close_with_tp_number_labels_which_target_closed_it(monkeypatch):
-  monkeypatch.setattr(trade_ops.settings, "public_show_pips", True)
+  monkeypatch.setattr(settings, "public_show_pips", True)
   result = {
     "action": "close",
     "ok": True,
@@ -331,7 +332,7 @@ async def test_manual_tp_is_notify_only_and_tier_aware(monkeypatch):
     "🎯 TP2 +56 pips 💸"
   )
 
-  monkeypatch.setattr(trade_ops.settings, "public_show_pips", False)
+  monkeypatch.setattr(settings, "public_show_pips", False)
   assert trade_ops.render_result(result, "XAU", "public") == "🎯 TP2 hit"
 
 
