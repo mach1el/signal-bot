@@ -10,11 +10,17 @@ public sealed class DealListWindowTests
     // Old logic used maxLookback=7d and to=close+1m → INCORRECT_BOUNDARIES.
     var openedAt = 1_700_000_000L; // seconds
     var closeAt = openedAt + (long)TimeSpan.FromDays(10).TotalSeconds;
-    var (from, to) = CTraderOpenApiFeedClient.BuildDealListWindow(openedAt, closeAt);
+    var nowMs = closeAt * 1000L + 60_000L;
+    var (from, to) = CTraderOpenApiFeedClient.BuildDealListWindow(
+      openedAt,
+      closeAt,
+      nowMs
+    );
     Assert.True(from >= 0);
     Assert.True(to > from);
     Assert.True(to - from <= CTraderOpenApiFeedClient.MaxDealListWindowMs);
     Assert.True(to <= CTraderOpenApiFeedClient.MaxUnixMs);
+    Assert.True(to <= nowMs);
   }
 
   [Fact]
@@ -22,10 +28,33 @@ public sealed class DealListWindowTests
   {
     var openedAtMs = 1_700_000_000_000L;
     var closeAtMs = openedAtMs + (long)TimeSpan.FromHours(2).TotalMilliseconds;
-    var (from, to) = CTraderOpenApiFeedClient.BuildDealListWindow(openedAtMs, closeAtMs);
+    var nowMs = closeAtMs + 60_000L;
+    var (from, to) = CTraderOpenApiFeedClient.BuildDealListWindow(
+      openedAtMs,
+      closeAtMs,
+      nowMs
+    );
     Assert.Equal(openedAtMs, from);
-    Assert.True(to > closeAtMs);
+    Assert.True(to >= closeAtMs);
     Assert.True(to - from <= CTraderOpenApiFeedClient.MaxDealListWindowMs);
+  }
+
+  [Fact]
+  public void BuildDealListWindowNeverRequestsFutureToTimestamp()
+  {
+    // BE/SL reconcile often passes approximateClose≈now; close+1m must not
+    // produce a future ToTimestamp (cTrader → INCORRECT_BOUNDARIES).
+    var openedAt = 1_750_000_000L;
+    var closeAt = openedAt + 3_600L;
+    var nowMs = closeAt * 1000L;
+    var (from, to) = CTraderOpenApiFeedClient.BuildDealListWindow(
+      openedAt,
+      closeAt,
+      nowMs
+    );
+    Assert.True(to <= nowMs);
+    Assert.True(to > from);
+    Assert.Equal(openedAt * 1000L, from);
   }
 
   [Fact]
