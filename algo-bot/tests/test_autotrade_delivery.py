@@ -17,14 +17,26 @@ from __future__ import annotations
 import pytest
 
 from app.analysis.scanner import clear_active_setup_tracking
+from app.autotrade import delivery, setup_card
 from app.autotrade.delivery import (
+  POSITION_ACTIVATED_STATUS_LINE,
   _compact_route_line,
   _group_message_key,
+  _mark_forming_card_position_activated,
   _message_key,
   _resolve_reply_message_id,
   tp_message_key,
 )
+from app.autotrade.setup_lifecycle import CONFIRMED, create_setup, transition_setup
 from app.persistence import redis_state
+
+
+async def _confirmed_setup(client, setup_id: str) -> None:
+  await create_setup(
+    client, setup_id=setup_id, thesis_id=f"thesis-{setup_id}", symbol="XAU",
+  )
+  for state in ("watching", "touched", "forming", CONFIRMED):
+    await transition_setup(client, setup_id, state)
 
 
 @pytest.mark.asyncio
@@ -133,3 +145,50 @@ def test_compact_route_line_prefers_reason_code_over_stale_preflight_code():
   })
 
   assert line == "Key Level Reaction · blocked · policy_reward_risk_insufficient"
+
+
+@pytest.mark.asyncio
+async def test_mark_forming_card_position_activated_rewrites_head_and_stop(
+  monkeypatch,
+):
+  """A filled position must show its real stop, not the "SL" placeholder
+  left over from before publish - and the head must no longer read SETUP
+  FORMING once the order is actually live.
+  """
+  client = redis_state.get_client()
+  match_id = "setup-activated-stop"
+  await _confirmed_setup(client, match_id)
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "​",
+    "🟢 <b>BUY · Key Level Reaction</b> · ⭐⭐",
+    "",
+    "📍 <b>Trade area</b>",
+    "• <b>Entry zone:</b> <b>3399.00–3401.00</b>",
+    "• <b>Key level:</b> <b>3398.00</b>",
+    "• <b>Stop:</b> <b>SL</b>",
+  ])
+  await setup_card.save_forming_card(
+    client, match_id, chat_id=123, message_id=5001, text=original,
+  )
+
+  async def fake_stop_price(_client, _match_id):
+    return 3395.5
+
+  edited = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  monkeypatch.setattr(delivery, "published_plan_stop_price", fake_stop_price)
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+
+  await _mark_forming_card_position_activated(client, match_id)
+
+  card = await setup_card.load_forming_card(client, match_id)
+  assert card is not None
+  lines = card["text"].splitlines()
+  assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert POSITION_ACTIVATED_STATUS_LINE in card["text"]
+  assert "• <b>Stop:</b> <b>3,395.50</b>" in card["text"]
+  assert "SL</b>" not in card["text"]
