@@ -16,6 +16,8 @@ from app.analysis.scalp_ranges import (
   RANGE_STATE_NO_RANGE,
   RANGE_STATE_POST_IMPULSE,
   RANGE_STATE_PROVISIONAL,
+  ScalpBarrier,
+  _fallback_barrier,
   build_scalp_structure,
   build_scalp_structure_detailed,
   role_flip_barrier,
@@ -161,6 +163,49 @@ def test_missing_resistance_fallback_is_symmetric():
       any(barrier.fallback for barrier in resistances)
       or detailed.scalp_range is not None
     )
+
+
+def test_fallback_barrier_ignores_a_stale_extreme_from_before_the_opposite_edge():
+  """2026-08-03 incident (XAU live): the fallback used to search the single
+  most extreme low/high across the *entire* lookback frame, with no regard
+  for whether it happened before the opposing edge even started forming. A
+  deep wick from ~2h earlier (an already-resolved prior swing) got paired
+  with a live, currently-testing resistance from the last 15 minutes,
+  producing an 18-point "range" instead of the ~8-point box actually
+  forming. The fallback must only search bars at-or-after the opposing
+  barrier's own first touch.
+  """
+  rows = [(101.0, 101.0, 90.0, 100.5, 100.0)]  # bar 0: ancient, single-touch wick
+  for _ in range(14):  # bars 1-14: neutral filler, far from either level
+    rows.append((101.0, 102.5, 100.5, 101.5, 100.0))
+  rows.extend([  # bars 15-19: the live, currently-forming consolidation
+    (100.0, 101.0, 97.8, 100.5, 100.0),   # support touch 1 (wick rejection)
+    (100.5, 108.0, 100.0, 106.0, 100.0),  # resistance touch 1
+    (106.0, 107.0, 97.9, 99.0, 100.0),    # support touch 2
+    (99.0, 110.2, 98.5, 105.0, 100.0),    # resistance touch 2
+    (105.0, 110.3, 99.0, 108.0, 100.0),   # resistance touch 3
+  ])
+  df = pd.DataFrame(
+    rows,
+    columns=["open", "high", "low", "close", "volume"],
+    index=pd.date_range("2026-08-03", periods=len(rows), freq="5min", tz="UTC"),
+  ).astype(float)
+
+  resistance = ScalpBarrier(
+    side="resistance", level=110.0, low=109.5, high=110.5,
+    touches=3, wick_rejections=2, accepted_closes=0, last_touch_index=19,
+    tags=[], score=5.0, first_touch_index=15,
+  )
+
+  fallback = _fallback_barrier(
+    "support", df, 0, df, 2.0, 0.3, 1.0, 103.0, [], [resistance], _cfg(),
+  )
+
+  assert fallback is not None
+  # Must anchor on the recent ~98 low from the live consolidation, not the
+  # ancient 90 wick from bar 0 (which predates the resistance entirely).
+  assert fallback.level == pytest.approx(97.85, abs=0.1)
+  assert fallback.level > 95.0
 
 
 def test_adaptive_range_targets_ladder():
