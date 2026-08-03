@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
+from tests.configuration.canonical_fixtures import actionability_cfg
 from app.analysis.actionability import resolve_actionability
 from app.analysis import scanner
 from app.analysis.detectors import DetectionResult
@@ -135,12 +136,12 @@ def _cfg(
   execution_cost_pips: float = 1.0,
   min_capped_target_pips: float = 15.0,
 ) -> SimpleNamespace:
-  return SimpleNamespace(
-    contested_corridor_gap_atr=0.5,
+  # ``profile`` is retained for call-site compatibility; actionability no
+  # longer reads a flat profile field after Phase 2I-A.1.
+  _ = profile
+  return actionability_cfg(
     auto_trade_allow_counter_bias=allow_counter_bias,
     auto_trade_structural_guard_mode=guard_mode,
-    auto_trade_profile=profile,
-    auto_trade_opposing_barrier_atr=0.5,
     scanner_actionability_gate_enabled=actionability_gate,
     key_level_role_ambiguity_gate_enabled=role_ambiguity_gate,
     auto_trade_displacement_override_lookback_bars=displacement_lookback_bars,
@@ -1204,7 +1205,10 @@ def test_barrier_capped_target_is_used_by_reward_risk_pre_gate(monkeypatch):
     context=ctx,
     atr=2.0,
     pip_size=0.1,
-    cfg=settings,
+    cfg=actionability_cfg(
+      auto_trade_allow_counter_bias=True,
+      auto_trade_tp_pips="30,50,70",
+    ),
   )
 
   assert len(resolution.actionable) == 1

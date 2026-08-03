@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import execution_cfg
+
 import pytest
 
 from app.autotrade.execution_policy import evaluate_execution_policy
@@ -381,7 +383,7 @@ def test_supply_demand_zone_is_independent_of_reaction_room_stop():
 def test_reaction_room_stop_missing_tp_falls_back_to_legacy_envelope():
   from app.autotrade.protective_stop import stop_bounds_for_reaction_room
 
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_trend_stop_min_pips=40,
     auto_trade_trend_stop_max_pips=60,
     auto_trade_reaction_room_stop_min_rr=1.0,
@@ -420,7 +422,7 @@ def test_reaction_room_stop_missing_tp_falls_back_to_legacy_envelope():
 def test_stop_bounds_for_reaction_room_pins_and_caps():
   from app.autotrade.protective_stop import stop_bounds_for_reaction_room
 
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_trend_stop_min_pips=40,
     auto_trade_trend_stop_max_pips=60,
     auto_trade_reaction_room_stop_min_rr=1.0,
@@ -469,7 +471,7 @@ def test_scalp_room_synced_stop_allows_thin_targets():
     spot_price=4100.0,
     regime="chop",
     pip_size=0.1,
-    cfg=SimpleNamespace(
+    cfg=execution_cfg(
       auto_trade_add_min_stop_pips=30,
       auto_trade_sl_distance=6.5,
       auto_trade_range_min_rr=1.0,
@@ -492,7 +494,7 @@ def test_scalp_room_synced_stop_allows_thin_targets():
 
 
 def test_scalp_with_fitted_target_skips_opposing_zone_stop_reject():
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_add_min_stop_pips=30,
     auto_trade_sl_distance=6.5,
     auto_trade_range_min_rr=1.0,

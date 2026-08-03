@@ -1,9 +1,12 @@
-from types import SimpleNamespace
-
 import pandas as pd
+import pytest
 
 from app.autotrade import scale_context as context
 from app.analysis.types import Break, Leg, Swing
+from tests.configuration.canonical_fixtures import scale_context_cfg
+
+
+pytestmark = pytest.mark.no_database
 
 
 def test_builds_closed_bar_structure_context_from_shared_primitives(monkeypatch):
@@ -37,7 +40,7 @@ def test_builds_closed_bar_structure_context_from_shared_primitives(monkeypatch)
     {"M1": frame},
     "BUY",
     spot_price=4001.0,
-    cfg=SimpleNamespace(
+    cfg=scale_context_cfg(
       atr_length=14,
       swing_fractal_n=2,
       zigzag_pct=0,
@@ -90,7 +93,7 @@ def test_counter_bos_ts_is_none_without_a_counter_direction_break(monkeypatch):
     {"M1": frame},
     "BUY",
     spot_price=4001.0,
-    cfg=SimpleNamespace(
+    cfg=scale_context_cfg(
       atr_length=14, swing_fractal_n=2, zigzag_pct=0, zigzag_atr_mult=1,
       displacement_atr_mult=1.5, momentum_body_frac=0.6,
     ),
@@ -119,7 +122,7 @@ def test_extreme_uses_lowest_low_for_a_sell(monkeypatch):
     {"M1": frame},
     "SELL",
     spot_price=3999.0,
-    cfg=SimpleNamespace(
+    cfg=scale_context_cfg(
       atr_length=5, swing_fractal_n=1, zigzag_pct=0, zigzag_atr_mult=0,
       displacement_atr_mult=1.5, momentum_body_frac=0.6,
     ),

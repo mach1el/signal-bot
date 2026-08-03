@@ -3,6 +3,11 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import (
+  execution_cfg,
+  scalp_ranges_cfg,
+)
+
 import pandas as pd
 import pytest
 
@@ -56,10 +61,10 @@ def _cfg(**overrides):
     "scalp_range_provisional_enabled": True,
     "scalp_post_impulse_range_enabled": True,
     "round_step": 5.0,
-    "pip_size": 0.1,
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  values.pop("pip_size", None)
+  return scalp_ranges_cfg(**values)
 
 
 def _range_df() -> pd.DataFrame:
@@ -172,7 +177,7 @@ def test_strategy_aware_drift_caps_by_atr_and_room():
     atr=2.0,
     pip_size=0.1,
     remaining_target_room_pips=40,
-    cfg=SimpleNamespace(
+    cfg=execution_cfg(
       auto_trade_max_entry_distance_pips=10,
       auto_trade_range_max_entry_drift_atr=0.35,
     ),

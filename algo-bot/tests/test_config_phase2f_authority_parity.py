@@ -15,9 +15,9 @@ pytestmark = pytest.mark.no_database
 _ALGO_ROOT = Path(__file__).parents[1]
 _ROOT_COUNTS = {
   "analysis": 15,
-  "strategies": 37,
-  "actionability": 47,
-  "lifecycle": 41,
+  "strategies": 35,
+  "actionability": 42,
+  "lifecycle": 38,
 }
 _SAFE = {
   "PYTHONPATH": str(_ALGO_ROOT),
@@ -193,7 +193,7 @@ def test_lifecycle_config_parity_under_both_authorities():
 
 
 def test_phase2f_parity_covers_every_production_access_point():
-  assert sum(len(rows) for rows in _probe("legacy")["accesses"].values()) == 140
+  assert sum(len(rows) for rows in _probe("legacy")["accesses"].values()) == 130
 
 
 def test_phase2f_authority_types_are_distinct_and_expected():

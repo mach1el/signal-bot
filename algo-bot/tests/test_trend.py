@@ -7,6 +7,14 @@ from app.autotrade import trend
 from app.autotrade.gate import AutoScalpBox, AutoScalpDecision, AutoScalpRail
 from app.analysis.types import Leg, SessionLevel, Swing, Zone
 from app.core.config import settings
+from tests.configuration.canonical_fixtures import canonical_ns_from_flat
+
+def _nested_cfg():
+  """Snapshot nested config from live settings (picks up monkeypatches)."""
+  return canonical_ns_from_flat(settings)
+
+pytestmark = pytest.mark.no_database
+
 
 
 def _flat_frame(
@@ -161,7 +169,7 @@ def test_clear_uptrend_with_expanding_atr_classifies_as_trend():
     "M5": _flat_frame(30, "5min"),
     "M15": _flat_frame(20, "15min"),
   }
-  regime = trend.classify_regime(frames, AutoScalpDecision("waiting_for_box"), settings)
+  regime = trend.classify_regime(frames, AutoScalpDecision("waiting_for_box"), _nested_cfg())
 
   assert regime.state == "trend"
   assert regime.direction == "up"
@@ -184,7 +192,7 @@ def test_demo_eval_keeps_counter_bias_local_trend_executable(monkeypatch):
   regime = trend.classify_regime(
     frames,
     AutoScalpDecision("waiting_for_box"),
-    settings,
+    _nested_cfg(),
   )
 
   assert regime.state == "trend"
@@ -201,7 +209,7 @@ def test_same_shape_with_flat_atr_does_not_classify_as_trend(monkeypatch):
     "M5": _flat_frame(30, "5min"),
     "M15": _flat_frame(20, "15min"),
   }
-  regime = trend.classify_regime(frames, AutoScalpDecision("waiting_for_box"), settings)
+  regime = trend.classify_regime(frames, AutoScalpDecision("waiting_for_box"), _nested_cfg())
 
   assert regime.state != "trend"
   assert regime.atr_ratio < settings.trend_atr_expansion
@@ -232,7 +240,7 @@ def test_accepted_box_break_classifies_as_breakout_even_with_narrow_window():
   box = AutoScalpBox("xau-test", lower, upper, 60.0, 0.9, 0.2)
   decision = AutoScalpDecision("box_broken", box=box)
 
-  regime = trend.classify_regime(frames, decision, settings)
+  regime = trend.classify_regime(frames, decision, _nested_cfg())
 
   # The box is far too narrow to independently qualify via the trend
   # height check - this proves breakout classification doesn't get stuck
@@ -252,7 +260,7 @@ def test_incident_replay_rejects_upper_wick_chase():
     box_decision,
     symbol="XAU",
     spot_price=4121.55,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "retest_rejected"
@@ -269,7 +277,7 @@ def test_incident_replay_rejects_missing_m1_bar():
     box_decision,
     symbol="XAU",
     spot_price=4121.55,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "data_gap"
@@ -287,7 +295,7 @@ def test_incident_replay_rejects_nearby_prebreak_barrier(monkeypatch):
     box_decision,
     symbol="XAU",
     spot_price=4121.55,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "target_blocked"
@@ -309,7 +317,7 @@ def test_box_breakout_retest_with_room_can_trade(monkeypatch):
     box_decision,
     symbol="XAU",
     spot_price=4121.55,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "candidate"
@@ -328,7 +336,7 @@ def test_sell_breakout_has_symmetric_prior_barrier_gate(monkeypatch):
     box_decision,
     symbol="XAU",
     spot_price=4121.45,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "target_blocked"
@@ -379,7 +387,7 @@ def test_mode_a_pullback_with_rejection_candle_fires_candidate(monkeypatch):
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=None,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "candidate"
@@ -403,7 +411,7 @@ def test_mode_a_without_rejection_candle_is_no_setup(monkeypatch):
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=None,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "no_setup"
@@ -430,7 +438,7 @@ def test_mode_a_stop_context_passes_through_without_pip_floor_clamp(monkeypatch)
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=None,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "candidate"
@@ -486,7 +494,7 @@ def test_mode_b_accepted_break_fires_candidate(monkeypatch):
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=4005.1,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "candidate"
@@ -506,7 +514,7 @@ def test_mode_b_break_without_displacement_acceptance_does_not_fire(monkeypatch)
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=4005.1,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "no_setup"
@@ -525,7 +533,7 @@ def test_mode_b_opposing_major_level_inside_buffer_blocks_entry(monkeypatch):
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=4005.1,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "no_setup"
@@ -545,7 +553,7 @@ def test_mode_b_chase_disabled_with_no_pullback_does_not_fire(monkeypatch):
     symbol="XAU",
     # Spot equals the acceptance close - i.e. no pullback has happened yet.
     spot_price=4006.5,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "no_setup"
@@ -570,7 +578,7 @@ def test_build_trend_targets_orders_tp1_tp2_measured_move_and_tp4(monkeypatch):
   monkeypatch.setattr(trend, "supply_demand", lambda *a, **k: [])
 
   targets = trend.build_trend_targets(
-    "BUY", 4000.0, 1.0, m1, {"M1": m1}, settings,
+    "BUY", 4000.0, 1.0, m1, {"M1": m1}, _nested_cfg(),
     leg_size=15.0, stop_distance=5.0,
   )
 
@@ -590,7 +598,7 @@ def test_build_trend_targets_drops_clustered_candidates(monkeypatch):
   monkeypatch.setattr(trend, "supply_demand", lambda *a, **k: [])
 
   targets = trend.build_trend_targets(
-    "BUY", 4000.0, 1.0, m1, {"M1": m1}, settings,
+    "BUY", 4000.0, 1.0, m1, {"M1": m1}, _nested_cfg(),
     leg_size=None, stop_distance=None,
   )
 
@@ -605,7 +613,7 @@ def test_build_trend_targets_empty_falls_back_to_fixed_ladder(monkeypatch):
   monkeypatch.setattr(trend, "supply_demand", lambda *a, **k: [])
 
   assert trend.build_trend_targets(
-    "BUY", 4000.0, 1.0, m1, {"M1": m1}, settings,
+    "BUY", 4000.0, 1.0, m1, {"M1": m1}, _nested_cfg(),
     leg_size=None, stop_distance=None,
   ) == []
 
@@ -627,7 +635,7 @@ def test_mode_b_falls_back_to_fixed_ladder_and_tags_reason(monkeypatch):
     AutoScalpDecision("waiting_for_box"),
     symbol="XAU",
     spot_price=4005.1,
-    cfg=settings,
+    cfg=_nested_cfg(),
   )
 
   assert decision.state == "candidate"
@@ -640,14 +648,14 @@ def test_early_bailout_states_carry_reasons():
   box_decision = AutoScalpDecision("waiting_for_box")
 
   missing = trend.evaluate_trend_gate(
-    {}, regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=settings,
+    {}, regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=_nested_cfg(),
   )
   assert missing.state == "missing_frames"
   assert missing.reasons
 
   insufficient = trend.evaluate_trend_gate(
     {"M1": _flat_m1(periods=5)},
-    regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=settings,
+    regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=_nested_cfg(),
   )
   assert insufficient.state == "insufficient_history"
   assert insufficient.reasons
@@ -658,14 +666,14 @@ def test_early_bailout_states_carry_reasons():
   }, index=pd.date_range("2026-07-20", periods=61, freq="1min", tz="UTC"))
   invalid_atr = trend.evaluate_trend_gate(
     {"M1": flat_zero_range},
-    regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=settings,
+    regime, box_decision, symbol="XAU", spot_price=4000.0, cfg=_nested_cfg(),
   )
   assert invalid_atr.state == "invalid_atr"
   assert invalid_atr.reasons
 
   invalid_spot = trend.evaluate_trend_gate(
     {"M1": _flat_m1()},
-    regime, box_decision, symbol="XAU", spot_price=-1.0, cfg=settings,
+    regime, box_decision, symbol="XAU", spot_price=-1.0, cfg=_nested_cfg(),
   )
   assert invalid_spot.state == "invalid_spot"
   assert invalid_spot.reasons

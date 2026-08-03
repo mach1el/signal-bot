@@ -7,6 +7,8 @@ import asyncio
 import json
 from dataclasses import replace
 from types import SimpleNamespace
+
+from tests.configuration.canonical_fixtures import execution_cfg
 from unittest.mock import AsyncMock
 
 import fakeredis
@@ -319,7 +321,7 @@ def test_zone_split_route_publishes_proximal_and_midpoint_legs():
     spot_price=4100.5,
     regime="trend",
     pip_size=0.1,
-    cfg=SimpleNamespace(
+    cfg=execution_cfg(
       auto_trade_zone_fill_enabled=True,
       auto_trade_zone_fill_min_atr=0.5,
       auto_trade_inside_zone_market_entry_enabled=True,

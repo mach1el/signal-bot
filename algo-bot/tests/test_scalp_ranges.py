@@ -1,25 +1,11 @@
-from types import SimpleNamespace
-
 import pandas as pd
+import pytest
 
 from app.analysis.scalp_ranges import build_scalp_structure
+from tests.configuration.canonical_fixtures import scalp_ranges_cfg as _cfg
 
 
-def _cfg(**overrides):
-  values = {
-    "range_scalp_lookback": 36,
-    "range_scalp_cluster_atr": 0.20,
-    "range_scalp_min_touches": 3,
-    "range_scalp_min_wick_frac": 0.35,
-    "range_scalp_entry_tol_atr": 0.15,
-    "range_scalp_min_width_atr": 1.2,
-    "range_scalp_max_width_atr": 6.0,
-    "range_scalp_min_room_atr": 1.0,
-    "range_scalp_break_closes": 2,
-    "round_step": 5.0,
-  }
-  values.update(overrides)
-  return SimpleNamespace(**values)
+pytestmark = pytest.mark.no_database
 
 
 def _range_df() -> pd.DataFrame:

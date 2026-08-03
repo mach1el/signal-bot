@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import map_strategy_cfg
+
 import pytest
 
 from app.analysis.market_map import MapEntry, MarketMap
@@ -62,7 +64,7 @@ def _cfg(**overrides):
     "pip_size": 0.1,
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  return map_strategy_cfg(**values)
 
 
 def _rejection_m1(*, close: float = 4058.5):
