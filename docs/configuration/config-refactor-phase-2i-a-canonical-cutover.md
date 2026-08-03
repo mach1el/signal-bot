@@ -51,9 +51,10 @@ without a persistent `__getattr__` facade or the full flat surface. When a
 unchanged.
 
 This is an **interim Phase 2I-A bridge**, not a second permanent facade.
-Phase 2I-B must replace these projected flat snapshots with typed canonical
-domain nodes (for example `runtime_config.execution.entry`) so production no
-longer reconstructs legacy attribute names.
+**Phase 2I-A.1 removed this bridge** and replaced projected flat snapshots with
+typed canonical domain reads (see
+`config-refactor-phase-2i-a1-canonical-domain-injection.md`). Phase 2I-B then
+removes the remaining flat Settings / facade rollback surface.
 
 Migrated call sites: `autotrade/worker.py` (the `_cfg()` helper was eliminated
 and its 25 call sites now pass `None`), `autotrade/trend.py`,
