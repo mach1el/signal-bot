@@ -23,6 +23,19 @@
 
 Canonical selection fails closed. It never starts a legacy fallback.
 
+## Legacy settings quarantine (Phase 2H)
+
+The legacy flat `Settings` model now lives in
+`app.configuration.legacy_settings` (also exported as `LegacySettings`) and is
+re-exported from `app.core.config` for compatibility. `app.core.config` is a
+pure composition root: it selects the authority, builds `runtime_config` /
+`settings`, and exposes secret-safe diagnostics
+(`active_configuration_authority`, `active_configuration_profile`,
+`active_configuration_catalog_fingerprint`, `active_configuration_warnings`,
+`active_configuration_resolution_trace`). The legacy authority remains the
+default and is fully selectable for rollback; its runtime type is still
+`Settings`, so startup diagnostics are unchanged.
+
 ## Roll back to legacy
 
 1. Set `APEXVOID_CONFIG_AUTHORITY=legacy`.
