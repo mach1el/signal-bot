@@ -368,7 +368,7 @@
     {
       "name": "xau_lookback_m15_bars",
       "type": "<class 'int'>",
-      "default": 650,
+      "default": 250,
       "validation_alias_order": [
         "XAU_LOOKBACK_M15_BARS"
       ],
@@ -378,7 +378,7 @@
     {
       "name": "xau_lookback_m5_bars",
       "type": "<class 'int'>",
-      "default": 1000,
+      "default": 150,
       "validation_alias_order": [
         "XAU_LOOKBACK_M5_BARS"
       ],
@@ -2749,8 +2749,8 @@
       "scanner_telegram_bot_token": "<redacted>",
       "scanner_window": 500,
       "xau_lookback_h1_bars": 400,
-      "xau_lookback_m15_bars": 650,
-      "xau_lookback_m5_bars": 1000,
+      "xau_lookback_m15_bars": 250,
+      "xau_lookback_m5_bars": 150,
       "xau_lookback_m1_bars": 150,
       "scanner_alert_ttl": 7200,
       "scanner_level_bucket": 20,
@@ -3067,8 +3067,8 @@
       "scanner_telegram_bot_token": "<redacted>",
       "scanner_window": 500,
       "xau_lookback_h1_bars": 400,
-      "xau_lookback_m15_bars": 650,
-      "xau_lookback_m5_bars": 1000,
+      "xau_lookback_m15_bars": 250,
+      "xau_lookback_m5_bars": 150,
       "xau_lookback_m1_bars": 150,
       "scanner_alert_ttl": 7200,
       "scanner_level_bucket": 20,
@@ -3385,8 +3385,8 @@
       "scanner_telegram_bot_token": "<redacted>",
       "scanner_window": 500,
       "xau_lookback_h1_bars": 400,
-      "xau_lookback_m15_bars": 650,
-      "xau_lookback_m5_bars": 1000,
+      "xau_lookback_m15_bars": 250,
+      "xau_lookback_m5_bars": 150,
       "xau_lookback_m1_bars": 150,
       "scanner_alert_ttl": 7200,
       "scanner_level_bucket": 20,
@@ -3703,8 +3703,8 @@
       "scanner_telegram_bot_token": "<redacted>",
       "scanner_window": 500,
       "xau_lookback_h1_bars": 400,
-      "xau_lookback_m15_bars": 650,
-      "xau_lookback_m5_bars": 1000,
+      "xau_lookback_m15_bars": 250,
+      "xau_lookback_m5_bars": 150,
       "xau_lookback_m1_bars": 150,
       "scanner_alert_ttl": 7200,
       "scanner_level_bucket": 20,

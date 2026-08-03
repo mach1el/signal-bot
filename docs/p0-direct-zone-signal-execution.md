@@ -96,9 +96,9 @@ is now the single place that resolves a timeframe to its configured lookback:
 
 | Setting | Default | XAU-appropriate range |
 |---|---|---|
-| `XAU_LOOKBACK_H1_BARS` | 400 | 300-500 |
-| `XAU_LOOKBACK_M15_BARS` | 650 | 500-800 |
-| `XAU_LOOKBACK_M5_BARS` | 1000 | 800-1200 |
+| `XAU_LOOKBACK_H1_BARS` | 400 | 300-500 (~2.5-4 weeks; major S/D, swing H/L, flip) |
+| `XAU_LOOKBACK_M15_BARS` | 250 | 200-300 (~2-3 days; session / Asia-London-NY) |
+| `XAU_LOOKBACK_M5_BARS` | 150 | 100-150 (current + previous session entry OB/FVG/BOS) |
 | `XAU_LOOKBACK_M1_BARS` | 150 | 100-200 (timing only) |
 
 ### 3d. XAU zone-width contract (mission section 4)

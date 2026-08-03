@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Source fingerprint: `1d0758c9636c9cc0209c1d385fbf205c52388c55782ccccd5a35d2260c21b696`
+- Source fingerprint: `bb24affb47b297c91637a83880cd2043e59a4cff0b5b17ca2d02fb4952fb54f0`
 - Environment-bound fields: `374`
 - Deprecated aliases: `21`
 
@@ -370,9 +370,9 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `WEEKLY_REPORT_HOUR` | `delivery.reports.weekly.utc_hour` | `int` | no | no | — | `8` |
 | `WEEKLY_REPORT_SKIP_EMPTY` | `delivery.reports.weekly.skip_empty` | `bool` | no | no | — | `False` |
 | `XAU_LOOKBACK_H1_BARS` | `market_data.lookbacks.h1_bars` | `int` | no | no | — | `400` |
-| `XAU_LOOKBACK_M15_BARS` | `market_data.lookbacks.m15_bars` | `int` | no | no | — | `650` |
+| `XAU_LOOKBACK_M15_BARS` | `market_data.lookbacks.m15_bars` | `int` | no | no | — | `250` |
 | `XAU_LOOKBACK_M1_BARS` | `market_data.lookbacks.m1_bars` | `int` | no | no | — | `150` |
-| `XAU_LOOKBACK_M5_BARS` | `market_data.lookbacks.m5_bars` | `int` | no | no | — | `1000` |
+| `XAU_LOOKBACK_M5_BARS` | `market_data.lookbacks.m5_bars` | `int` | no | no | — | `150` |
 | `XAU_MAJOR_ZONE_MAX_WIDTH_PRICE` | `analysis.zones.symbol_contract.major_maximum_width_price` | `float` | no | no | — | `10.0` |
 | `XAU_ZONE_MIN_WIDTH_PRICE` | `analysis.zones.symbol_contract.minimum_width_price` | `float` | no | no | — | `3.0` |
 | `XAU_ZONE_PREFERRED_MAX_WIDTH_PRICE` | `analysis.zones.symbol_contract.preferred_maximum_width_price` | `float` | no | no | — | `6.0` |
