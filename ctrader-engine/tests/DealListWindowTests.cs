@@ -58,6 +58,26 @@ public sealed class DealListWindowTests
   }
 
   [Fact]
+  public void IsRetryableDealListFailureCoversTimeoutAndBoundaries()
+  {
+    Assert.True(
+      CTraderOpenApiFeedClient.IsRetryableDealListFailure(
+        new TimeoutException("Timed out after 30s waiting for ProtoOADealListByPositionIdRes")
+      )
+    );
+    Assert.True(
+      CTraderOpenApiFeedClient.IsRetryableDealListFailure(
+        new InvalidOperationException("cTrader Open API error: INCORRECT_BOUNDARIES")
+      )
+    );
+    Assert.False(
+      CTraderOpenApiFeedClient.IsRetryableDealListFailure(
+        new InvalidOperationException("cTrader Open API error: ALREADY_LOGGED_IN")
+      )
+    );
+  }
+
+  [Fact]
   public void ToUnixMillisecondsDetectsSecondsVsMilliseconds()
   {
     Assert.Equal(1_700_000_000_000L, CTraderOpenApiFeedClient.ToUnixMilliseconds(1_700_000_000L));
