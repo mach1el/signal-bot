@@ -6,6 +6,8 @@ from app.core.config import settings
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import map_strategy_cfg
+
 import pandas as pd
 import pytest
 
@@ -97,7 +99,7 @@ def _cfg(**overrides) -> SimpleNamespace:
     "pip_size": 0.1,
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  return map_strategy_cfg(**values)
 
 
 def _m1_frame(rows: list[dict]) -> pd.DataFrame:

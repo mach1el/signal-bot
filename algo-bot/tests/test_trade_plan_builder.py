@@ -12,6 +12,8 @@ from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import execution_cfg
+
 import pytest
 
 from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
@@ -201,7 +203,7 @@ def test_single_limit_route_produces_single_limit_entry():
 
 
 def test_zone_split_route_produces_limit_ladder_with_two_legs():
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_zone_fill_enabled=True, auto_trade_zone_fill_min_atr=0.1,
   )
   match = _match(entry_low=4088.10, entry_high=4090.00)
@@ -214,7 +216,7 @@ def test_zone_split_route_produces_limit_ladder_with_two_legs():
 
 
 def test_key_level_reaction_emits_market_with_limit_scale():
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_zone_fill_enabled=True,
     auto_trade_zone_fill_min_atr=0.1,
     auto_trade_reaction_scale_enabled=True,
@@ -245,7 +247,7 @@ def test_key_level_reaction_emits_market_with_limit_scale():
 
 
 def test_demand_zone_reaction_does_not_emit_market_with_limit_scale():
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_zone_fill_enabled=True,
     auto_trade_zone_fill_min_atr=0.1,
     auto_trade_reaction_scale_enabled=True,
@@ -380,7 +382,7 @@ def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
     ),
     atr=2.0,
   )
-  cfg = SimpleNamespace(
+  cfg = execution_cfg(
     auto_trade_stop_push_beyond_zone=True,
     auto_trade_add_stop_buffer_atr=0.3,
     auto_trade_wick_stop_buffer_atr=0.15,
@@ -390,6 +392,9 @@ def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
     auto_trade_trend_stop_min_pips=20,
     auto_trade_trend_stop_max_pips=60,
     auto_trade_zone_fill_enabled=True,
+    # Keep a single entry so the base stop stays inside the envelope and the
+    # opposing-zone push path can surface stop_inside_opposing_zone.
+    auto_trade_zone_fill_min_atr=10.0,
   )
   with pytest.raises(TradePlanBuildRejected) as excinfo:
     _build(
@@ -413,4 +418,4 @@ def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
   assert measured.get("planned_base_stop_price")
   assert measured.get("planned_pushed_stop_price")
   assert measured.get("pushed_over_envelope_pips")
-  assert measured["stop_max_envelope_pips"] == 60
+  assert measured["stop_max_envelope_pips"] == 30

@@ -14,6 +14,7 @@ from app.autotrade.multi_match import (
 )
 from app.autotrade.strategy_match import StrategyMatch
 from app.persistence import redis_state
+from tests.configuration.canonical_fixtures import canonical_ns_from_flat
 
 
 pytestmark = pytest.mark.no_database
@@ -164,7 +165,7 @@ def test_oversized_singleton_zone_is_context_only():
     Zone(4040.57, 4075.04, "supply", source="supply_demand"),
     atr=10.0,
     pip_size=0.1,
-    cfg=settings,
+    cfg=canonical_ns_from_flat(settings),
   )
   assert classification.width_pips == pytest.approx(344.7)
   assert classification.context_only

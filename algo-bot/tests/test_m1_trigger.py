@@ -19,6 +19,9 @@ from app.analysis.m1_trigger import (
 )
 
 
+pytestmark = pytest.mark.no_database
+
+
 ZONE_LOW = 4088.0
 ZONE_HIGH = 4090.0
 KEY_LEVEL = 4089.0

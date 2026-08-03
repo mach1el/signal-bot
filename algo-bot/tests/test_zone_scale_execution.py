@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import execution_cfg
+
 import pytest
 
 from app.autotrade.execution_policy import evaluate_execution_policy
@@ -41,7 +43,7 @@ def _cfg(**overrides):
     "auto_trade_reaction_scale_invalid_policy": "single_market",
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  return execution_cfg(**values)
 
 
 def _policy_match(**overrides):

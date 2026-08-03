@@ -1,11 +1,16 @@
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import map_strategy_cfg
+
 import pandas as pd
 import pytest
 
 from app.analysis.market_map import MapEntry, MarketMap
 from app.autotrade import map_strategy
 from app.autotrade.strategy_match import StrategyMatch
+
+
+pytestmark = pytest.mark.no_database
 
 
 def _m1_bar(
@@ -87,7 +92,7 @@ def _cfg(**overrides) -> SimpleNamespace:
     "proximal_band_atr": 0.5,
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  return map_strategy_cfg(**values)
 
 
 def test_m1_rejection_no_longer_produces_a_candidate(monkeypatch):
@@ -255,6 +260,10 @@ def test_bias_selects_only_the_matching_side():
     4145.8,
     1.0,
     0.5,
+    cfg=_cfg(
+      auto_trade_allow_counter_bias=False,
+      auto_trade_map_counter_bias_enabled=False,
+    ),
   )
 
   assert selected is None

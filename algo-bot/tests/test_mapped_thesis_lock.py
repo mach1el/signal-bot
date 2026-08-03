@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+from tests.configuration.canonical_fixtures import map_strategy_cfg
+
 import pytest
 
 from app.autotrade.reaction_identity import (
@@ -35,7 +37,7 @@ def _cfg(**overrides):
     "pip_size": 0.1,
   }
   values.update(overrides)
-  return SimpleNamespace(**values)
+  return map_strategy_cfg(**values)
 
 
 class FakeRedis:

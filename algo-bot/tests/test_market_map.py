@@ -27,35 +27,10 @@ from app.analysis.regime import BoxBreak
 from app.analysis.scalp_ranges import ScalpBarrier, ScalpRange
 from app.analysis.trendlines import Trendline
 from app.analysis.zones import reconcile_opposing
+from tests.configuration.canonical_fixtures import market_map_cfg as _cfg
 
 
-def _cfg(**overrides):
-  values = {
-    "map_max_per_side": 4,
-    "map_major_score": 12.0,
-    "map_max_touches": 2,
-    "map_min_zone_score": 6.0,
-    "map_min_level_touches": 4,
-    "map_max_distance_atr": 15.0,
-    "map_band_max_atr": 2.0,
-    "map_min_per_side": 2,
-    "map_fallback_radius": 30.0,
-    "map_scalp_radius": 15.0,
-    "round_step": 5.0,
-    "range_scalp_min_touches": 3,
-    "range_scalp_min_width_atr": 1.2,
-    "range_scalp_max_width_atr": 6.0,
-    "range_scalp_min_room_atr": 1.0,
-    "range_scalp_break_closes": 2,
-    "scanner_exec_tf": "M5",
-    "map_change_min": 1.0,
-    "proximal_band_atr": 0.5,
-    "session_asia_start": 22,
-    "session_london_start": 7,
-    "session_ny_start": 13,
-  }
-  values.update(overrides)
-  return SimpleNamespace(**values)
+pytestmark = pytest.mark.no_database
 
 
 def _item(
