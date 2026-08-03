@@ -1084,9 +1084,8 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
   assert "🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
-  head_edits = [e for e in edited if e[1] == 7001]
-  assert head_edits
-  assert "TERMINAL" in head_edits[-1][2]
+  # Root SETUP FORMING card is left alone on close.
+  assert all(e[1] != 7001 for e in edited)
 
 
 @pytest.mark.asyncio
