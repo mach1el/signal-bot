@@ -3,7 +3,7 @@
 > Generated from the inactive typed `ApexVoidConfig` schema. Do not edit manually.
 
 - Catalog version: `1`
-- Source fingerprint: `1d0758c9636c9cc0209c1d385fbf205c52388c55782ccccd5a35d2260c21b696`
+- Source fingerprint: `bb24affb47b297c91637a83880cd2043e59a4cff0b5b17ca2d02fb4952fb54f0`
 - Items: `441`
 - Runtime status: inactive; legacy `app.core.config.Settings` remains active
 
@@ -368,9 +368,9 @@
 | `market_data.ctrader_feed.symbol` | `CTRADER_SYMBOL` | `string` | `identifier` | `configurable` | `"XAUUSD"` |
 | `market_data.ctrader_feed.timeframes` | `CTRADER_TIMEFRAMES` | `list[string]` | `enum` | `configurable` | `["M1", "M5", "M15", "H1"]` |
 | `market_data.lookbacks.h1_bars` | `XAU_LOOKBACK_H1_BARS` | `int` | `bars` | `configurable` | `400` |
-| `market_data.lookbacks.m15_bars` | `XAU_LOOKBACK_M15_BARS` | `int` | `bars` | `configurable` | `650` |
+| `market_data.lookbacks.m15_bars` | `XAU_LOOKBACK_M15_BARS` | `int` | `bars` | `configurable` | `250` |
 | `market_data.lookbacks.m1_bars` | `XAU_LOOKBACK_M1_BARS` | `int` | `bars` | `configurable` | `150` |
-| `market_data.lookbacks.m5_bars` | `XAU_LOOKBACK_M5_BARS` | `int` | `bars` | `configurable` | `1000` |
+| `market_data.lookbacks.m5_bars` | `XAU_LOOKBACK_M5_BARS` | `int` | `bars` | `configurable` | `150` |
 | `market_data.scanner.alert_ttl` | `SCANNER_ALERT_TTL` | `int` | `seconds` | `configurable` | `7200` |
 | `market_data.scanner.confluence_floor` | `SCANNER_CONFLUENCE_FLOOR` | `int` | `count` | `configurable` | `2` |
 | `market_data.scanner.execution_timeframe` | `SCANNER_EXEC_TF` | `str` | `enum` | `configurable` | `"M5"` |
