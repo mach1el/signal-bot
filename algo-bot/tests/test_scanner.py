@@ -1429,6 +1429,55 @@ async def test_box_breakout_second_alert_on_same_edge_is_band_deduped(monkeypatc
   notify.assert_not_awaited()
 
 
+def test_box_breakout_now_participates_in_confluence_merge():
+  """box_breakout/break_retest were kept replay-only specifically because
+  they were "not yet re-verified against band-kind classification and
+  canonical BREAKOUT_RETEST family merge" (detectors.py registry). The
+  actual root cause: neither detector ever set structural_source/
+  structural_id on its DetectionResult, and _merge_detection_confluence
+  below only considers results with a truthy structural_id - so a Box
+  Breakout firing on the same band as an already-live Key Level Reaction
+  used to always stay a separate, unmerged result instead of collapsing
+  into one order. Now that both fields are wired (see detectors.py), a
+  Box Breakout result merges exactly like every other structural source.
+  """
+  box_result = scanner.DetectionResult(
+    setup="Box Breakout",
+    direction="BUY",
+    key_level=4100.0,
+    entry_zone=Zone(4109.6, 4110.4, "demand", source="box_breakout"),
+    current_price=4110.8,
+    confluence=2,
+    reasons=["box breakout"],
+    structural_source="box_breakout",
+    structural_id="box-4100-4110-up-9",
+    structural_low=4109.6,
+    structural_high=4110.4,
+  )
+  key_level_result = scanner.DetectionResult(
+    setup="Key Level Reaction",
+    direction="BUY",
+    key_level=4110.0,
+    entry_zone=Zone(4109.8, 4110.2, "demand", source="key_level"),
+    current_price=4110.8,
+    confluence=2,
+    reasons=["key level reaction"],
+    structural_source="key_level",
+    structural_id="key-level-4110",
+    structural_low=4109.8,
+    structural_high=4110.2,
+  )
+
+  merged = scanner._merge_detection_confluence(
+    "XAU", "M5", [box_result, key_level_result], atr=2.0,
+  )
+
+  assert len(merged) == 1
+  result = merged[0]
+  assert result.confluence_zone_id is not None
+  assert set(result.confluence_tags) == {"box_breakout", "key_level"}
+
+
 @pytest.mark.asyncio
 async def test_band_dedup_preserves_a_different_structural_setup(monkeypatch):
   client = redis_state.get_client()

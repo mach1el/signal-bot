@@ -4,11 +4,17 @@ from typing import Callable
 import pandas as pd
 import pytest
 
+from app.analysis.confluence_zone import BandKind, classify_band_kind
 from app.analysis.engine import Regime
 from app.analysis import detectors
 from app.analysis.types import Break, DealingRange, Grab, Pool, SessionLevel
 from app.analysis.regime import BoxBreak
 from app.analysis.scalp_ranges import ScalpBarrier, ScalpRange
+from app.analysis.structural_reaction_support import (
+  box_structural_id,
+  key_level_structural_id,
+  trendline_structural_id,
+)
 from app.analysis.structure import Level, Swing, Zone
 from app.analysis.trendlines import Trendline
 
@@ -964,6 +970,47 @@ def test_trendline_break_retest_fires_outside_chop_only():
   assert "TL break+retest" in result.reasons
   assert result.entry_zone.source == "trendline"
   assert detectors.break_retest(replace(ctx, regime=_chop_regime())) is None
+  # Registry replay_only_reason: "not yet re-verified against band-kind
+  # classification and canonical BREAKOUT_RETEST family merge". Break &
+  # Retest was never wiring structural_source/structural_id at all, so it
+  # was invisible to _merge_detection_confluence (which requires a truthy
+  # structural_id) and never band-kind classified - reusing the exact same
+  # identity trendline_reaction uses means the two can never both fire
+  # unmerged on the same trendline (they're mutually exclusive on
+  # broken/unbroken state anyway) and this now gets the lenient LEVEL_BAND
+  # width treatment instead of silently defaulting to STRUCTURAL_ZONE.
+  assert result.structural_id == trendline_structural_id(
+    ctx.symbol, ctx.tf, line,
+  )
+  assert result.structural_source == "trendline"
+  assert classify_band_kind(result.structural_source) == BandKind.LEVEL_BAND
+
+
+def test_break_retest_level_path_populates_structural_identity():
+  # Same gap as the trendline path above, for the horizontal-level branch
+  # of break_retest (the one key_level_reaction explicitly defers
+  # broken-role levels to - see its ROLE_BROKEN_SUPPORT/RESISTANCE skip).
+  df = _df([
+    (95, 96, 94, 95, 100),
+    (95, 96, 94, 95, 100),
+    (99, 102, 98, 101, 100),
+    (101, 103, 100.5, 102, 100),
+    (101, 102, 99.5, 101.8, 100),
+  ])
+  level = Level(100.0, kind="reaction", touches=3, strength=2.0)
+  ctx = _ctx(df, levels=[level], indicator_set=_indicators(df, atr=1.0))
+
+  result = detectors.break_retest(ctx)
+
+  assert result is not None
+  assert result.setup == "Break & Retest"
+  assert result.direction == "BUY"
+  assert result.entry_zone.source == "retest_support"
+  assert result.structural_id == key_level_structural_id(
+    ctx.symbol, ctx.tf, level,
+  )
+  assert result.structural_source == "key_level"
+  assert classify_band_kind(result.structural_source) == BandKind.LEVEL_BAND
 
 
 def _box_breakout_ctx(*, bias: str = "up", accept_index: int = 3):
@@ -1005,6 +1052,20 @@ def test_box_breakout_accepts_bias_aligned_retest_inside_chop():
   assert "coil" in result.reasons
   assert "TP1 PDH" in result.reasons
   assert "coil" in result.entry_zone.score_reasons
+  # Same gap as Break & Retest above: box_breakout never wired
+  # structural_source/structural_id, so it was invisible to
+  # _merge_detection_confluence and never band-kind classified - its
+  # replay_only_reason names exactly this ("not yet re-verified against
+  # band-kind classification and canonical BREAKOUT_RETEST family merge").
+  box = _box_breakout_ctx().structures["M5"].box_break
+  assert result.structural_id == box_structural_id("XAU", "M5", box)
+  assert result.structural_source == "box_breakout"
+  assert (
+    classify_band_kind(result.structural_source)
+    == BandKind.BREAKOUT_RETEST_BAND
+  )
+  assert result.structural_low == result.entry_zone.low
+  assert result.structural_high == result.entry_zone.high
 
 
 def test_box_breakout_allows_immediate_proximal_displacement_entry():
