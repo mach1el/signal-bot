@@ -32,9 +32,34 @@ pure composition root: it selects the authority, builds `runtime_config` /
 `settings`, and exposes secret-safe diagnostics
 (`active_configuration_authority`, `active_configuration_profile`,
 `active_configuration_catalog_fingerprint`, `active_configuration_warnings`,
-`active_configuration_resolution_trace`). The legacy authority remains the
-default and is fully selectable for rollback; its runtime type is still
-`Settings`, so startup diagnostics are unchanged.
+`active_configuration_resolution_trace`). The legacy authority is fully
+selectable for rollback; its runtime type is still `Settings`, so its startup
+diagnostics are unchanged.
+
+## Authority selection semantics (Phase 2I-A)
+
+Managed deployments now default to **canonical**: `docker-compose.yml`, the
+production `docker-compose.yml.j2` template, and `.env.example` all set
+`APEXVOID_CONFIG_AUTHORITY=canonical`. The *parser* default is unchanged — an
+entirely **missing** `APEXVOID_CONFIG_AUTHORITY` still resolves to legacy so no
+existing rollback path breaks — but that implicit selection is now nudged and
+logged.
+
+The composition root exposes three additional secret-safe diagnostics:
+
+- `active_configuration_authority_explicit()` — whether the operator set the
+  env var explicitly (vs. an implicit default).
+- `active_configuration_implicit_authority_warning()` — returns, only when the
+  env var is **absent**, the one-line warning
+  `configuration_authority_implicit=true selected_authority=legacy recommended_authority=canonical`.
+- `active_configuration_deprecation_message()` — returns, only when the env var
+  is **explicitly** `legacy`, the one-line diagnostic
+  `configuration_authority=legacy configuration_authority_deprecated=true rollback_mode=true planned_removal_phase=2I-B`.
+
+`app.main` logs both at startup. An explicit `legacy` emits the deprecation
+diagnostic (not the implicit warning); an absent variable emits the implicit
+warning (not the deprecation). The legacy startup message content
+(`configuration_authority=legacy`) is unchanged.
 
 ## Roll back to legacy
 
