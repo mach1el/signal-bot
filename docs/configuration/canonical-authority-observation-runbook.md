@@ -11,6 +11,10 @@ systems and never fabricates results. All conclusions are the operator's.
 ## Preconditions
 
 - Managed deployment already defaults to `APEXVOID_CONFIG_AUTHORITY=canonical`.
+- The deployment image includes the final structural configuration release that
+  contains **Phase 2I-A.1** (typed canonical domain injection; no production
+  `project_runtime_config` bridge). See
+  `config-refactor-phase-2i-a1-canonical-domain-injection.md`.
 - Canonical startup verified once: startup record shows
   `configuration_authority=canonical`, expected profile, catalog fingerprint,
   and configuration health publishes.
