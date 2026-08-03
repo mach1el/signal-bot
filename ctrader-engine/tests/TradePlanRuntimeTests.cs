@@ -1131,22 +1131,30 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task StepVolumeSkipAdvancesOnlyOneTargetNotToTheFinalOne()
+  public async Task UndersizedPositionClosesOneStepPerTargetInsteadOfSkipping()
   {
     // Live incident (2026-08-03): a small-equity position (0.02 lots, two
     // StepVolume units) with 5 equal-weight targets hit TP1, but 20% of
     // that volume rounds down below StepVolume - so PlanPartialCloseVolume
-    // returns 0 and the "can't book a valid partial" branch fires. That
+    // returned 0 and the "can't book a valid partial" branch fired. That
     // branch used to jump NextTargetIndex straight to Targets.Count - 1
     // (4), even though price had only ever reached TP1. The trail-stop
     // step further down reads `NextTargetIndex - 3` assuming that value
     // tracks genuinely reached targets, so it then tried to amend the SL
     // to TP2's price - a level price had never actually touched - and the
     // broker rejected that amend (TRADING_BAD_STOPS: new SL below current
-    // ask) on every single poll thereafter, forever, because nothing ever
-    // advances NextTargetIndex again once this branch has already jumped
-    // to the end. Confirmed live: 300+ identical rejections over 2 hours
-    // on one position, stop never actually trailing past break-even.
+    // ask) on every single poll thereafter, forever. Confirmed live: 300+
+    // identical rejections over 2 hours on one position, stop never
+    // actually trailing past break-even.
+    //
+    // The fix floors the proportional close to one StepVolume whenever the
+    // raw share would round below it (and there's at least one step of
+    // room left) instead of skipping the target outright. For a position
+    // with only as many steps as roughly N targets, this degrades to
+    // closing one step per target reached - a 2-step position closes half
+    // at TP1 and the other half at TP2 - rather than silently deferring
+    // everything to whichever target's redistributed share eventually
+    // happens to cross the StepVolume line.
     var fiveTargets = """
       [
         {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
@@ -1251,28 +1259,37 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(200, Assert.Single(client.MarketOrders).Volume);
     Assert.Equal(4082.50m, Assert.Single(client.StopAmendments).StopLoss);
 
-    // Price reaches TP1 only - TP2..TP5 are still untouched.
+    // Price reaches TP1: the raw 20% share (40) rounds below StepVolume
+    // (100), so the fix books one whole step (100 - half the position)
+    // instead of skipping it.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
     );
 
     var afterTp1 = Assert.Single(runtime.TrackedStates);
     Assert.Equal(1, afterTp1.NextTargetIndex);
-    Assert.Empty(client.Closes);
-    // No BE or trail amendment fired yet either - both are gated behind
-    // NextTargetIndex and were skipped this poll along with the target
-    // check (the buggy jump-to-end used to make a trail amendment fire
-    // here, targeting TP2's price with the market nowhere near it).
-    Assert.Single(client.StopAmendments);
-
-    // A later poll at the same price (TP2 still unreached) now runs the BE
-    // check normally - proving the fix didn't disturb everything past it.
-    await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 3), CancellationToken.None
-    );
-    Assert.Equal(1, runtime.TrackedStates.Single().NextTargetIndex);
+    Assert.Equal(100, Assert.Single(client.Closes).Volume);
+    Assert.Equal(100, afterTp1.RemainingVolume);
+    // BE applies in the same poll as TP1 (unchanged, pre-existing
+    // behavior) - entry stop + BE stop, no bogus trail attempt.
     Assert.Equal(2, client.StopAmendments.Count);
-    Assert.True(runtime.TrackedStates.Single().BreakEvenApplied);
+    Assert.True(afterTp1.BreakEvenApplied);
+    Assert.Contains(store.Events, e => e.Type == "tp_booked");
+
+    // Price reaches TP2: only one StepVolume (100) remains, so this closes
+    // the entire remainder in one shot - the "other half".
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
+    );
+
+    Assert.Equal(2, client.Closes.Count);
+    Assert.Equal(100, client.Closes[^1].Volume);
+    // A fully closed position is pruned from TrackedStates - the
+    // "position_closed" event is the durable record of the final close.
+    var closedEvent = Assert.Single(
+      store.Events, e => e.Type == "position_closed"
+    );
+    Assert.Equal(0, closedEvent.RemainingVolume);
   }
 
   [Fact]
