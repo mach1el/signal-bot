@@ -1131,6 +1131,151 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task StepVolumeSkipAdvancesOnlyOneTargetNotToTheFinalOne()
+  {
+    // Live incident (2026-08-03): a small-equity position (0.02 lots, two
+    // StepVolume units) with 5 equal-weight targets hit TP1, but 20% of
+    // that volume rounds down below StepVolume - so PlanPartialCloseVolume
+    // returns 0 and the "can't book a valid partial" branch fires. That
+    // branch used to jump NextTargetIndex straight to Targets.Count - 1
+    // (4), even though price had only ever reached TP1. The trail-stop
+    // step further down reads `NextTargetIndex - 3` assuming that value
+    // tracks genuinely reached targets, so it then tried to amend the SL
+    // to TP2's price - a level price had never actually touched - and the
+    // broker rejected that amend (TRADING_BAD_STOPS: new SL below current
+    // ask) on every single poll thereafter, forever, because nothing ever
+    // advances NextTargetIndex again once this branch has already jumped
+    // to the end. Confirmed live: 300+ identical rejections over 2 hours
+    // on one position, stop never actually trailing past break-even.
+    var fiveTargets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
+        {"target_id": "TP2", "type": "absolute", "price": "4094.00", "close_ratio": "0.2"},
+        {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.2"},
+        {"target_id": "TP4", "type": "absolute", "price": "4098.00", "close_ratio": "0.2"},
+        {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan($$"""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Trend Pullback",
+        "strategy_family": "trend_pullback",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "H1",
+        "confirmation_timeframe": "M15",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "up",
+        "regime": "trend",
+        "reasons": ["htf_uptrend"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "zone-xau-4088-4090",
+        "kind": "demand",
+        "timeframe": "H1",
+        "low": "4088.10",
+        "high": "4090.00",
+        "invalidation_price": "4081.80"
+      },
+      "entry": {
+        "type": "market_watch",
+        "expires_at": 2000000000,
+        "zone_low": "4088.10",
+        "zone_high": "4090.00",
+        "activation": "quote_inside_zone",
+        "price_side": "ask",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "structure",
+        "structure_id": "zone-xau-4088-4090",
+        "reason": "protective stop plan"
+      },
+      "targets": {{fiveTargets}},
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "sizing": {
+        "mode": "equity_table",
+        "table_version": "owner_equity_v1",
+        "entry_distribution": "single",
+        "leg_ratios": []
+      },
+      "management": {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": false,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    // Equity 200 -> LotsForEquity floors to 0.02 lots -> 200 units, exactly
+    // two StepVolume(100) steps - small enough that a single 20% target
+    // slice (40 units) rounds down below StepVolume.
+    var client = new FakeV7TradingClient { AccountEquity = 200m, AccountBalance = 200m };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    Assert.Equal(200, Assert.Single(client.MarketOrders).Volume);
+    Assert.Equal(4082.50m, Assert.Single(client.StopAmendments).StopLoss);
+
+    // Price reaches TP1 only - TP2..TP5 are still untouched.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
+    );
+
+    var afterTp1 = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(1, afterTp1.NextTargetIndex);
+    Assert.Empty(client.Closes);
+    // No BE or trail amendment fired yet either - both are gated behind
+    // NextTargetIndex and were skipped this poll along with the target
+    // check (the buggy jump-to-end used to make a trail amendment fire
+    // here, targeting TP2's price with the market nowhere near it).
+    Assert.Single(client.StopAmendments);
+
+    // A later poll at the same price (TP2 still unreached) now runs the BE
+    // check normally - proving the fix didn't disturb everything past it.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 3), CancellationToken.None
+    );
+    Assert.Equal(1, runtime.TrackedStates.Single().NextTargetIndex);
+    Assert.Equal(2, client.StopAmendments.Count);
+    Assert.True(runtime.TrackedStates.Single().BreakEvenApplied);
+  }
+
+  [Fact]
   public async Task RestartRecoversReceivedStateFromRedis()
   {
     var store = new FakeV7Store();
