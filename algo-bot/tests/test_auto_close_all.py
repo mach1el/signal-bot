@@ -1,6 +1,7 @@
 """Owner /auto_close_all flatten command."""
 
 from __future__ import annotations
+from app.core.config import settings
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -23,7 +24,7 @@ def _owner_msg(text: str = "/auto_close_all"):
 
 @pytest.mark.asyncio
 async def test_algo_status_reports_failure_instead_of_silence(monkeypatch):
-  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     dm,
     "auto_trade_status_text",
@@ -44,7 +45,7 @@ async def test_algo_status_reports_failure_instead_of_silence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_algo_status_clips_oversized_card(monkeypatch):
-  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     dm,
     "auto_trade_status_text",
@@ -66,7 +67,7 @@ async def test_algo_status_clips_oversized_card(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auto_close_all_requires_confirm(monkeypatch):
-  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   monkeypatch.setattr(
     dm, "auto_trade_status_text", AsyncMock(return_value="status body")
   )
@@ -87,7 +88,7 @@ async def test_auto_close_all_requires_confirm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auto_close_all_confirm_pauses_and_requests_flatten(monkeypatch):
-  monkeypatch.setattr(dm.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   pause = AsyncMock()
   close_all = AsyncMock()
   monkeypatch.setattr(dm, "set_auto_trade_paused", pause)
@@ -109,12 +110,12 @@ async def test_request_close_all_xadds_close_all_command(monkeypatch):
   client = AsyncMock()
   monkeypatch.setattr(manual_execution.redis_state, "get_client", lambda: client)
   monkeypatch.setattr(
-    manual_execution.settings,
+    settings,
     "manual_trade_command_stream",
     "manual_trade:commands",
   )
   monkeypatch.setattr(
-    manual_execution.settings,
+    settings,
     "manual_trade_command_stream_maxlen",
     100,
   )

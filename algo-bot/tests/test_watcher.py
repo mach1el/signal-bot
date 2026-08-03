@@ -12,6 +12,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.signals import broadcast, watcher
 from app.persistence import redis_state
 from app.signals.pips_format import pips_between, rr_entry, sl_result_pips
@@ -347,7 +348,7 @@ async def test_algo_runner_replies_to_engine_tp_message(monkeypatch):
   send = AsyncMock()
   monkeypatch.setattr(watcher, "fanout_update", fanout)
   monkeypatch.setattr(watcher, "send_scanner_with_retry", send)
-  monkeypatch.setattr(watcher.settings, "telegram_owner_id", 12345)
+  monkeypatch.setattr(settings, "telegram_owner_id", 12345)
   await redis_state.get_client().set(
     watcher.tp_message_key("internal", 555), "8124", ex=60,
   )
@@ -396,7 +397,7 @@ async def test_tp_alert_carries_owner_button_on_vip_only(monkeypatch):
 
 
 def test_public_watcher_alert_hides_pips_when_disabled(monkeypatch):
-  monkeypatch.setattr(watcher.settings, "public_show_pips", False)
+  monkeypatch.setattr(settings, "public_show_pips", False)
 
   tp = watcher._render_level_alert("public", "TP", "TP1", 2, 2010, 90)
   sl = watcher._render_level_alert("public", "SL", "SL", 2, 1990, 110)
@@ -744,7 +745,7 @@ async def test_load_bars_prefers_fresh_ctrader_feed_over_tiingo(monkeypatch):
 @pytest.mark.asyncio
 async def test_load_bars_falls_back_to_tiingo_when_ctrader_stale(monkeypatch):
   stale = datetime.now(timezone.utc) - timedelta(
-    seconds=watcher.settings.watcher_ctrader_stale_seconds + 60
+    seconds=settings.watcher_ctrader_stale_seconds + 60
   )
   await _seed_ctrader_bar(stale, 2000, 2001, 1999, 2000)
   fresh_tiingo = [_bar("2026-07-08T10:00:00.000Z", 2005, 2010, 2004, 2009)]
@@ -774,9 +775,9 @@ async def test_load_bars_falls_through_to_tiingo_call_without_key(monkeypatch):
   # No TIINGO_API_KEY in the test env either way -- this proves the watcher
   # still attempts the fallback (get_xau_bars handles a missing key itself,
   # same as it always has) rather than silently giving up on a stale feed.
-  monkeypatch.setattr(watcher.settings, "tiingo_api_key", None)
+  monkeypatch.setattr(settings, "tiingo_api_key", None)
   stale = datetime.now(timezone.utc) - timedelta(
-    seconds=watcher.settings.watcher_ctrader_stale_seconds + 60
+    seconds=settings.watcher_ctrader_stale_seconds + 60
   )
   await _seed_ctrader_bar(stale, 2000, 2001, 1999, 2000)
   tiingo = AsyncMock(return_value=None)

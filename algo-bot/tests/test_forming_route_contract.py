@@ -1,4 +1,5 @@
 import json
+from app.core.config import settings
 import time
 
 import pytest
@@ -68,17 +69,17 @@ def _supply_match() -> StrategyMatch:
 
 
 def _enable_supply(monkeypatch):
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_dry_run", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_supply_reaction_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_mapped_zone_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(worker.settings, "auto_trade_news_guard_minutes", 0)
-  monkeypatch.setattr(worker.settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(worker.settings, "auto_trade_opposing_barrier_veto_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_overlap_veto_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_supply_reaction_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_mapped_zone_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
+  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_news_guard_minutes", 0)
+  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_veto_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", True)
 
 
 @pytest.mark.asyncio
@@ -104,7 +105,7 @@ async def test_supply_incident_inside_zone_publishes_with_mapped_zone_disabled(
   )
 
   assert candidate_id == match.match_id
-  entries = await client.xrange(worker.settings.auto_trade_stream)
+  entries = await client.xrange(settings.auto_trade_stream)
   assert len(entries) == 1
   payload = json.loads(entries[0][1]["payload"])
   assert payload["source_strategy"] == "Supply Zone Reaction"
@@ -133,7 +134,7 @@ async def test_stream_failure_rolls_back_claim_and_retains_match(monkeypatch):
   original_xadd = client.xadd
 
   async def fail_candidate_stream(name, *args, **kwargs):
-    if name == worker.settings.auto_trade_stream:
+    if name == settings.auto_trade_stream:
       raise ConnectionError("forced XADD failure")
     return await original_xadd(name, *args, **kwargs)
 
@@ -163,7 +164,7 @@ def test_oversized_singleton_zone_is_context_only():
     Zone(4040.57, 4075.04, "supply", source="supply_demand"),
     atr=10.0,
     pip_size=0.1,
-    cfg=worker.settings,
+    cfg=settings,
   )
   assert classification.width_pips == pytest.approx(344.7)
   assert classification.context_only

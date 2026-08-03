@@ -10,6 +10,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
+from app.core.config import settings
 from app.bot import wiring
 
 
@@ -39,10 +40,10 @@ def _channel_message(text: str) -> SimpleNamespace:
 def test_owner_lock_fails_closed(monkeypatch):
   msg = SimpleNamespace(from_user=SimpleNamespace(id=42))
 
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", None)
+  monkeypatch.setattr(settings, "telegram_owner_id", None)
   assert wiring._is_owner(msg) is False
 
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   assert wiring._is_owner(msg) is True
   msg.from_user.id = 99
   assert wiring._is_owner(msg) is False
@@ -50,7 +51,7 @@ def test_owner_lock_fails_closed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_calculate_uses_local_log_and_correct_status(monkeypatch):
-  monkeypatch.setattr(wiring.settings, "telegram_owner_id", 42)
+  monkeypatch.setattr(settings, "telegram_owner_id", 42)
   summary = AsyncMock(return_value={
     "wins": 0,
     "win_pips": 0,
@@ -242,11 +243,11 @@ async def test_handler_order_and_bare_pips_default_off(monkeypatch):
   monkeypatch.setattr(wiring, "_handle_pips", handle_pips)
   msg = SimpleNamespace(text="still +40 pips to go")
 
-  monkeypatch.setattr(wiring.settings, "auto_book_bare_pips", False)
+  monkeypatch.setattr(settings, "auto_book_bare_pips", False)
   await wiring.handle_profit_text(msg)
   handle_pips.assert_not_awaited()
 
-  monkeypatch.setattr(wiring.settings, "auto_book_bare_pips", True)
+  monkeypatch.setattr(settings, "auto_book_bare_pips", True)
   await wiring.handle_profit_text(msg)
   handle_pips.assert_awaited_once_with(
     msg,

@@ -1,6 +1,7 @@
 """End-to-end Scanner -> Worker handoff regressions for the P0 incident."""
 
 from __future__ import annotations
+from app.core.config import settings
 
 import asyncio
 from datetime import datetime, timezone
@@ -148,20 +149,20 @@ async def _configure(
   context = _context(frames, now)
   notify = AsyncMock(return_value=SimpleNamespace(message_id=7001))
 
-  monkeypatch.setattr(scanner.settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(scanner.settings, "scanner_htf", "H1,M15")
-  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(scanner.settings, "scanner_gate_max_source_touches", 0)
-  monkeypatch.setattr(scanner.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
+  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
+  monkeypatch.setattr(settings, "scanner_htf", "H1,M15")
+  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 0)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
   monkeypatch.setattr(
-    scanner.settings, "auto_trade_strategy_match_enabled", True,
+    settings, "auto_trade_strategy_match_enabled", True,
   )
   monkeypatch.setattr(
-    scanner.settings, "scanner_actionability_gate_enabled", False,
+    settings, "scanner_actionability_gate_enabled", False,
   )
   monkeypatch.setattr(
-    scanner.settings, "key_level_role_ambiguity_gate_enabled", False,
+    settings, "key_level_role_ambiguity_gate_enabled", False,
   )
   monkeypatch.setattr(
     scanner,
@@ -172,14 +173,14 @@ async def _configure(
     scanner, "build_map", lambda *_args, **_kwargs: market_map,
   )
 
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_symbols", "XAU")
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
   monkeypatch.setattr(
-    worker.settings, "auto_trade_strategy_match_enabled", True,
+    settings, "auto_trade_strategy_match_enabled", True,
   )
-  monkeypatch.setattr(worker.settings, "auto_trade_news_guard_minutes", 0)
+  monkeypatch.setattr(settings, "auto_trade_news_guard_minutes", 0)
   monkeypatch.setattr(
-    worker.settings, "auto_trade_supply_reaction_enabled", True,
+    settings, "auto_trade_supply_reaction_enabled", True,
   )
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   monkeypatch.setattr(
@@ -246,7 +247,7 @@ async def _scan(
 
 
 def _plan_count_key() -> str:
-  return worker.settings.auto_trade_trade_plan_stream
+  return settings.auto_trade_trade_plan_stream
 
 
 @pytest_asyncio.fixture
@@ -559,7 +560,7 @@ async def test_static_opposing_overlap_never_creates_executable_match_or_card(
     now=now,
   )
   monkeypatch.setattr(
-    scanner.settings, "scanner_actionability_gate_enabled", True,
+    settings, "scanner_actionability_gate_enabled", True,
   )
 
   await scanner._handle_event(

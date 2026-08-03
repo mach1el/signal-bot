@@ -14,6 +14,7 @@ at all.
 """
 
 from __future__ import annotations
+from app.core.config import settings
 
 import json
 
@@ -94,7 +95,7 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   record = await load_setup(client, setup_id)
   assert record.state == CANCELLED
 
-  events = await client.xrange(worker.settings.auto_trade_event_stream)
+  events = await client.xrange(settings.auto_trade_event_stream)
   payloads = [json.loads(fields["payload"]) for _id, fields in events]
   assert payloads, "expected a terminal lifecycle event to be published"
   assert payloads[-1]["type"] == CANCELLED

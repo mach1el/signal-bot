@@ -1,6 +1,7 @@
 """Regression coverage for cross-engine execution integrity."""
 
 from __future__ import annotations
+from app.core.config import settings
 
 import asyncio
 import json
@@ -462,8 +463,8 @@ async def test_preflight_rejects_unavailable_zone_split_capability(
     structure_swing=4098.0,
   )
   intent = _intent("trend-zone-split", direction="BUY")
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_fill_enabled", False)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", False)
 
   decision = await worker._common_preflight(
     redis_state.get_client(),
@@ -530,8 +531,8 @@ async def test_preflight_waits_when_required_limit_is_on_wrong_side(
     structure_swing=4098.0,
   )
   intent = _intent("trend-limit-side", direction="BUY")
-  monkeypatch.setattr(worker.settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(worker.settings, "auto_trade_zone_fill_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", True)
 
   decision = await worker._common_preflight(
     redis_state.get_client(),

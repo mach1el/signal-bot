@@ -13,6 +13,7 @@ B. The exact `notification_results = digest or analysis_only_results`
 """
 
 from __future__ import annotations
+from app.core.config import settings
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -95,10 +96,10 @@ async def test_analysis_only_reason_produces_zero_telegram_effects(
   symbol, tf = "XAU", "M5"
   result = _result(reason_code)
 
-  monkeypatch.setattr(scanner.settings, "scanner_symbols", symbol)
-  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", tf)
-  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(settings, "scanner_symbols", symbol)
+  monkeypatch.setattr(settings, "scanner_exec_tf", tf)
+  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
   monkeypatch.setattr(
     scanner,
     "resolve_actionability",
@@ -177,10 +178,10 @@ async def test_empty_digest_never_substitutes_analysis_only_results(monkeypatch)
   symbol, tf = "XAU", "M5"
   results = [_result("policy_zone_too_wide"), _result("source_level_exhausted")]
 
-  monkeypatch.setattr(scanner.settings, "scanner_symbols", symbol)
-  monkeypatch.setattr(scanner.settings, "scanner_exec_tf", tf)
-  monkeypatch.setattr(scanner.settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(scanner.settings, "telegram_owner_id", 4242)
+  monkeypatch.setattr(settings, "scanner_symbols", symbol)
+  monkeypatch.setattr(settings, "scanner_exec_tf", tf)
+  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
+  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
 
   def _resolution(**_kwargs) -> ActionabilityResolution:
     gated = tuple(
