@@ -79,8 +79,8 @@ def test_bot_pins_mapped_zone_and_guard_off():
   assert "AUTO_TRADE_MAPPED_ZONE_ENABLED:" in bot
   assert "AUTO_TRADE_MARKET_MAP_GUARD_ENABLED:" in bot
   assert "APEXVOID_CONFIG_AUTHORITY:" in bot
-  # Default authority remains legacy.
-  assert "${APEXVOID_CONFIG_AUTHORITY:-legacy}" in bot
+  # Phase 2I-A: managed-deployment default is canonical.
+  assert "${APEXVOID_CONFIG_AUTHORITY:-canonical}" in bot
   # Mapped-zone execution route pinned off by default.
   assert "${AUTO_TRADE_MAPPED_ZONE_ENABLED:-false}" in bot
 

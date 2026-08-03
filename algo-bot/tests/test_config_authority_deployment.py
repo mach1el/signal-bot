@@ -11,15 +11,16 @@ _ROOT = Path(__file__).parents[2]
 
 def test_env_example_documents_authority():
   text = (_ROOT / ".env.example").read_text(encoding="utf-8")
-  assert "APEXVOID_CONFIG_AUTHORITY=legacy" in text
+  # Phase 2I-A: managed deployments default to canonical.
+  assert "APEXVOID_CONFIG_AUTHORITY=canonical" in text
 
 
-def test_compose_defaults_authority_to_legacy():
+def test_compose_defaults_authority_to_canonical():
   text = (_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-  assert "APEXVOID_CONFIG_AUTHORITY: ${APEXVOID_CONFIG_AUTHORITY:-legacy}" in text
+  assert "APEXVOID_CONFIG_AUTHORITY: ${APEXVOID_CONFIG_AUTHORITY:-canonical}" in text
 
 
-def test_production_template_defaults_authority_to_legacy():
+def test_production_template_defaults_authority_to_canonical():
   text = (_ROOT / "deployment-template/docker-compose.yml.j2").read_text(encoding="utf-8")
-  assert "'APEXVOID_CONFIG_AUTHORITY': 'legacy'" in text
+  assert "'APEXVOID_CONFIG_AUTHORITY': 'canonical'" in text
   assert "combine(apexvoid_trading_bot_env)" in text
