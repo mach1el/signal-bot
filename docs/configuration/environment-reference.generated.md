@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Source fingerprint: `5001f967384dd74f709d75b714cc03b2576b900ef0b9861aa77b25ff80e29094`
-- Environment-bound fields: `370`
+- Source fingerprint: `1d0758c9636c9cc0209c1d385fbf205c52388c55782ccccd5a35d2260c21b696`
+- Environment-bound fields: `374`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -46,6 +46,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_CANONICAL_SYMBOL` | `contract.instrument.canonical_symbol` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_CONTRACT_MODE` | `contract.mode` | `str` | no | yes | — | `v7_only` |
 | `AUTO_TRADE_DEMAND_REACTION_ENABLED` | `strategies.reaction.demand.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `strategies.zone.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DIRECT_PUBLISH_ENABLED` | `runtime.auto_trade.direct_publish_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DISPLACEMENT_OVERRIDE_LOOKBACK_BARS` | `execution.policy.displacement_override_lookback_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_DRY_RUN` | `runtime.auto_trade.dry_run` | `bool` | no | yes | — | `True` |
@@ -62,6 +63,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_FADE_SCALP_ENABLED` | `strategies.scalp.fade_scalp_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_FLIP_CONFIRM_TIMEOUT_SECONDS` | `lifecycle.range_flip.confirm_timeout_seconds` | `int` | no | no | — | `30` |
 | `AUTO_TRADE_FLIP_EXIT_BUFFER_PIPS` | `execution.policy.flip_exit_buffer_pips` | `int` | no | no | — | `10` |
+| `AUTO_TRADE_FLIP_ZONE_ENABLED` | `strategies.zone.flip.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_GROUP_CLOSE_ALLOCATION` | `execution.policy.group_close_allocation` | `str` | no | yes | — | `pro_rata` |
 | `AUTO_TRADE_HTF_VETO_ENABLED` | `actionability.gates.htf_veto_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_INSIDE_ZONE_MARKET_ENTRY_ENABLED` | `execution.entry.inside_zone_market_entry_enabled` | `bool` | no | yes | — | `True` |
@@ -159,6 +161,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_STRUCTURAL_GUARD_MODE` | `actionability.structural_guard.guard_mode` | `str` | no | yes | — | `balanced` |
 | `AUTO_TRADE_STRUCTURAL_REACTION_LOOKBACK_BARS` | `execution.policy.structural_reaction_lookback_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_SUPPLY_REACTION_ENABLED` | `strategies.reaction.supply.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_SUPPLY_ZONE_ENABLED` | `strategies.zone.supply.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_SYMBOLS` | `contract.instrument.symbols` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_TARGET_PLANS_PIPS` | `execution.targeting.default_ladder_pips` | `str` | no | yes | `AUTO_TRADE_TP_PIPS` | `30,60,90,120,200` |
 | `AUTO_TRADE_TELEGRAM_DELETE_ROOT_ON_TERMINAL` | `delivery.telegram.delete_root_on_terminal` | `bool` | no | no | — | `False` |
@@ -184,6 +187,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_ZONE_COOLDOWN_ATR` | `lifecycle.zone.cooldown_atr` | `float` | no | no | — | `1.0` |
 | `AUTO_TRADE_ZONE_COOLDOWN_ENABLED` | `lifecycle.zone.cooldown_enabled` | `bool` | no | yes | — | `True` |
 | `AUTO_TRADE_ZONE_COOLDOWN_MINUTES` | `lifecycle.zone.cooldown_minutes` | `int` | no | no | — | `60` |
+| `AUTO_TRADE_ZONE_ENABLED` | `strategies.zone.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_ZONE_FILL_ENABLED` | `execution.zone_scaling.fill_enabled` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_ZONE_FILL_FALLBACK_ENABLED` | `execution.zone_scaling.fill_fallback_enabled` | `bool` | no | yes | — | `True` |
 | `AUTO_TRADE_ZONE_FILL_MIN_ATR` | `execution.zone_scaling.fill_min_atr` | `float` | no | yes | — | `0.5` |

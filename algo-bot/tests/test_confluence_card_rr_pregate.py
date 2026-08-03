@@ -32,6 +32,16 @@ from app.persistence import redis_state
 pytestmark = pytest.mark.no_database
 
 
+@pytest.fixture(autouse=True)
+def _no_news_by_default(monkeypatch):
+  # V7 now hard-gates news via ``event_in_window`` which needs a live DB. These
+  # tests target the RR/plan-build gates, so we short-circuit the news lookup
+  # to keep them database-free while still exercising the V7 publish path.
+  monkeypatch.setattr(
+    worker, "event_in_window", AsyncMock(return_value=None),
+  )
+
+
 def _frame(price: float = 4101.0) -> pd.DataFrame:
   index = pd.date_range("2026-07-28 12:00", periods=3, freq="5min", tz="UTC")
   return pd.DataFrame({
@@ -574,7 +584,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
 
   worker.py's preflight pass writes route_outcome with
   reason_code="reaction_confirmation_handoff" every cycle a reaction stays
-  outside its zone (see the handoff branch feeding _preflight_decision),
+  outside its zone (V7 persists WAITING_RETEST on out-of-zone presence),
   intending _publish_trade_plan_v7's own confirmation-phase persist to
   immediately correct it back to the durable "waiting_retest_entry_zone"
   reason. Outside-zone setups now remain CONFIRMED while waiting (no

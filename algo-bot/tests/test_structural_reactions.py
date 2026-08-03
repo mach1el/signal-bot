@@ -107,6 +107,8 @@ def test_default_detectors_exclude_zone_reaction():
     "key_level_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
+    "flip_demand_zone_reaction",
+    "flip_supply_zone_reaction",
   ):
     assert required in names
 
@@ -122,6 +124,8 @@ def test_live_registry_matches_detector_settings_defaults():
     "key_level_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
+    "flip_demand_zone_reaction",
+    "flip_supply_zone_reaction",
     "session_level_reaction",
     "trendline_reaction",
     "range_edge_scalp",
@@ -164,6 +168,8 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     "key_level_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
+    "flip_demand_zone_reaction",
+    "flip_supply_zone_reaction",
     "session_level_reaction",
     "trendline_reaction",
     "range_edge_scalp",
@@ -179,6 +185,7 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     key_level_reaction_enabled=False,
     demand_reaction_enabled=False,
     supply_reaction_enabled=False,
+    flip_zone_enabled=False,
     session_level_reaction_enabled=False,
     trendline_reaction_enabled=False,
     range_scalp_enabled=False,
@@ -225,6 +232,47 @@ def test_supply_zone_reaction_sell():
   assert result.direction == "SELL"
   assert result.structural_kind == "supply"
   assert result.bias_relationship == "counter_bias"
+
+
+def test_flip_demand_zone_reaction_buy():
+  df = _buy_rejection_df()
+  zone = Zone(101, 106, "demand", source="flip_zone", score=10, touches=0)
+  result = detectors.flip_demand_zone_reaction(_ctx(df, bias="down", zones=[zone]))
+  assert result is not None
+  assert result.setup == "Flip Zone"
+  assert result.direction == "BUY"
+  assert result.structural_source == "flip_zone"
+  assert result.structural_kind == "demand"
+  assert strategy_family(result.setup) == "supply_demand"
+  assert "Flip Zone" in STRUCTURAL_SETUPS
+
+
+def test_flip_supply_zone_reaction_sell():
+  df = _sell_rejection_df()
+  zone = Zone(107, 112, "supply", source="flip_zone", score=10, touches=0)
+  result = detectors.flip_supply_zone_reaction(_ctx(df, bias="up", zones=[zone]))
+  assert result is not None
+  assert result.setup == "Flip Zone"
+  assert result.direction == "SELL"
+  assert result.structural_source == "flip_zone"
+  assert result.structural_kind == "supply"
+
+
+def test_demand_zone_reaction_skips_flip_source():
+  df = _buy_rejection_df()
+  flip = Zone(101, 106, "demand", source="flip_zone", score=10, touches=0)
+  assert detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[flip])) is None
+  # Non-flip demand still owned by Zone Reaction.
+  demand = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  assert detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[demand])) is not None
+
+
+def test_flip_zone_ignores_non_flip_source():
+  df = _buy_rejection_df()
+  demand = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  assert detectors.flip_demand_zone_reaction(
+    _ctx(df, bias="down", zones=[demand]),
+  ) is None
 
 
 def test_key_level_support_buy_and_resistance_sell():
@@ -477,6 +525,7 @@ def test_engulfing_never_overrides_a_stronger_confirmation():
 def test_strategy_family_and_stable_thesis_identity():
   assert strategy_family("Key Level Reaction") == "key_level"
   assert strategy_family("Zone Reaction") == "supply_demand"
+  assert strategy_family("Flip Zone") == "supply_demand"
   assert strategy_family("Demand Zone Reaction") == "supply_demand"
   assert strategy_family("Supply Zone Reaction") == "supply_demand"
   assert strategy_family("Session Level Reaction") == "session_level"
@@ -638,6 +687,7 @@ def test_structural_setups_constant():
   assert STRUCTURAL_SETUPS == {
     "Key Level Reaction",
     "Zone Reaction",
+    "Flip Zone",
     "Demand Zone Reaction",
     "Supply Zone Reaction",
     "Session Level Reaction",

@@ -50,12 +50,15 @@ def test_demand_zone_is_not_reaction():
   assert not is_reaction_strategy("Demand Zone")
   assert not is_reaction_strategy("Demand Zone Reaction")
   assert not is_reaction_strategy("Zone Reaction")
+  assert not is_reaction_strategy("Flip Zone")
   assert is_zone_strategy("Demand Zone")
   assert is_zone_strategy("Demand Zone Reaction")
   assert is_zone_strategy("Zone Reaction")
+  assert is_zone_strategy("Flip Zone")
   assert canonical_family("Demand Zone") == CANONICAL_FAMILY_ZONE
   assert canonical_family("Demand Zone Reaction") == CANONICAL_FAMILY_ZONE
   assert canonical_family("Zone Reaction") == CANONICAL_FAMILY_ZONE
+  assert canonical_family("Flip Zone") == CANONICAL_FAMILY_ZONE
 
 
 def test_supply_zone_is_not_reaction():
@@ -73,17 +76,29 @@ def test_strategy_names_are_not_classified_by_substring():
   assert not is_reaction_strategy("Mapped Zone Reaction")
   assert not is_zone_strategy("Mapped Zone Reaction")
   assert "Zone Reaction" in ZONE_STRATEGIES
+  assert "Flip Zone" in ZONE_STRATEGIES
   assert "Demand Zone Reaction" in ZONE_STRATEGIES
   assert "Demand Zone Reaction" not in REACTION_STRATEGIES
   assert canonical_family("Something Reaction Something") != CANONICAL_FAMILY_REACTION
   assert canonical_family("Demand Zoneish") != CANONICAL_FAMILY_ZONE
+  assert canonical_family("Fake Flip Zone") != CANONICAL_FAMILY_ZONE
 
 
 def test_range_strategies_bypass_opposing_structure_gates():
   for name in RANGE_STRATEGIES:
     assert is_range_strategy(name)
-    assert bypasses_opposing_structure_gates(name)
+    assert not bypasses_opposing_structure_gates(name)
+    # Ladder floor 15p is enough to open / bypass opposing.
+    assert bypasses_opposing_structure_gates(name, full_take_profit_pips=15)
+    assert bypasses_opposing_structure_gates(name, full_take_profit_pips=20)
+    assert not bypasses_opposing_structure_gates(name, full_take_profit_pips=0)
     assert canonical_family(name) == CANONICAL_FAMILY_RANGE
-  assert not bypasses_opposing_structure_gates("Key Level Reaction")
-  assert not bypasses_opposing_structure_gates("Zone Reaction")
-  assert not bypasses_opposing_structure_gates("Liquidity Sweep")
+  assert not bypasses_opposing_structure_gates(
+    "Key Level Reaction", full_take_profit_pips=15,
+  )
+  assert not bypasses_opposing_structure_gates(
+    "Zone Reaction", full_take_profit_pips=15,
+  )
+  assert not bypasses_opposing_structure_gates(
+    "Liquidity Sweep", full_take_profit_pips=15,
+  )

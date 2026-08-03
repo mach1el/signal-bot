@@ -116,7 +116,9 @@ def test_supply_demand_is_zone_confirmation_not_reaction_family_set():
     ),
   )
   # Confirmation contract still M5-authoritative; product taxonomy is Zone.
-  assert zone.reaction_family is True
+  assert zone.reaction_family is False
+  assert zone.zone_family is True
+  assert zone.m5_authoritative_contract is True
   assert zone.require_quote_inside_zone is True
 
 

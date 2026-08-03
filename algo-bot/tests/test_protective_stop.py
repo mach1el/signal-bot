@@ -491,6 +491,48 @@ def test_scalp_room_synced_stop_allows_thin_targets():
   assert scalp.measured["planned_stop_pips"] == "15.0"
 
 
+def test_scalp_with_fitted_target_skips_opposing_zone_stop_reject():
+  cfg = SimpleNamespace(
+    auto_trade_add_min_stop_pips=30,
+    auto_trade_sl_distance=6.5,
+    auto_trade_range_min_rr=1.0,
+    auto_trade_range_room_stop_floor_pips=15,
+    auto_trade_range_max_risk_multiplier=2.0,
+    auto_trade_trend_stop_min_pips=40,
+    auto_trade_trend_stop_max_pips=60,
+    auto_trade_xau_price_digits=2,
+    auto_trade_add_stop_buffer_atr=0.3,
+    auto_trade_wick_stop_buffer_atr=0.15,
+    auto_trade_zone_fill_enabled=False,
+    auto_trade_inside_zone_market_entry_enabled=True,
+    auto_trade_reaction_scale_enabled=False,
+    auto_trade_opposing_zone_push_enabled=False,
+    auto_trade_opposing_zone_buffer_atr=0.3,
+  )
+  scalp = evaluate_execution_policy(
+    _policy_subject(
+      strategy="Range Box Scalp",
+      targets_pips=(20,),
+      full_take_profit_pips=20,
+      structure_swing=4099.9,
+      atr=1.0,
+      entry_low=4100.0,
+      entry_high=4100.2,
+      current_price=4100.1,
+    ),
+    spot_price=4100.0,
+    regime="chop",
+    pip_size=0.1,
+    cfg=cfg,
+    opposing_zone_low=4097.0,
+    opposing_zone_high=4098.5,
+    opposing_zone_id="demand-block",
+  )
+  assert scalp.allowed
+  assert scalp.reason_code != "stop_inside_opposing_zone"
+  assert scalp.measured.get("stop_side_opposing_zone_id") is None
+
+
 def test_sell_group_stop_clears_zone_high_and_uses_weighted_reference():
   from app.autotrade.protective_stop import (
     plan_group_protective_stop,
