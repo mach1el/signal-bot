@@ -217,6 +217,80 @@ async def test_lifecycle_status_replaces_only_the_card_status_line():
 
 
 @pytest.mark.asyncio
+async def test_position_activated_rewrites_the_stale_setup_forming_head():
+  """A filled position still showing "SETUP FORMING" in the card headline
+  reads as "still waiting" when it's already live - only the body line
+  used to update on this transition. order_filled must rewrite the
+  headline itself too, not just the status line beneath it.
+  """
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-activated")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "​",
+    "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-activated",
+    chat_id=123,
+    message_id=4242,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  changed = await setup_card.edit_forming_card_status(
+    client,
+    "setup-activated",
+    "✅ <b>POSITION ACTIVATED</b>",
+    state="order_filled",
+    edit_fn=edit_fn,
+  )
+
+  assert changed
+  text = edited[0][2]
+  lines = text.splitlines()
+  assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert lines[1] == "✅ <b>POSITION ACTIVATED</b>"
+  assert "SETUP FORMING" not in text
+
+
+@pytest.mark.asyncio
+async def test_non_order_filled_transitions_leave_the_head_untouched():
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-preflight")
+  original = "\n".join([
+    "🔵 <b>XAU M5 · MARKET OBSERVATION</b>",
+    "🔵 <b>ANALYSIS ONLY</b> · no executable StrategyMatch",
+    "🟢 <b>BUY · Demand Zone Reaction</b> · ⭐",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-preflight",
+    chat_id=123,
+    message_id=4243,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-preflight",
+    "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+    state="queued",
+    edit_fn=edit_fn,
+  )
+
+  assert edited[0][2].splitlines()[0] == "🔵 <b>XAU M5 · MARKET OBSERVATION</b>"
+
+
+@pytest.mark.asyncio
 async def test_status_snapshot_wins_when_worker_finishes_before_card_post():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-race")

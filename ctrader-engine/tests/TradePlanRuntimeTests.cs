@@ -1131,6 +1131,168 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task UndersizedPositionClosesOneStepPerTargetInsteadOfSkipping()
+  {
+    // Live incident (2026-08-03): a small-equity position (0.02 lots, two
+    // StepVolume units) with 5 equal-weight targets hit TP1, but 20% of
+    // that volume rounds down below StepVolume - so PlanPartialCloseVolume
+    // returned 0 and the "can't book a valid partial" branch fired. That
+    // branch used to jump NextTargetIndex straight to Targets.Count - 1
+    // (4), even though price had only ever reached TP1. The trail-stop
+    // step further down reads `NextTargetIndex - 3` assuming that value
+    // tracks genuinely reached targets, so it then tried to amend the SL
+    // to TP2's price - a level price had never actually touched - and the
+    // broker rejected that amend (TRADING_BAD_STOPS: new SL below current
+    // ask) on every single poll thereafter, forever. Confirmed live: 300+
+    // identical rejections over 2 hours on one position, stop never
+    // actually trailing past break-even.
+    //
+    // The fix floors the proportional close to one StepVolume whenever the
+    // raw share would round below it (and there's at least one step of
+    // room left) instead of skipping the target outright. For a position
+    // with only as many steps as roughly N targets, this degrades to
+    // closing one step per target reached - a 2-step position closes half
+    // at TP1 and the other half at TP2 - rather than silently deferring
+    // everything to whichever target's redistributed share eventually
+    // happens to cross the StepVolume line.
+    var fiveTargets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
+        {"target_id": "TP2", "type": "absolute", "price": "4094.00", "close_ratio": "0.2"},
+        {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.2"},
+        {"target_id": "TP4", "type": "absolute", "price": "4098.00", "close_ratio": "0.2"},
+        {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan($$"""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Trend Pullback",
+        "strategy_family": "trend_pullback",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "H1",
+        "confirmation_timeframe": "M15",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "up",
+        "regime": "trend",
+        "reasons": ["htf_uptrend"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "zone-xau-4088-4090",
+        "kind": "demand",
+        "timeframe": "H1",
+        "low": "4088.10",
+        "high": "4090.00",
+        "invalidation_price": "4081.80"
+      },
+      "entry": {
+        "type": "market_watch",
+        "expires_at": 2000000000,
+        "zone_low": "4088.10",
+        "zone_high": "4090.00",
+        "activation": "quote_inside_zone",
+        "price_side": "ask",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "structure",
+        "structure_id": "zone-xau-4088-4090",
+        "reason": "protective stop plan"
+      },
+      "targets": {{fiveTargets}},
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "sizing": {
+        "mode": "equity_table",
+        "table_version": "owner_equity_v1",
+        "entry_distribution": "single",
+        "leg_ratios": []
+      },
+      "management": {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": false,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    // Equity 200 -> LotsForEquity floors to 0.02 lots -> 200 units, exactly
+    // two StepVolume(100) steps - small enough that a single 20% target
+    // slice (40 units) rounds down below StepVolume.
+    var client = new FakeV7TradingClient { AccountEquity = 200m, AccountBalance = 200m };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    Assert.Equal(200, Assert.Single(client.MarketOrders).Volume);
+    Assert.Equal(4082.50m, Assert.Single(client.StopAmendments).StopLoss);
+
+    // Price reaches TP1: the raw 20% share (40) rounds below StepVolume
+    // (100), so the fix books one whole step (100 - half the position)
+    // instead of skipping it.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
+    );
+
+    var afterTp1 = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(1, afterTp1.NextTargetIndex);
+    Assert.Equal(100, Assert.Single(client.Closes).Volume);
+    Assert.Equal(100, afterTp1.RemainingVolume);
+    // BE applies in the same poll as TP1 (unchanged, pre-existing
+    // behavior) - entry stop + BE stop, no bogus trail attempt.
+    Assert.Equal(2, client.StopAmendments.Count);
+    Assert.True(afterTp1.BreakEvenApplied);
+    Assert.Contains(store.Events, e => e.Type == "tp_booked");
+
+    // Price reaches TP2: only one StepVolume (100) remains, so this closes
+    // the entire remainder in one shot - the "other half".
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
+    );
+
+    Assert.Equal(2, client.Closes.Count);
+    Assert.Equal(100, client.Closes[^1].Volume);
+    // A fully closed position is pruned from TrackedStates - the
+    // "position_closed" event is the durable record of the final close.
+    var closedEvent = Assert.Single(
+      store.Events, e => e.Type == "position_closed"
+    );
+    Assert.Equal(0, closedEvent.RemainingVolume);
+  }
+
+  [Fact]
   public async Task RestartRecoversReceivedStateFromRedis()
   {
     var store = new FakeV7Store();
