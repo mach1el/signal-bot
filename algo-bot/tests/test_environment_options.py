@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.environment_options import (
+from app.configuration.environment_option_resolution import (
   ENVIRONMENT_OPTION_CONTRACTS,
   parse_bool,
   resolve_environment_options,

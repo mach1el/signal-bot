@@ -6,9 +6,9 @@ from unittest.mock import patch
 import pytest
 
 from app.core.config import Settings
-from app.core.environment_options import CanonicalEnvironmentOption
-from app.core.environment_options import parse_bool
-from app.core.environment_options import parse_int
+from app.configuration.environment_option_resolution import CanonicalEnvironmentOption
+from app.configuration.environment_option_resolution import parse_bool
+from app.configuration.environment_option_resolution import parse_int
 
 
 pytestmark = pytest.mark.no_database

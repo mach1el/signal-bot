@@ -9,7 +9,7 @@ from app.configuration.parity import compare_legacy_settings
 from app.configuration.shadow_loader import load_shadow_configuration
 from app.configuration.source_types import ConfigurationSourceBundle
 from app.core.config import Settings
-from app.core.environment_options import resolve_environment_options
+from app.configuration.environment_option_resolution import resolve_environment_options
 from tests.config_characterization import REQUIRED_ENV
 from tests.config_characterization import root_compose_environment
 
