@@ -25,13 +25,32 @@ KEY_LEVEL = 4089.0
 
 
 def _cfg(pattern: str, **overrides) -> SimpleNamespace:
-  values = {
-    "m1_trigger_patterns": pattern,
-    "m1_trigger_wick_fraction": 0.5,
-    "m1_trigger_strong_close_pct": 0.2,
+  """Canonical-shaped ``runtime_config`` view for the M1 trigger tests.
+
+  Production reads ``cfg.analysis.triggers.m1.<field>``. Overrides accept
+  either the canonical trailing field name (``wick_fraction``,
+  ``strong_close_pct``, ``patterns``) or the retired legacy attribute name
+  (``m1_trigger_wick_fraction`` etc.) for backwards compatibility.
+  """
+  legacy_to_canonical = {
+    "m1_trigger_patterns": "patterns",
+    "m1_trigger_wick_fraction": "wick_fraction",
+    "m1_trigger_strong_close_pct": "strong_close_pct",
   }
-  values.update(overrides)
-  return SimpleNamespace(**values)
+  values: dict[str, object] = {
+    "patterns": pattern,
+    "wick_fraction": 0.5,
+    "strong_close_pct": 0.2,
+  }
+  for key, value in overrides.items():
+    values[legacy_to_canonical.get(key, key)] = value
+  return SimpleNamespace(
+    analysis=SimpleNamespace(
+      triggers=SimpleNamespace(
+        m1=SimpleNamespace(**values),
+      ),
+    ),
+  )
 
 
 def _bars(rows: list[dict], *, prior: dict | None = None) -> pd.DataFrame:
