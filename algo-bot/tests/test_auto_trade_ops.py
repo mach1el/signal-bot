@@ -585,12 +585,16 @@ async def test_order_filled_replies_using_v7_plan_id_without_head_fill(monkeypat
   assert "✅ <b>ORDER FILLED</b>" in body
   assert "• ✅" not in body
   assert "• ENTRY L1 FILLED lot=0.08 @ 4074.68; L2 still pending" in body
-  # Forming card head must not receive ORDER FILLED.
+  # Reply keeps ORDER FILLED; SETUP FORMING head becomes POSITION ACTIVATED.
   head_edits = [e for e in edited if e[1] == 7001]
-  assert head_edits == []
+  assert len(head_edits) == 1
+  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2].splitlines()[1]
+  assert "ORDER FILLED" not in head_edits[0][2]
+  assert "PLAN PUBLISHED" not in head_edits[0][2]
   card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
-  assert "PLAN PUBLISHED" in card["text"].splitlines()[1]
+  assert "✅ <b>POSITION ACTIVATED</b>" in card["text"].splitlines()[1]
   assert "ORDER FILLED" not in card["text"]
+  assert "PLAN PUBLISHED" not in card["text"]
 
 
 @pytest.mark.asyncio
@@ -641,8 +645,11 @@ async def test_order_filled_prefers_live_forming_card_over_stale_root(monkeypatc
   assert calls[0][1]["reply_to"] == 9002
   assert "✅ <b>ORDER FILLED</b>" in calls[0][0]
   assert "• ✅" not in calls[0][0]
-  # Head is not edited for fills; stale root id 1111 must not be used.
-  assert edited == []
+  # SETUP FORMING head becomes POSITION ACTIVATED; stale root id 1111 unused.
+  head_edits = [e for e in edited if e[1] == 9002]
+  assert len(head_edits) == 1
+  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2]
+  assert all(e[1] != 1111 for e in edited)
 
 
 @pytest.mark.asyncio
@@ -1013,7 +1020,8 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
   assert "🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
   assert "🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
-  assert "• @ 4106.00" in final
+  assert "@ 4106.00" in final
+  assert "• @ 4106.00" not in final
   assert "Highest TP archived" not in final
 
 
@@ -1069,11 +1077,16 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
   )
 
   assert calls == []
-  final = edited[-1][2]
+  manage_edits = [e for e in edited if e[1] == 8123]
+  assert manage_edits
+  final = manage_edits[-1][2]
   assert "🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
   assert "🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
+  head_edits = [e for e in edited if e[1] == 7001]
+  assert head_edits
+  assert "TERMINAL" in head_edits[-1][2]
 
 
 @pytest.mark.asyncio
@@ -1163,12 +1176,15 @@ async def test_order_filled_skips_standalone_when_reply_rejected(monkeypatch):
     send=sent,
   )
 
-  # Reply target gone → skip standalone; do not spam a second send or head edit.
+  # Reply target gone → skip standalone spam; still mark root POSITION ACTIVATED.
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
-  assert edited == []
+  head_edits = [e for e in edited if e[1] == 7001]
+  assert len(head_edits) == 1
+  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2]
   card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
   assert "ORDER FILLED" not in card["text"]
+  assert "POSITION ACTIVATED" in card["text"]
 
 
 @pytest.mark.asyncio

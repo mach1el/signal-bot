@@ -219,18 +219,16 @@ def test_position_closed_compact_line_format():
     {"target_pips": 90},
     "PLAN CLOSED · highest TP archived TP2 · @ 4106.00",
   )
-  assert line == "\n".join([
-    "🏁 POSITION CLOSED",
-    "• @ 4106.00",
-  ])
+  assert line == "🏁 POSITION CLOSED · @ 4106.00"
 
   losing = delivery._format_position_closed_compact_line(
     {"group_realized_pips": -47},
     "PLAN CLOSED · no TP archived · losing -47 pips · @ 4090.50",
   )
-  assert "🛡 SL" in losing
-  assert "❌ Losing: -47.0 pips" in losing
-  assert "• @ 4090.50" in losing
+  assert losing == (
+    "🏁 POSITION CLOSED · 🛡 SL · ❌ Losing: -47.0 pips · @ 4090.50"
+  )
+  assert "\n" not in losing
   assert "Highest TP archived" not in losing
 
 
