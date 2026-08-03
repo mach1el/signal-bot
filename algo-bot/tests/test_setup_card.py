@@ -686,7 +686,7 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert len(sent) == 1
   text = sent[0]
   assert "SETUP FORMING" in text
-  assert "PLAN PUBLISHED" in text
+  assert "PLAN PUBLISHED" not in text
   assert "Trade area" in text
   assert "Price now" in text
   assert "Entry zone" in text
@@ -707,7 +707,7 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert root == 4242
   status = await setup_card.load_forming_card_status(client, setup_id)
   assert status is not None
-  assert "PLAN PUBLISHED" in status
+  assert "PLAN PUBLISHED" not in status
 
 
 @pytest.mark.asyncio
@@ -828,8 +828,11 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
 
   assert message_id == 777
   assert sent == []
-  assert len(edited) == 1
-  assert "PLAN PUBLISHED" in edited[0][2]
-  assert "Key Level Reaction" in edited[0][2]
-  assert "Identity" not in edited[0][2]
-  assert "QUEUED" not in edited[0][2]
+  # Existing card keeps its head status — no PLAN PUBLISHED rewrite.
+  assert all("PLAN PUBLISHED" not in text for _, _, text in edited)
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert "QUEUED" in card["text"] or any(
+    "QUEUED" in text for _, _, text in edited
+  )
+  assert "PLAN PUBLISHED" not in card["text"]

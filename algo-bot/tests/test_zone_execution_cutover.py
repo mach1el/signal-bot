@@ -478,5 +478,6 @@ def test_format_detection_cutover_suppresses_the_card_before_publication(
   finally:
     cutover._PUBLISHED_SETUP_IDS.discard(match.match_id)
 
-  assert "PLAN PUBLISHED" in published_text
-  assert "QUEUED" not in published_text
+  assert "PLAN PUBLISHED" not in published_text
+  assert "QUEUED" in published_text
+  assert "Executor owns mechanical entry" in published_text
