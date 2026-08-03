@@ -3,8 +3,8 @@
 > Generated from the inactive typed `ApexVoidConfig` schema. Do not edit manually.
 
 - Catalog version: `1`
-- Source fingerprint: `5001f967384dd74f709d75b714cc03b2576b900ef0b9861aa77b25ff80e29094`
-- Items: `437`
+- Source fingerprint: `1d0758c9636c9cc0209c1d385fbf205c52388c55782ccccd5a35d2260c21b696`
+- Items: `441`
 - Runtime status: inactive; legacy `app.core.config.Settings` remains active
 
 ## actionability
@@ -503,3 +503,7 @@
 | `strategies.trend.min_height_atr` | `TREND_MIN_HEIGHT_ATR` | `float` | `atr` | `configurable` | `3.0` |
 | `strategies.trend.minimum_bos` | `TREND_MIN_BOS` | `int` | `count` | `configurable` | `2` |
 | `strategies.trend.pullback_enabled` | `AUTO_TRADE_TREND_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.zone.demand.enabled` | `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.zone.enabled` | `AUTO_TRADE_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.zone.flip.enabled` | `AUTO_TRADE_FLIP_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.zone.supply.enabled` | `AUTO_TRADE_SUPPLY_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

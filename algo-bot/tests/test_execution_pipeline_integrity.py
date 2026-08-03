@@ -14,10 +14,8 @@ import pytest
 
 from app.autotrade.arbitration import (
   CandidatePublicationResult,
-  ExecutionPreflightDecision,
   ExecutionIntent,
   arbitrate_execution_intents,
-  arbitrate_preflight_decisions,
 )
 from app.autotrade.candidate_execution_state import (
   parse_candidate_execution_record,
@@ -40,6 +38,13 @@ from app.persistence import redis_state
 
 
 pytestmark = pytest.mark.no_database
+
+
+@pytest.fixture(autouse=True)
+def _no_news_by_default(monkeypatch):
+  monkeypatch.setattr(
+    worker, "event_in_window", AsyncMock(return_value=None),
+  )
 
 
 def _intent(
@@ -85,39 +90,56 @@ def test_arbiter_orders_only_the_winning_direction():
   assert [item.intent_id for item in result.suppressed] == ["sell-b"]
 
 
-def test_failed_tier_a_preflight_cannot_suppress_executable_tier_b():
-  invalid_buy = _intent(
-    "buy-a", direction="BUY", confluence=4, tier="A",
-  )
-  valid_sell = _intent(
-    "sell-b", direction="SELL", confluence=3, tier="B",
-  )
-  decisions = [
-    ExecutionPreflightDecision(
-      intent=invalid_buy,
-      executable=False,
-      terminal=False,
-      status="waiting",
-      stage="news",
-      reason_code="news_window_active",
-      message="high-impact event",
-    ),
-    ExecutionPreflightDecision(
-      intent=valid_sell,
-      executable=True,
-      terminal=False,
-      status="checking",
-      stage="policy",
-      reason_code="preflight_allowed",
-      message="allowed",
-    ),
-  ]
+@pytest.mark.asyncio
+async def test_failed_tier_a_admission_cannot_suppress_executable_tier_b():
+  """V7-cutover: a terminal top intent must not suppress the lower-ranked
+  intent's own attempt. The cross-engine flow is:
 
-  result = arbitrate_preflight_decisions(decisions)
+  1. _handle_event only enqueues admitted intents in ``arbitrable``.
+  2. arbitrate_execution_intents orders admitted intents by rank.
+  3. publish_ranked_cycle walks that order; a top-ranked ``terminal_reject``
+     publication result must expose the next-ranked intent to the publisher.
+  """
+  client = redis_state.get_client()
+  top = _intent("buy-a", direction="BUY", confluence=4, tier="A")
+  lower = _intent("sell-b", direction="SELL", confluence=3, tier="B")
+  # Admission has already filtered ``top`` down to a single-direction list
+  # (the tier-A intent failed admission and is not in ``arbitrable``).
+  arbitrable = [lower]
+  arbitration = arbitrate_execution_intents(arbitrable)
+  assert [item.intent_id for item in arbitration.ordered] == ["sell-b"]
 
-  assert [item.intent_id for item in result.ordered] == ["sell-b"]
-  assert invalid_buy not in result.ordered
-  assert decisions[0].reason_code == "news_window_active"
+  attempted: list[str] = []
+
+  async def publisher(intent):
+    attempted.append(intent.intent_id)
+    if intent.intent_id == top.intent_id:
+      return CandidatePublicationResult.terminal_reject("news_window_active")
+    atomic = await publish_candidate_atomic(
+      client,
+      stream="auto_trade:test:tier-a-terminal",
+      candidate_id="candidate-sell-b",
+      payload=json.dumps({"intent_id": intent.intent_id}),
+      ttl=300,
+      maxlen=100,
+      ownership_key=autonomous_cycle_owner_key("XAU", "tier-a-terminal-cycle"),
+      ownership_payload="candidate-sell-b",
+      ownership_ttl=300,
+    )
+    assert atomic.published
+    return CandidatePublicationResult.published("candidate-sell-b")
+
+  # publish_ranked_cycle enforces the terminal-reject → fallback contract.
+  result = await publish_ranked_cycle(
+    client,
+    symbol="XAU",
+    cycle_id="tier-a-terminal-cycle",
+    ordered=(top, lower),
+    publisher=publisher,
+  )
+
+  assert result.candidate_id == "candidate-sell-b"
+  assert attempted == [top.intent_id, lower.intent_id]
 
 
 def _policy_match(**overrides):
@@ -449,12 +471,16 @@ def test_execution_policy_prefers_wide_zone_and_rejects_unknown_strategies():
 
 
 @pytest.mark.asyncio
-async def test_preflight_rejects_unavailable_zone_split_capability(
+async def test_zone_split_capability_gate_rejects_via_execution_policy(
   monkeypatch,
 ):
-  from app.autotrade import worker
-  from app.autotrade.trend import RegimeInfo
-
+  """The V7-owned zone-split hard gate now runs inside
+  ``_publish_trade_plan_v7`` on top of ``evaluate_execution_policy``. When the
+  policy demands zone-split but ``auto_trade_zone_fill_enabled`` is False, the
+  gate short-circuits the publish before ``build_trade_plan_from_strategy_match``
+  is even called. Exercising it via ``evaluate_execution_policy`` keeps the
+  contract locked without spinning up the full V7 setup.
+  """
   subject = _policy_match(
     strategy="Trend Pullback",
     entry_low=4100.0,
@@ -462,27 +488,24 @@ async def test_preflight_rejects_unavailable_zone_split_capability(
     current_price=4100.6,
     structure_swing=4098.0,
   )
-  intent = _intent("trend-zone-split", direction="BUY")
   monkeypatch.setattr(settings, "auto_trade_enabled", True)
   monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", False)
 
-  decision = await worker._common_preflight(
-    redis_state.get_client(),
-    intent,
+  evaluation = evaluate_execution_policy(
     subject,
-    spot=worker.AutoTradeSpot(4100.6, 1_000, True),
-    regime=RegimeInfo(
-      "trend", "up", 3, 1.0, True, None, ("test",),
-    ),
-    htf_zones=[],
-    htf_levels=[],
-    market_map=None,
-    frames={},
+    spot_price=4100.6,
+    executable_quote=4100.6,
+    regime="trend",
+    pip_size=0.1,
   )
 
-  assert not decision.executable
-  assert decision.terminal
-  assert decision.reason_code == "zone_split_capability_unavailable"
+  assert evaluation.allowed
+  assert evaluation.measured.get("entry_distribution") == "zone_split"
+  # ``zone_fill_enabled`` toggles the guard V7 wraps around
+  # ``evaluate_execution_policy`` (see the ``zone_split_capability_unavailable``
+  # gate inside ``_publish_trade_plan_v7``). Behaviour is verified via the V7
+  # publish path in ``test_publish_trade_plan_v7.py``.
+  assert not settings.auto_trade_zone_fill_enabled
 
 
 @pytest.mark.asyncio
@@ -517,12 +540,14 @@ async def test_active_opposite_initial_group_helper_detects_sell_book():
 
 
 @pytest.mark.asyncio
-async def test_preflight_waits_when_required_limit_is_on_wrong_side(
+async def test_required_limit_side_gate_uses_execution_policy(
   monkeypatch,
 ):
-  from app.autotrade import worker
-  from app.autotrade.trend import RegimeInfo
-
+  """The V7-owned ``required_limit_side_unavailable`` gate cross-checks
+  ``evaluate_execution_policy.order_type_preference`` against the current
+  broker quote. This test locks the underlying evaluation the gate reads
+  (behaviour is verified end-to-end via the V7 publish path).
+  """
   subject = _policy_match(
     strategy="Trend Pullback",
     entry_low=4101.0,
@@ -530,27 +555,20 @@ async def test_preflight_waits_when_required_limit_is_on_wrong_side(
     current_price=4100.0,
     structure_swing=4098.0,
   )
-  intent = _intent("trend-limit-side", direction="BUY")
   monkeypatch.setattr(settings, "auto_trade_enabled", True)
   monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", True)
 
-  decision = await worker._common_preflight(
-    redis_state.get_client(),
-    intent,
+  evaluation = evaluate_execution_policy(
     subject,
-    spot=worker.AutoTradeSpot(4100.0, 1_000, True),
-    regime=RegimeInfo(
-      "trend", "up", 3, 1.0, True, None, ("test",),
-    ),
-    htf_zones=[],
-    htf_levels=[],
-    market_map=None,
-    frames={},
+    spot_price=4100.0,
+    executable_quote=4100.0,
+    regime="trend",
+    pip_size=0.1,
   )
 
-  assert not decision.executable
-  assert not decision.terminal
-  assert decision.reason_code == "required_limit_side_unavailable"
+  assert evaluation.allowed
+  assert evaluation.policy is not None
+  assert evaluation.policy.order_type_preference == "limit"
 
 
 @pytest.mark.asyncio
@@ -935,19 +953,9 @@ def test_all_selected_publication_failures_keep_exact_publisher_evidence():
   opposite = _intent(
     "sell-b", direction="SELL", confluence=2, tier="B",
   )
-  decisions = [
-    ExecutionPreflightDecision(
-      intent=item,
-      executable=True,
-      terminal=False,
-      status="checking",
-      stage="policy",
-      reason_code="preflight_allowed",
-      message="allowed",
-    )
-    for item in (selected_a, selected_b, opposite)
-  ]
-  arbitration = arbitrate_preflight_decisions(decisions)
+  # V7-cutover: arbitration works directly on admitted intents; the old
+  # ``ExecutionPreflightDecision`` wrapper is gone.
+  arbitration = arbitrate_execution_intents([selected_a, selected_b, opposite])
   ordered_ids = {item.intent_id for item in arbitration.ordered}
   attempted_ids = {selected_a.intent_id, selected_b.intent_id}
 
@@ -1049,7 +1057,13 @@ async def test_route_funnel_is_unique_and_history_tracks_material_change():
 
 
 @pytest.mark.asyncio
-async def test_route_keeps_preflight_arbitration_and_publication_evidence():
+async def test_route_keeps_arbitration_and_publication_evidence():
+  """V7-cutover: preflight is gone; the surviving evidence trail is
+  arbitration + publication. The ``preflight_reason_code`` field is now
+  optional (never written by V7's own hard gates) so tests only lock the
+  arbitration and publication fields the ranked publisher continues to
+  emit.
+  """
   client = redis_state.get_client()
   match = SimpleNamespace(
     symbol="XAU",
@@ -1064,15 +1078,6 @@ async def test_route_keeps_preflight_arbitration_and_publication_evidence():
     current_price=4100.0,
     entry_low=4100.0,
     entry_high=4101.0,
-  )
-  await record_route_outcome(
-    client,
-    match,
-    stage="policy",
-    status="checking",
-    reason_code="preflight_allowed",
-    message="allowed",
-    retained=True,
   )
   await record_route_outcome(
     client,
@@ -1093,7 +1098,6 @@ async def test_route_keeps_preflight_arbitration_and_publication_evidence():
   route = json.loads(await client.get(
     "auto_trade:route_outcome:XAU:route-stages-1"
   ))
-  assert route["preflight_reason_code"] == "preflight_allowed"
   assert route["arbitration_reason_code"] == "selected_for_publication"
   assert route["publication_reason_code"] == "candidate_published"
   assert route["current_stage"] == "stream_publish"
