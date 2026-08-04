@@ -1,5 +1,6 @@
 import json
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -161,13 +162,13 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
   store_manual_signal = AsyncMock()
   monkeypatch.setattr(broadcast, "broadcast_entry", broadcast_entry)
   monkeypatch.setattr(store, "store_manual_signal", store_manual_signal)
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -238,13 +239,13 @@ async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
   client = redis_state.get_client()
   dedicated_notify = AsyncMock()
   monkeypatch.setattr(scanner, "send_scanner_with_retry", dedicated_notify)
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -299,11 +300,11 @@ async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
 async def test_scanner_records_analysis_status_without_owner(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", None)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": None})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -400,9 +401,9 @@ async def test_scanner_caches_analysis_context_for_market_map(monkeypatch):
   client = redis_state.get_client()
   marker = object()
   cached = Mock()
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
   monkeypatch.setattr(
     scanner,
     "build_context",
@@ -430,11 +431,11 @@ async def test_scanner_caches_analysis_context_for_market_map(monkeypatch):
 @pytest.mark.asyncio
 async def test_scanner_increments_zone_reconciled_counter(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", None)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": None})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -495,11 +496,11 @@ async def test_scanner_increments_zone_reconciled_counter(monkeypatch):
 @pytest.mark.asyncio
 async def test_scanner_increments_zone_dropped_and_aborted_counters(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", None)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": None})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -658,7 +659,7 @@ def test_scanner_card_never_claims_ready_before_worker(monkeypatch):
     spot_price=4100,
     trigger_ts="2026-07-17T04:00:00Z",
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
 
   ready = scanner._format_detection(
     "XAU",
@@ -720,15 +721,15 @@ def test_scalp_status_reports_active_range_and_touched_edge():
 async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_top_n", 2)
-  monkeypatch.setattr(settings, "alert_overlap_suppress", 0.5)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_top_n": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"alert_overlap_suppress": 0.5})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -806,7 +807,7 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
 
 
 def test_scanner_digest_zero_top_n_keeps_all_distinct_results(monkeypatch):
-  monkeypatch.setattr(settings, "scanner_top_n", 0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_top_n": 0})
   results = [
     scanner.DetectionResult(
       f"Setup {index}",
@@ -832,27 +833,21 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
   notify = AsyncMock()
   sync_strategy_match = AsyncMock(return_value=None)
   monkeypatch.setattr(scanner, "_sync_strategy_match", sync_strategy_match)
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "zone_alert_ttl", 14400)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_top_n", 0)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
-  monkeypatch.setattr(
-    settings, "auto_trade_track_all_structural_matches", True,
-  )
-  monkeypatch.setattr(settings, "auto_trade_allow_counter_bias", True)
-  monkeypatch.setattr(
-    settings, "scanner_gate_require_structural_anchor", False,
-  )
-  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 0)
-  monkeypatch.setattr(
-    settings, "scanner_gate_suppress_counter_bias_in_range", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"zone_alert_ttl": 14400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_top_n": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_track_all_structural_matches": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_allow_counter_bias": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_require_structural_anchor": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_max_source_touches": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_suppress_counter_bias_in_range": False,})
   ctx = SimpleNamespace(
     tf="M5",
     htf_bias="up",
@@ -940,13 +935,11 @@ async def test_digest_results_no_longer_resolves_opposing_direction_conflicts(
   """
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(
-    settings, "auto_trade_track_all_structural_matches", True,
-  )
-  monkeypatch.setattr(settings, "auto_trade_allow_counter_bias", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_track_all_structural_matches": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_allow_counter_bias": True})
   buy = scanner.DetectionResult(
     "Demand Zone Reaction",
     "BUY",
@@ -993,11 +986,11 @@ async def test_digest_results_no_longer_resolves_opposing_direction_conflicts(
 async def test_structural_band_dedup_survives_boundary_jitter(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "zone_alert_ttl", 14400)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"zone_alert_ttl": 14400})
   first = scanner.DetectionResult(
     "Demand Zone Reaction",
     "BUY",
@@ -1061,18 +1054,14 @@ async def test_structural_anchor_preference_is_telemetry_not_execution_filter(
   notify = AsyncMock()
   sync_strategy_match = AsyncMock(return_value=None)
   monkeypatch.setattr(scanner, "_sync_strategy_match", sync_strategy_match)
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(
-    settings, "scanner_gate_require_structural_anchor", True,
-  )
-  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 0)
-  monkeypatch.setattr(
-    settings, "scanner_gate_suppress_counter_bias_in_range", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_require_structural_anchor": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_max_source_touches": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_suppress_counter_bias_in_range": False,})
   ctx = SimpleNamespace(
     tf="M5",
     htf_bias="up",
@@ -1139,16 +1128,10 @@ async def test_structural_anchor_preference_is_telemetry_not_execution_filter(
 
 
 def test_structure_gate_defaults_are_a_noop(monkeypatch):
-  monkeypatch.setattr(
-    settings, "scanner_gate_require_structural_anchor", False,
-  )
-  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 0)
-  monkeypatch.setattr(
-    settings, "scanner_gate_suppress_counter_bias_in_range", False,
-  )
-  monkeypatch.setattr(
-    settings, "auto_trade_track_all_structural_matches", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_require_structural_anchor": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_max_source_touches": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_suppress_counter_bias_in_range": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_track_all_structural_matches": True,})
   result = scanner.DetectionResult(
     "Key Level Reaction",
     "SELL",
@@ -1184,16 +1167,10 @@ def test_structure_gate_defaults_are_a_noop(monkeypatch):
 def test_structure_gate_rejects_exhausted_levels_and_weak_range_counter_bias(
   monkeypatch,
 ):
-  monkeypatch.setattr(
-    settings, "scanner_gate_require_structural_anchor", False,
-  )
-  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 6)
-  monkeypatch.setattr(
-    settings, "scanner_gate_suppress_counter_bias_in_range", True,
-  )
-  monkeypatch.setattr(
-    settings, "scanner_gate_counter_bias_min_confluence", 3,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_require_structural_anchor": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_max_source_touches": 6})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_suppress_counter_bias_in_range": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_counter_bias_min_confluence": 3,})
   ctx = SimpleNamespace(
     tf="M5",
     structures={
@@ -1260,15 +1237,15 @@ def test_structure_gate_rejects_exhausted_levels_and_weak_range_counter_bias(
 async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "zone_alert_ttl", 14400)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_top_n", 1)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"zone_alert_ttl": 14400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_top_n": 1})
 
   ctx = SimpleNamespace(
     tf="M5",
@@ -1372,10 +1349,10 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
 async def test_box_breakout_second_alert_on_same_edge_is_band_deduped(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "zone_alert_ttl", 14400)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"zone_alert_ttl": 14400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   result = scanner.DetectionResult(
     "Box Breakout",
     "BUY",
@@ -1482,7 +1459,7 @@ def test_box_breakout_now_participates_in_confluence_merge():
 async def test_band_dedup_preserves_a_different_structural_setup(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   first = scanner.DetectionResult(
     "Trend Pullback",
     "BUY",
@@ -1543,13 +1520,13 @@ async def test_scanner_uses_fresh_spot_for_context_and_live_render(monkeypatch):
     "price:XAU:spot",
     json.dumps({"bid": 4082.0, "ask": 4082.2, "ts": now}),
   )
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "spot_fresh_secs", 30)
-  monkeypatch.setattr(settings, "spot_max_deviation_pct", 2.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_fresh_secs": 30})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_max_deviation_pct": 2.0})
 
   class Source:
     async def window(self, symbol, tf, n):
@@ -1611,15 +1588,15 @@ async def test_scanner_rejects_implausible_spot_and_still_fires(monkeypatch, cap
     "price:XAU:spot",
     json.dumps({"bid": 4100500.0, "ask": 4100500.0, "ts": now}),
   )
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "scanner_alert_ttl", 7200)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "spot_fresh_secs", 30)
-  monkeypatch.setattr(settings, "spot_max_deviation_pct", 2.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_alert_ttl": 7200})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_fresh_secs": 30})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_max_deviation_pct": 2.0})
 
   monkeypatch.setattr(
     scanner,
@@ -1687,13 +1664,13 @@ async def test_scanner_rejects_bad_spot_values_without_crashing(
     "price:XAU:spot",
     json.dumps({"bid": price, "ask": price, "ts": now}),
   )
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "spot_fresh_secs", 30)
-  monkeypatch.setattr(settings, "spot_max_deviation_pct", 2.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_fresh_secs": 30})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_max_deviation_pct": 2.0})
   monkeypatch.setattr(
     scanner,
     "build_context",
@@ -1726,13 +1703,13 @@ async def test_scanner_rejects_bad_spot_values_without_crashing(
 @pytest.mark.asyncio
 async def test_scanner_missing_spot_keeps_fallback_without_warning(monkeypatch, caplog):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "scanner_window", 500)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "spot_fresh_secs", 30)
-  monkeypatch.setattr(settings, "spot_max_deviation_pct", 2.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_fresh_secs": 30})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"spot_max_deviation_pct": 2.0})
   monkeypatch.setattr(
     scanner,
     "build_context",
@@ -1778,9 +1755,7 @@ def test_suppress_overlaps_no_longer_resolves_opposing_direction_conflicts(
   same-direction-only: an opposing overlapping pair both survive this
   specific function untouched (same-direction dedup is unaffected).
   """
-  monkeypatch.setattr(
-    settings, "auto_trade_track_all_structural_matches", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_track_all_structural_matches": False,})
   strong = scanner.DetectionResult(
     "Demand Zone Reaction", "BUY", 4121.5,
     Zone(4121.22, 4126.14, "demand"), 4123.0, 3, ["HTF bias up"],
@@ -1797,7 +1772,7 @@ def test_suppress_overlaps_no_longer_resolves_opposing_direction_conflicts(
 
 
 def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):
-  monkeypatch.setattr(settings, "alert_overlap_suppress", 0.5)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"alert_overlap_suppress": 0.5})
   strong = scanner.DetectionResult(
     "Snap-Back", "SELL", 4094.0,
     Zone(4094, 4096, "supply", score=13), 4090.0, 3, ["HTF bias down"],
@@ -1819,7 +1794,7 @@ def test_true_duplicate_same_direction_overlap_keeps_stronger(monkeypatch):
 async def test_setup_invalidation_is_silent_when_zone_is_violated(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   result = scanner.DetectionResult(
     "Range Edge Scalp",
     "SELL",
@@ -1884,7 +1859,7 @@ async def test_setup_invalidation_does_not_fire_while_zone_holds():
 async def test_setup_invalidation_suppressed_after_autonomous_entry(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   await client.delete("auto_trade:positions")
   result = scanner.DetectionResult(
     "Key Level Reaction",
@@ -1930,8 +1905,8 @@ async def test_setup_invalidation_suppressed_after_autonomous_entry(monkeypatch)
 async def test_overlapping_setup_invalidations_are_all_silent(monkeypatch):
   client = redis_state.get_client()
   notify = AsyncMock()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_level_bucket", 20)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_level_bucket": 20})
   key_level = scanner.DetectionResult(
     "Key Level Reaction",
     "BUY",
@@ -1999,7 +1974,7 @@ async def test_scan_report_aggregates_fires_sent_and_conflicts():
 def test_scanner_default_htf_is_h1_not_m30():
   # H1->M15->M5 single-analysis-source cutover (P2): the scanner's default
   # HTF stack is H1 (primary) + M15, with no M30 dependency anywhere.
-  assert settings.scanner_htf == "H1,M15"
+  assert leaf(runtime_config, "scanner_htf") == "H1,M15"
   assert scanner._htf_tfs() == ["H1", "M15"]
   assert scanner._all_tfs("M5", scanner._htf_tfs()) == ["M5", "H1", "M15"]
   assert "M30" not in scanner._all_tfs("M5", scanner._htf_tfs())
@@ -2007,7 +1982,7 @@ def test_scanner_default_htf_is_h1_not_m30():
 
 @pytest.mark.asyncio
 async def test_scanner_loads_frames_with_h1_present_and_m30_absent(monkeypatch):
-  monkeypatch.setattr(settings, "scanner_window", 500)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
   source = StaticSource()
   frames = await scanner._load_frames(source, "XAU", "M5", scanner._htf_tfs())
   assert "H1" in frames
@@ -2047,7 +2022,7 @@ async def test_non_executable_observation_does_not_burn_future_forming_card(
 ):
   """Production incident: the same zone became executable 24m later."""
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   result = _card_result("incident-zone")
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9100))
 
@@ -2094,7 +2069,7 @@ async def test_one_forming_card_per_setup_identical_redetection_is_noop(
   # One forming card per setup (P4): re-detection of the same setup_id
   # retains the existing card without an identical Telegram edit.
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   sent_texts = []
   edited = []
 
@@ -2141,7 +2116,7 @@ async def test_terminal_setup_is_never_re_carded_by_scanner(monkeypatch):
   )
 
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   await create_setup(
     client, setup_id="p4-setup-2", thesis_id="thesis-2", symbol="XAU",
   )

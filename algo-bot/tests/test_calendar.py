@@ -14,7 +14,8 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from app.signals import calendar
 from app.persistence import store
 from app.bot import wiring
@@ -27,12 +28,8 @@ def feed():
 
 
 def test_parse_timezone_all_day_and_filter(feed, monkeypatch):
-  monkeypatch.setattr(settings, "calendar_currencies", "USD")
-  monkeypatch.setattr(
-    settings,
-    "oil_keywords",
-    "crude oil inventories,opec,cushing,api weekly crude",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"calendar_currencies": "USD"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"oil_keywords": "crude oil inventories,opec,cushing,api weekly crude",})
 
   parsed = calendar._parse_feed(feed, synced_at=123)
   nfp = next(row for row in parsed if row["title"] == "Non-Farm Payrolls")
@@ -223,8 +220,8 @@ def _private_message():
 @pytest.mark.asyncio
 async def test_guard_tags_entry_and_no_event_does_not(monkeypatch):
   now = 1_800_000_000
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(settings, "news_guard_block", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"news_guard_block": False})
   monkeypatch.setattr(wiring.time, "time", lambda: now)
   guard = AsyncMock(return_value={
     "title": "CPI m/m",
@@ -266,8 +263,8 @@ async def test_guard_tags_entry_and_no_event_does_not(monkeypatch):
 @pytest.mark.asyncio
 async def test_guard_block_refuses_post(monkeypatch):
   now = 1_800_000_000
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
-  monkeypatch.setattr(settings, "news_guard_block", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"news_guard_block": True})
   monkeypatch.setattr(wiring.time, "time", lambda: now)
   monkeypatch.setattr(wiring, "event_in_window", AsyncMock(return_value={
     "title": "CPI m/m",

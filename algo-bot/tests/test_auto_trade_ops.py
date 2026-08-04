@@ -1,5 +1,6 @@
 import json
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -1444,7 +1445,7 @@ async def test_thread_lifecycle_disabled_reverts_to_position_chain(monkeypatch):
     ex=60,
   )
   await client.set("auto_trade:msg:39000344", "8123", ex=60)
-  monkeypatch.setattr(settings, "delivery_thread_lifecycle", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"delivery_thread_lifecycle": False})
   calls = []
 
   async def sent(text, **kwargs):
@@ -1744,9 +1745,9 @@ async def test_auto_trade_loop_only_starts_owner_delivery(monkeypatch):
   async def owner_loop(*, chat_id):
     calls.append(chat_id)
 
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "telegram_owner_id", 123)
-  monkeypatch.setattr(settings, "signal_public_channel_id", -100456)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 123})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"signal_public_channel_id": -100456})
   monkeypatch.setattr(delivery, "_auto_trade_owner_events_loop", owner_loop)
 
   await delivery.auto_trade_events_loop()
@@ -1949,8 +1950,8 @@ async def test_terminal_manual_close_uses_broker_fill_before_reconcile_fallback(
 
 @pytest.mark.asyncio
 async def test_pause_resume_and_status(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   await delivery.set_auto_trade_paused(True)
   client = redis_state.get_client()
   await client.set(
@@ -1975,9 +1976,9 @@ async def test_pause_resume_and_status(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_includes_compact_profile_regime_groups_and_route(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
-  monkeypatch.setattr(settings, "auto_trade_profile", "demo_eval")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_profile": "demo_eval"})
   client = redis_state.get_client()
   await client.set(
     "auto_trade:last_gate:XAU",
@@ -2030,8 +2031,8 @@ async def test_status_includes_compact_profile_regime_groups_and_route(monkeypat
 @pytest.mark.no_database
 @pytest.mark.asyncio
 async def test_status_warns_when_component_is_fatal(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
 
   async def fake_fatals():
     return [{
@@ -2061,8 +2062,8 @@ async def test_status_warns_when_component_is_fatal(monkeypatch):
 @pytest.mark.no_database
 @pytest.mark.asyncio
 async def test_status_is_silent_when_no_fatal_components(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
 
   async def fake_fatals():
     return []
@@ -2087,8 +2088,8 @@ async def test_status_is_silent_when_no_fatal_components(monkeypatch):
 async def test_status_attributes_the_exact_published_secondary_strategy(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
   await client.set(
     "auto_trade:last_gate:XAU",
@@ -2122,8 +2123,8 @@ async def test_status_attributes_the_exact_published_secondary_strategy(
 
 @pytest.mark.asyncio
 async def test_status_surfaces_match_build_rejection_reason(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
   await client.set(
     "auto_trade:last_match_build:XAU",
@@ -2141,8 +2142,8 @@ async def test_status_surfaces_match_build_rejection_reason(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_surfaces_match_build_ready(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
   await client.set(
     "auto_trade:last_match_build:XAU",
@@ -2161,7 +2162,7 @@ async def test_status_surfaces_match_build_ready(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_identifies_scanner_strategy_match(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   client = redis_state.get_client()
   await client.set(
     "auto_trade:last_gate:XAU",
@@ -2190,7 +2191,7 @@ async def test_status_identifies_scanner_strategy_match(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_explains_when_no_strategy_matches(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   client = redis_state.get_client()
   await client.set("auto_trade:last_gate:XAU", json.dumps({
     "state": "waiting_for_box",
@@ -2210,7 +2211,7 @@ async def test_status_explains_when_no_strategy_matches(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_shows_market_map_reason_when_idle(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   client = redis_state.get_client()
   await client.set("auto_trade:last_gate:XAU", json.dumps({
     "state": "waiting_for_touch",
@@ -2234,8 +2235,8 @@ async def test_status_shows_market_map_reason_when_idle(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_includes_today_algo_scorecard(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   await store.init_db()
   now = int(datetime.now(timezone.utc).timestamp())
   await store.record_auto_trade_event({
@@ -2299,8 +2300,8 @@ async def test_status_includes_today_algo_scorecard(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_lists_open_v7_plan_book(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
 
   async def _fake_read_trade_plan(_client, plan_id: str):
@@ -2337,8 +2338,8 @@ async def test_status_lists_open_v7_plan_book(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_status_open_book_caps_at_three_plans(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
   plan_ids = [f"plan-status-cap-{i}" for i in range(1, 5)]
   await client.set("execution:trade_plan_runtime_ids", ",".join(plan_ids))

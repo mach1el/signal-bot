@@ -1,5 +1,6 @@
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import os
 from types import SimpleNamespace
@@ -100,7 +101,7 @@ def test_grade_policy_is_explicit():
 
 @pytest.mark.asyncio
 async def test_structural_zone_width_rejects_when_gate_enabled(client, monkeypatch):
-  monkeypatch.setattr(settings, "scanner_zone_width_gate_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": True})
   eligible = await cutover._record_width_telemetry(
     client,
     symbol="XAU",
@@ -125,7 +126,7 @@ async def test_structural_zone_width_gate_disabled_flag_actually_disables_it(
   this flag entirely ("the cutover makes the width contract canonical"),
   silently re-enabling a gate the operator explicitly turned off.
   """
-  monkeypatch.setattr(settings, "scanner_zone_width_gate_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": False})
   eligible = await cutover._record_width_telemetry(
     client,
     symbol="XAU",
@@ -154,9 +155,7 @@ async def test_level_band_is_never_width_rejected_regardless_of_the_gate(
   is on or off.
   """
   for gate_enabled in (True, False):
-    monkeypatch.setattr(
-      settings, "scanner_zone_width_gate_enabled", gate_enabled,
-    )
+    install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": gate_enabled,})
     eligible = await cutover._record_width_telemetry(
       client,
       symbol="XAU",

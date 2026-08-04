@@ -1,7 +1,8 @@
 """P3b: merged detector cards and reward/risk setup eligibility."""
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import json
 from types import SimpleNamespace
@@ -151,11 +152,7 @@ async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
   assert result.setup == "Supply Zone Reaction"
   assert result.confluence_tags == ("key_level", "supply")
   assert result.confluence == 4
-  monkeypatch.setattr(
-    settings,
-    "auto_trade_strategy_match_enabled",
-    True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True,})
   match = await scanner._sync_strategy_match(
     client,
     "XAU",
@@ -183,8 +180,8 @@ async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
     "XAU", match, None,
   ) == result.confluence_zone_id
 
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
   sent_texts = []
 
   async def notify(text, **_kwargs):
@@ -227,13 +224,9 @@ def test_six_price_same_side_cluster_merges_before_ambiguity_gate(monkeypatch):
       source="order_block", kind="ob", confluence=3,
     ),
   ]
-  monkeypatch.setattr(settings, "zone_merge_max_width", 6.0)
-  monkeypatch.setattr(
-    settings, "scanner_actionability_gate_enabled", False,
-  )
-  monkeypatch.setattr(
-    settings, "key_level_role_ambiguity_gate_enabled", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"zone_merge_max_width": 6.0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_actionability_gate_enabled": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"key_level_role_ambiguity_gate_enabled": False,})
 
   merged = scanner._merge_detection_confluence(
     "XAU", "M5", raw, atr=2.0,
@@ -298,8 +291,8 @@ async def test_distinct_same_side_zones_still_form_two_cards(monkeypatch):
   assert len(merged) == 2
   assert len({item.confluence_zone_id for item in merged}) == 2
   matches = [_build_one(item, ctx) for item in merged]
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9002))
 
   cards = await scanner._notify_digest_once(
@@ -343,9 +336,7 @@ async def test_opposing_sides_keep_identity_and_remain_actionable(
   assert len(merged) == 2
   assert {item.direction for item in merged} == {"BUY", "SELL"}
   # Contested corridor is preference telemetry — both sides stay actionable.
-  monkeypatch.setattr(
-    settings, "scanner_actionability_gate_enabled", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_actionability_gate_enabled": True,})
   resolution = resolve_actionability(
     symbol="XAU",
     observed_results=merged,
@@ -375,8 +366,8 @@ async def test_opposing_sides_keep_identity_and_remain_actionable(
     list(resolution.actionable),
   )
   assert match is not None
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_card_top_n", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_card_top_n": 2})
   notify = AsyncMock(return_value=SimpleNamespace(message_id=9003))
 
   cards = await scanner._notify_digest_once(
@@ -414,12 +405,12 @@ async def test_reward_risk_pre_gate_retains_watchable_candidate(
     confluence=3,
     current_price=4100.5,
   )
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "M30")
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_tp_pips", "15")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_tp_pips": "15"})
   monkeypatch.setattr(
     scanner,
     "_load_market_context_for_symbol",
@@ -540,7 +531,7 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
   ) is None
   assert (await load_setup(client, setup_id)).state == EXPIRED
   assert await client.get(f"execution:trade_plan:v7:{setup_id}") is None
-  events = await client.xrange(settings.auto_trade_event_stream)
+  events = await client.xrange(leaf(runtime_config, "auto_trade_event_stream"))
   payloads = [json.loads(fields["payload"]) for _id, fields in events]
   assert payloads[-1]["type"] == EXPIRED
   assert payloads[-1]["reason_code"] == "confirmation_expired"

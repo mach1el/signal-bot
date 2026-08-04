@@ -1,5 +1,6 @@
 import json
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -151,7 +152,7 @@ def test_manual_signal_without_trailing_tag_is_unchanged():
 
 
 async def _prepare_manual_send(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
     wiring,
     "event_in_window",
@@ -200,7 +201,7 @@ async def _prepare_manual_send_full_signal(monkeypatch):
   shaped like a real ``manual_signals`` record — enough fields for
   ``build_intent`` to work — instead of the bare ``{"id": 47}`` stub the
   notify-only confirmation tests use."""
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
     wiring,
     "event_in_window",
@@ -232,7 +233,7 @@ async def _prepare_manual_send_full_signal(monkeypatch):
 @pytest.mark.asyncio
 async def test_algo_suffix_ignored_when_flag_disabled(monkeypatch):
   await _prepare_manual_send_full_signal(monkeypatch)
-  monkeypatch.setattr(settings, "manual_algo_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": False})
   publish = AsyncMock()
   monkeypatch.setattr(wiring._fallback, "publish_intent", publish)
   msg = _dm(BASE_SIGNAL + " / algo")
@@ -248,11 +249,9 @@ async def test_algo_suffix_ignored_when_flag_disabled(monkeypatch):
 @pytest.mark.asyncio
 async def test_algo_suffix_arms_and_publishes_intent_when_enabled(monkeypatch):
   await _prepare_manual_send_full_signal(monkeypatch)
-  monkeypatch.setattr(settings, "manual_algo_enabled", True)
-  monkeypatch.setattr(settings, "manual_algo_dry_run", True)
-  monkeypatch.setattr(
-    settings, "manual_trade_intent_stream", "manual_trade:test_fallback",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_dry_run": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_intent_stream": "manual_trade:test_fallback",})
   set_intent = AsyncMock(return_value={"id": 47})
   monkeypatch.setattr(wiring._fallback, "set_execution_intent", set_intent)
   msg = _dm(BASE_SIGNAL + " / algo")
@@ -290,11 +289,9 @@ async def test_algo_suffix_arms_and_publishes_intent_when_enabled(monkeypatch):
 @pytest.mark.asyncio
 async def test_algo_suffix_not_live_still_reports_dry_run_off(monkeypatch):
   await _prepare_manual_send_full_signal(monkeypatch)
-  monkeypatch.setattr(settings, "manual_algo_enabled", True)
-  monkeypatch.setattr(settings, "manual_algo_dry_run", False)
-  monkeypatch.setattr(
-    settings, "manual_trade_intent_stream", "manual_trade:test_live",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_dry_run": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_intent_stream": "manual_trade:test_live",})
   monkeypatch.setattr(
     wiring._fallback, "set_execution_intent", AsyncMock(return_value={"id": 47}),
   )
@@ -310,7 +307,7 @@ async def test_algo_suffix_not_live_still_reports_dry_run_off(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_algo_request_is_blocked_when_config_health_is_fatal(monkeypatch):
-  monkeypatch.setattr(settings, "manual_algo_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": True})
   set_intent = AsyncMock()
   monkeypatch.setattr(wiring._fallback, "set_execution_intent", set_intent)
   client = redis_state.get_client()
@@ -329,7 +326,7 @@ async def test_algo_request_is_blocked_when_config_health_is_fatal(monkeypatch):
 @pytest.mark.asyncio
 async def test_algo_arm_failure_falls_back_to_notify_only(monkeypatch):
   await _prepare_manual_send_full_signal(monkeypatch)
-  monkeypatch.setattr(settings, "manual_algo_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": True})
   monkeypatch.setattr(
     wiring._fallback, "set_execution_intent", AsyncMock(return_value={"id": 47}),
   )
@@ -358,7 +355,7 @@ async def test_plain_signal_without_algo_suffix_is_byte_identical_regression(
   no `/ algo` suffix must behave exactly as it did before this PR — no
   intent built or published, confirmation text unchanged."""
   await _prepare_manual_send_full_signal(monkeypatch)
-  monkeypatch.setattr(settings, "manual_algo_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_enabled": True})
   publish = AsyncMock()
   monkeypatch.setattr(wiring._fallback, "publish_intent", publish)
   msg = _dm(BASE_SIGNAL)
@@ -374,7 +371,7 @@ async def test_plain_signal_without_algo_suffix_is_byte_identical_regression(
 
 @pytest.mark.asyncio
 async def test_trade_untagged_lists_only_null_setup_newest_first(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   await store.init_db()
   older = await store.store_manual_signal(
     100, "SELL", 4087, 4090, 4095, [4078], setup_type=None,
@@ -402,7 +399,7 @@ async def test_trade_untagged_lists_only_null_setup_newest_first(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_untagged_is_owner_gated(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   get_untagged = AsyncMock()
   monkeypatch.setattr(wiring, "get_untagged_signals", get_untagged)
   msg = _dm("/trade_untagged", user_id=99)
@@ -415,7 +412,7 @@ async def test_trade_untagged_is_owner_gated(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_untagged_defaults_to_twenty(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   get_untagged = AsyncMock(return_value=[])
   monkeypatch.setattr(wiring, "get_untagged_signals", get_untagged)
   msg = _dm("/trade_untagged")
@@ -428,7 +425,7 @@ async def test_trade_untagged_defaults_to_twenty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_tag_absolute_id_is_owner_gated(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   get_signal = AsyncMock()
   monkeypatch.setattr(wiring, "get_manual_signal", get_signal)
   msg = _dm("/trade_tag id:47 golden-fib **", user_id=99)
@@ -441,7 +438,7 @@ async def test_trade_tag_absolute_id_is_owner_gated(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trade_tag_absolute_id_updates_closed_signal_and_backfill(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   await store.init_db()
   untouched = await store.store_manual_signal(
     100, "SELL", 4087, 4090, 4095, [4078], setup_type=None,

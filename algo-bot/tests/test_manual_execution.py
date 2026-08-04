@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from app.persistence import redis_state, store
 from app.signals import broadcast, manual_execution
 from app.signals.manual_intent import ManualTradeIntent
@@ -102,8 +103,8 @@ def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
 
 @pytest.mark.asyncio
 async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream_maxlen": 100})
   client = redis_state.get_client()
   intent_payload = {
     "intent_id": "manual:5:0",
@@ -141,7 +142,7 @@ async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeyp
 async def test_process_intent_entries_skips_malformed_payload_but_advances_cursor(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test2")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test2"})
   client = redis_state.get_client()
   entries = [("55-0", {"payload": "not json"})]
 
@@ -169,9 +170,9 @@ async def test_reconcile_events_loop_is_a_no_op_when_disabled():
 async def test_manual_intent_bypasses_worker_strategy_gates(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test3")
-  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test3"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream_maxlen": 100})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   sent = AsyncMock()
   monkeypatch.setattr(manual_execution, "send_scanner_with_retry", sent)
   client = redis_state.get_client()
@@ -247,7 +248,7 @@ async def test_handle_event_fill_marks_filled_records_broker_fields_and_activate
   send = _mock_send(monkeypatch)
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
-  monkeypatch.setattr(settings, "manual_algo_owner_execution_dm_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_owner_execution_dm_enabled": True})
   sid = await _algo_signal()
   client = redis_state.get_client()
   positions: dict[int, int] = {}
@@ -279,7 +280,7 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
   sid = await _algo_signal()
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
-  monkeypatch.setattr(settings, "manual_algo_owner_execution_dm_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_algo_owner_execution_dm_enabled": True})
   event = {
     "type": "manual_limit_placed",
     "stream": "algo_manual",
@@ -739,9 +740,7 @@ async def test_handle_event_command_error_marks_execution_status_error(monkeypat
 
 @pytest.mark.asyncio
 async def test_request_cancel_xadds_cancel_pending_command(monkeypatch):
-  monkeypatch.setattr(
-    settings, "manual_trade_command_stream", "manual_trade:cmd1",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream": "manual_trade:cmd1",})
   client = redis_state.get_client()
 
   await manual_execution.request_cancel("manual:9:0")
@@ -754,9 +753,7 @@ async def test_request_cancel_xadds_cancel_pending_command(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_request_close_xadds_close_command_and_remembers_frac(monkeypatch):
-  monkeypatch.setattr(
-    settings, "manual_trade_command_stream", "manual_trade:cmd2",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream": "manual_trade:cmd2",})
   client = redis_state.get_client()
 
   await manual_execution.request_close(9, 555, frac=0.5)
@@ -770,9 +767,7 @@ async def test_request_close_xadds_close_command_and_remembers_frac(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_request_move_sl_xadds_move_sl_command(monkeypatch):
-  monkeypatch.setattr(
-    settings, "manual_trade_command_stream", "manual_trade:cmd3",
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream": "manual_trade:cmd3",})
   client = redis_state.get_client()
 
   await manual_execution.request_move_sl(9, 555, 4108.5)

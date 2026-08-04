@@ -3,7 +3,8 @@ Prompt P4).
 """
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import asyncio
 import os
@@ -475,10 +476,8 @@ async def test_kill_setup_card_is_a_noop_with_no_stored_card():
 async def test_delete_on_terminal_disabled_edits_and_retains_root(monkeypatch):
   client = redis_state.get_client()
   await setup_card.save_forming_card(client, "setup-6", chat_id=123, message_id=4444)
-  monkeypatch.setattr(settings, "auto_trade_telegram_single_root_card", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_telegram_delete_root_on_terminal", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_delete_root_on_terminal": False,})
   calls = []
 
   async def delete_fn(chat_id, message_id):
@@ -505,10 +504,8 @@ async def test_delete_root_flag_true_still_retains(monkeypatch):
   """Config delete flags are ignored — reject/expire always edit+retain."""
   client = redis_state.get_client()
   await setup_card.save_forming_card(client, "setup-del", chat_id=123, message_id=3333)
-  monkeypatch.setattr(settings, "auto_trade_telegram_single_root_card", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_telegram_delete_root_on_terminal", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_delete_root_on_terminal": True,})
   calls = []
 
   async def delete_fn(chat_id, message_id):
@@ -528,7 +525,7 @@ async def test_delete_root_flag_true_still_retains(monkeypatch):
 @pytest.mark.asyncio
 async def test_load_forming_card_reads_legacy_scalar_format(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "telegram_owner_id", 999)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 999})
   await client.set(setup_card.forming_message_key("setup-7"), "12345", ex=60)
 
   card = await setup_card.load_forming_card(client, "setup-7")

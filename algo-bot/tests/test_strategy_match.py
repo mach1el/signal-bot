@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import pandas as pd
 import pytest
@@ -108,10 +109,8 @@ def test_strategy_match_contract_round_trips_and_rejects_wrong_version():
 def test_scanner_transports_strongest_strategy_without_regime_routing(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "auto_trade_tp_pips", "30,60,90")
-  monkeypatch.setattr(
-    settings, "auto_trade_strategy_match_max_age_seconds", 420,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_tp_pips": "30,60,90"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_max_age_seconds": 420,})
 
   match, reason, measured = scanner._build_strategy_match(
     "XAU",
@@ -136,7 +135,7 @@ def test_scanner_transports_strongest_strategy_without_regime_routing(
 
 
 def test_range_edge_is_a_strategy_with_its_own_full_tp_plan(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_tp_pips", "30,60,90")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_tp_pips": "30,60,90"})
   match, reason, measured = scanner._build_strategy_match(
     "XAU",
     "M5",
@@ -234,10 +233,8 @@ def test_insufficient_target_room_is_rejected_with_a_reason_not_silently(
 @pytest.mark.asyncio
 async def test_scanner_syncs_and_clears_strategy_match(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_strategy_match_max_age_seconds", 420,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_max_age_seconds": 420,})
 
   match = await scanner._sync_strategy_match(
     client, "XAU", "M5", "1784721300", _context(), [_result()],

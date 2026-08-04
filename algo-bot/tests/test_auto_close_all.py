@@ -1,7 +1,8 @@
 """Owner /auto_close_all flatten command."""
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -24,7 +25,7 @@ def _owner_msg(text: str = "/auto_close_all"):
 
 @pytest.mark.asyncio
 async def test_algo_status_reports_failure_instead_of_silence(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
     dm,
     "auto_trade_status_text",
@@ -45,7 +46,7 @@ async def test_algo_status_reports_failure_instead_of_silence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_algo_status_clips_oversized_card(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
     dm,
     "auto_trade_status_text",
@@ -67,7 +68,7 @@ async def test_algo_status_clips_oversized_card(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auto_close_all_requires_confirm(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
     dm, "auto_trade_status_text", AsyncMock(return_value="status body")
   )
@@ -88,7 +89,7 @@ async def test_auto_close_all_requires_confirm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auto_close_all_confirm_pauses_and_requests_flatten(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", 42)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   pause = AsyncMock()
   close_all = AsyncMock()
   monkeypatch.setattr(dm, "set_auto_trade_paused", pause)
@@ -109,16 +110,8 @@ async def test_auto_close_all_confirm_pauses_and_requests_flatten(monkeypatch):
 async def test_request_close_all_xadds_close_all_command(monkeypatch):
   client = AsyncMock()
   monkeypatch.setattr(manual_execution.redis_state, "get_client", lambda: client)
-  monkeypatch.setattr(
-    settings,
-    "manual_trade_command_stream",
-    "manual_trade:commands",
-  )
-  monkeypatch.setattr(
-    settings,
-    "manual_trade_command_stream_maxlen",
-    100,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream": "manual_trade:commands",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream_maxlen": 100,})
 
   await manual_execution.request_close_all()
 

@@ -12,7 +12,8 @@ its absence never blocks a setup whose executable quote is inside the zone.
 """
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 from dataclasses import replace
 import time
@@ -376,12 +377,12 @@ async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
   state = await load_execution_confirmation(client, match.match_id)
   assert state is not None
   assert state.phase == PUBLISHED
-  assert await client.xlen(settings.auto_trade_trade_plan_stream) == 1
+  assert await client.xlen(leaf(runtime_config, "auto_trade_trade_plan_stream")) == 1
 
   assert await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
   ) == plan_id
-  assert await client.xlen(settings.auto_trade_trade_plan_stream) == 1
+  assert await client.xlen(leaf(runtime_config, "auto_trade_trade_plan_stream")) == 1
 
 
 @pytest.mark.asyncio
@@ -471,7 +472,7 @@ async def test_published_setup_reconciles_on_replay_without_re_publishing():
 
   assert replay_plan_id == plan_id
   assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
-  assert await client.xlen(settings.auto_trade_trade_plan_stream) == 1
+  assert await client.xlen(leaf(runtime_config, "auto_trade_trade_plan_stream")) == 1
 
 
 @pytest.mark.asyncio
@@ -575,10 +576,8 @@ async def test_outside_reaction_routes_to_waiting_retest_via_v7(
     bid=4037.78,
     ask=4037.98,
   )
-  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_trendline_reaction_enabled", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_trendline_reaction_enabled": True,})
 
   plan_id = await worker._publish_trade_plan_v7(
     client, "XAU", spot, match,
@@ -608,12 +607,10 @@ async def test_inside_authoritative_reaction_admits_and_publishes(
     bid=4038.41,
     ask=4038.61,
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_news_guard_minutes", 0)
-  monkeypatch.setattr(
-    settings, "auto_trade_key_level_reaction_enabled", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_news_guard_minutes": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_key_level_reaction_enabled": True,})
   intent = _intent_for_match(match)
 
   # Admission accepts an inside authoritative reaction (no failure record).
@@ -1238,7 +1235,7 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   # setting to a value that would have disabled V7 under the old gate (and
   # is now rejected by Settings validation, but this function doesn't
   # validate - it just must not branch on it) to prove the gate is gone.
-  monkeypatch.setattr(settings, "auto_trade_contract_mode", "legacy_v6")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_contract_mode": "legacy_v6"})
   client = redis_state.get_client()
   match = _match(match_id="match-v7-2", thesis_id="thesis-v7-2")
   await _confirm_setup(client, match)

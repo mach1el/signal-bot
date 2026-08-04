@@ -1,6 +1,4 @@
 import json
-from app.core.config import settings
-
 import fakeredis
 import pytest
 
@@ -17,72 +15,80 @@ from app.autotrade.range_context import (
   RangeContext,
   resolve_range_context,
 )
-from app.core.config import Settings
 from app.autotrade import config_health, worker
+from app.configuration.python_loader import load_python_canonical_settings
+from app.configuration.source_types import ConfigurationSourceBundle
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 
 def _settings(monkeypatch, **env):
-  monkeypatch.setenv(
-    "TELEGRAM_BOT_TOKEN",
-    "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
-  )
-  monkeypatch.setenv("SIGNAL_VIP_CHANNEL_ID", "-100123456789")
-  monkeypatch.setenv("AUTO_TRADE_PROFILE", "demo_eval")
+  values = {
+    "TELEGRAM_BOT_TOKEN": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
+    "SIGNAL_VIP_CHANNEL_ID": "-100123456789",
+    "POSTGRES_PASSWORD": "apexvoid",
+    "AUTO_TRADE_PROFILE": "demo_eval",
+  }
   for key, value in env.items():
-    monkeypatch.setenv(key, str(value))
-  return Settings(_env_file=None)
+    values[key] = str(value)
+  for key, value in values.items():
+    monkeypatch.setenv(key, value)
+  result = load_python_canonical_settings(
+    ConfigurationSourceBundle(process_environment=values),
+  )
+  return result.config
 
 
 def test_demo_profile_resolves_execution_defaults(monkeypatch):
   cfg = _settings(monkeypatch)
-  assert cfg.auto_trade_profile == "demo_eval"
-  assert cfg.auto_trade_require_demo_account
-  assert cfg.auto_trade_allow_concurrent_strategies
-  assert cfg.auto_trade_allow_hedged_xau
-  assert not cfg.auto_trade_require_flat_for_range
-  assert cfg.auto_trade_range_two_sided_enabled
-  assert cfg.auto_trade_range_flip_enabled
-  assert cfg.auto_trade_trend_enabled
-  assert cfg.auto_trade_range_enabled
-  assert cfg.auto_trade_mapped_zone_enabled
-  assert cfg.auto_trade_market_map_guard_enabled
-  assert cfg.auto_trade_strategy_match_enabled
-  assert cfg.auto_trade_breakout_enabled
-  assert cfg.auto_trade_retest_enabled
-  assert cfg.auto_trade_reaction_enabled
-  assert cfg.auto_trade_liquidity_reversal_enabled
-  assert cfg.auto_trade_allow_counter_bias
-  assert cfg.auto_trade_multi_match_enabled
-  assert cfg.auto_trade_track_all_structural_matches
-  assert cfg.auto_trade_enabled
-  assert not cfg.auto_trade_dry_run
-  assert cfg.auto_trade_candidate_contract_version == 6
-  assert cfg.auto_trade_candidate_max_age_seconds == 420
-  assert cfg.auto_trade_candidate_ttl == 604800
-  assert cfg.auto_trade_spot_max_age == 5
-  assert cfg.auto_trade_zone_fill_enabled
-  assert cfg.auto_trade_non_hedged_opposite_policy == "broker_netting"
-  assert cfg.auto_trade_structural_guard_mode == "observe"
-  assert not cfg.auto_trade_opposing_barrier_veto_enabled
-  assert not cfg.auto_trade_overlap_veto_enabled
-  assert not cfg.auto_trade_zone_cooldown_enabled
-  assert cfg.auto_trade_zone_reconcile_mode == "shadow"
-  assert cfg.auto_trade_range_min_entry_drift_pips == 10
-  assert cfg.auto_trade_map_min_entry_drift_pips == 10
-  assert cfg.auto_trade_trend_min_entry_drift_pips == 15
-  assert cfg.auto_trade_range_max_entry_drift_atr == 1.0
-  assert cfg.auto_trade_map_max_entry_drift_atr == 1.0
-  assert cfg.auto_trade_trend_max_entry_drift_atr == 1.5
-  assert cfg.auto_trade_range_hard_entry_drift_pips == 20
-  assert cfg.auto_trade_map_hard_entry_drift_pips == 20
-  assert cfg.auto_trade_trend_hard_entry_drift_pips == 30
-  assert cfg.scanner_top_n == 0
-  assert cfg.scanner_card_top_n == 2
-  assert not cfg.scanner_gate_require_structural_anchor
-  assert cfg.scanner_gate_max_source_touches == 0
-  assert not cfg.scanner_gate_suppress_counter_bias_in_range
-  assert cfg.scanner_gate_counter_bias_min_confluence == 3
-  assert cfg.auto_trade_max_tracked_candidates == 0
+  assert leaf(cfg, "auto_trade_profile") == "demo_eval"
+  assert leaf(cfg, "auto_trade_require_demo_account")
+  assert leaf(cfg, "auto_trade_allow_concurrent_strategies")
+  assert leaf(cfg, "auto_trade_allow_hedged_xau")
+  assert not leaf(cfg, "auto_trade_require_flat_for_range")
+  assert leaf(cfg, "auto_trade_range_two_sided_enabled")
+  assert leaf(cfg, "auto_trade_range_flip_enabled")
+  assert leaf(cfg, "auto_trade_trend_enabled")
+  assert leaf(cfg, "auto_trade_range_enabled")
+  assert leaf(cfg, "auto_trade_mapped_zone_enabled")
+  assert leaf(cfg, "auto_trade_market_map_guard_enabled")
+  assert leaf(cfg, "auto_trade_strategy_match_enabled")
+  assert leaf(cfg, "auto_trade_breakout_enabled")
+  assert leaf(cfg, "auto_trade_retest_enabled")
+  assert leaf(cfg, "auto_trade_reaction_enabled")
+  assert leaf(cfg, "auto_trade_liquidity_reversal_enabled")
+  assert leaf(cfg, "auto_trade_allow_counter_bias")
+  assert leaf(cfg, "auto_trade_multi_match_enabled")
+  assert leaf(cfg, "auto_trade_track_all_structural_matches")
+  assert leaf(cfg, "auto_trade_enabled")
+  assert not leaf(cfg, "auto_trade_dry_run")
+  assert leaf(cfg, "auto_trade_candidate_contract_version") == 6
+  assert leaf(cfg, "auto_trade_candidate_max_age_seconds") == 420
+  assert leaf(cfg, "auto_trade_candidate_ttl") == 604800
+  assert leaf(cfg, "auto_trade_spot_max_age") == 5
+  assert leaf(cfg, "auto_trade_zone_fill_enabled")
+  assert leaf(cfg, "auto_trade_non_hedged_opposite_policy") == "broker_netting"
+  assert leaf(cfg, "auto_trade_structural_guard_mode") == "observe"
+  assert not leaf(cfg, "auto_trade_opposing_barrier_veto_enabled")
+  assert not leaf(cfg, "auto_trade_overlap_veto_enabled")
+  assert not leaf(cfg, "auto_trade_zone_cooldown_enabled")
+  assert leaf(cfg, "auto_trade_zone_reconcile_mode") == "shadow"
+  assert leaf(cfg, "auto_trade_range_min_entry_drift_pips") == 10
+  assert leaf(cfg, "auto_trade_map_min_entry_drift_pips") == 10
+  assert leaf(cfg, "auto_trade_trend_min_entry_drift_pips") == 15
+  assert leaf(cfg, "auto_trade_range_max_entry_drift_atr") == 1.0
+  assert leaf(cfg, "auto_trade_map_max_entry_drift_atr") == 1.0
+  assert leaf(cfg, "auto_trade_trend_max_entry_drift_atr") == 1.5
+  assert leaf(cfg, "auto_trade_range_hard_entry_drift_pips") == 20
+  assert leaf(cfg, "auto_trade_map_hard_entry_drift_pips") == 20
+  assert leaf(cfg, "auto_trade_trend_hard_entry_drift_pips") == 30
+  assert leaf(cfg, "scanner_top_n") == 0
+  assert leaf(cfg, "scanner_card_top_n") == 2
+  assert not leaf(cfg, "scanner_gate_require_structural_anchor")
+  assert leaf(cfg, "scanner_gate_max_source_touches") == 0
+  assert not leaf(cfg, "scanner_gate_suppress_counter_bias_in_range")
+  assert leaf(cfg, "scanner_gate_counter_bias_min_confluence") == 3
+  assert leaf(cfg, "auto_trade_max_tracked_candidates") == 0
 
 
 def test_demo_profile_does_not_override_explicit_environment(monkeypatch):
@@ -99,16 +105,16 @@ def test_demo_profile_does_not_override_explicit_environment(monkeypatch):
     SCANNER_GATE_SUPPRESS_COUNTER_BIAS_IN_RANGE="true",
     SCANNER_GATE_COUNTER_BIAS_MIN_CONFLUENCE="5",
   )
-  assert not cfg.auto_trade_range_flip_enabled
-  assert not cfg.auto_trade_allow_hedged_xau
-  assert cfg.auto_trade_candidate_max_age_seconds == 123
-  assert cfg.auto_trade_candidate_ttl == 456
-  assert cfg.scanner_top_n == 7
-  assert cfg.scanner_card_top_n == 4
-  assert cfg.scanner_gate_require_structural_anchor
-  assert cfg.scanner_gate_max_source_touches == 6
-  assert cfg.scanner_gate_suppress_counter_bias_in_range
-  assert cfg.scanner_gate_counter_bias_min_confluence == 5
+  assert not leaf(cfg, "auto_trade_range_flip_enabled")
+  assert not leaf(cfg, "auto_trade_allow_hedged_xau")
+  assert leaf(cfg, "auto_trade_candidate_max_age_seconds") == 123
+  assert leaf(cfg, "auto_trade_candidate_ttl") == 456
+  assert leaf(cfg, "scanner_top_n") == 7
+  assert leaf(cfg, "scanner_card_top_n") == 4
+  assert leaf(cfg, "scanner_gate_require_structural_anchor")
+  assert leaf(cfg, "scanner_gate_max_source_touches") == 6
+  assert leaf(cfg, "scanner_gate_suppress_counter_bias_in_range")
+  assert leaf(cfg, "scanner_gate_counter_bias_min_confluence") == 5
 
 
 def test_market_map_guard_follows_execution_flag_unless_explicit(monkeypatch):
@@ -213,8 +219,8 @@ def test_accepted_breakout_retires_range_over_stale_active_source():
 @pytest.mark.asyncio
 async def test_lifecycle_keeps_history_not_only_latest(monkeypatch):
   client = fakeredis.FakeAsyncRedis(decode_responses=True)
-  monkeypatch.setattr(settings, "auto_trade_profile", "demo_eval")
-  monkeypatch.setattr(settings, "auto_trade_candidate_ttl", 86400)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_profile": "demo_eval"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_candidate_ttl": 86400})
   await emit_lifecycle(
     client, "detected", symbol="XAU", candidate_id="candidate-1",
   )
@@ -242,9 +248,7 @@ async def test_both_range_rails_stay_independent(monkeypatch):
   client = fakeredis.FakeAsyncRedis(decode_responses=True)
   context = _context("merged", 4000, 4010)
   decision = AutoScalpDecision("candidate", direction="BUY")
-  monkeypatch.setattr(
-    settings, "auto_trade_box_retire_seconds", 14400,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_box_retire_seconds": 14400,})
 
   await worker._persist_range_side_states(
     client,
@@ -290,7 +294,7 @@ async def test_both_range_rails_stay_independent(monkeypatch):
 async def test_python_config_manifest_is_published(monkeypatch):
   client = fakeredis.FakeAsyncRedis(decode_responses=True)
   cfg = _settings(monkeypatch)
-  monkeypatch.setattr(config_health, "settings", cfg)
+  monkeypatch.setattr(config_health, "runtime_config", cfg)
 
   health = await publish_python_manifest(client)
 
@@ -445,7 +449,7 @@ def test_manifest_canonicalizes_descending_runtime_targets(monkeypatch):
     monkeypatch,
     AUTO_TRADE_RANGE_TARGETS_PIPS="70,50,40,30,20,20",
   )
-  monkeypatch.setattr(config_health, "settings", cfg)
+  monkeypatch.setattr(config_health, "runtime_config", cfg)
   monkeypatch.setattr(
     config_health,
     "configured_range_targets",
@@ -468,8 +472,8 @@ def test_canonical_environment_precedes_legacy_alias(monkeypatch):
     AUTO_TRADE_TP_PIPS="1,2,3,4,5",
   )
 
-  assert cfg.auto_trade_stream == "canonical:candidates"
-  assert cfg.auto_trade_tp_pips == "30,60,90,120,200"
+  assert leaf(cfg, "auto_trade_stream") == "canonical:candidates"
+  assert leaf(cfg, "auto_trade_tp_pips") == "30,60,90,120,200"
 
 
 @pytest.mark.parametrize(
@@ -490,7 +494,7 @@ def test_python_boolean_parser_accepts_documented_forms(
   expected,
 ):
   cfg = _settings(monkeypatch, AUTO_TRADE_RANGE_FLIP_ENABLED=configured)
-  assert cfg.auto_trade_range_flip_enabled is expected
+  assert leaf(cfg, "auto_trade_range_flip_enabled") is expected
 
 
 def test_python_boolean_parser_rejects_unknown_value(monkeypatch):

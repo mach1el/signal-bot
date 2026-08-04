@@ -1,7 +1,8 @@
 """Telegram one-root-card minimum: silent plan_armed + retain-on-terminal."""
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import pytest
 
@@ -31,12 +32,10 @@ def test_generic_plan_published_is_silent():
 
 def test_should_delete_root_always_retains(monkeypatch):
   """Reject/expire must edit the root card — delete is permanently off."""
-  monkeypatch.setattr(settings, "auto_trade_telegram_single_root_card", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_telegram_delete_root_on_terminal", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_delete_root_on_terminal": True,})
   assert setup_card.should_delete_root_on_terminal() is False
 
-  monkeypatch.setattr(settings, "auto_trade_telegram_single_root_card", False)
-  monkeypatch.setattr(settings, "delivery_delete_on_terminal", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"delivery_delete_on_terminal": True})
   assert setup_card.should_delete_root_on_terminal() is False

@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from app.persistence import redis_state, store
 from app.signals.manual_intent import build_intent, publish_intent
 
@@ -61,8 +62,8 @@ def test_build_intent_handles_missing_optional_setup_metadata():
 
 @pytest.mark.asyncio
 async def test_publish_intent_xadds_full_payload_to_configured_stream(monkeypatch):
-  monkeypatch.setattr(settings, "manual_trade_intent_stream", "manual_trade:test")
-  monkeypatch.setattr(settings, "manual_trade_intent_stream_maxlen", 100)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_intent_stream": "manual_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_intent_stream_maxlen": 100})
   client = redis_state.get_client()
   intent = build_intent(_signal())
 
@@ -90,7 +91,7 @@ async def test_publish_intent_xadds_full_payload_to_configured_stream(monkeypatc
 
 @pytest.mark.asyncio
 async def test_publish_intent_is_one_xadd_per_call(monkeypatch):
-  monkeypatch.setattr(settings, "manual_trade_intent_stream", "manual_trade:test2")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_intent_stream": "manual_trade:test2"})
   client = redis_state.get_client()
 
   await publish_intent(build_intent(_signal(id=1), revision=0))

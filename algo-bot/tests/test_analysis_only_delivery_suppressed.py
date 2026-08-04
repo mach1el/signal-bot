@@ -13,7 +13,8 @@ B. The exact `notification_results = digest or analysis_only_results`
 """
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -96,10 +97,10 @@ async def test_analysis_only_reason_produces_zero_telegram_effects(
   symbol, tf = "XAU", "M5"
   result = _result(reason_code)
 
-  monkeypatch.setattr(settings, "scanner_symbols", symbol)
-  monkeypatch.setattr(settings, "scanner_exec_tf", tf)
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": symbol})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": tf})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
   monkeypatch.setattr(
     scanner,
     "resolve_actionability",
@@ -178,10 +179,10 @@ async def test_empty_digest_never_substitutes_analysis_only_results(monkeypatch)
   symbol, tf = "XAU", "M5"
   results = [_result("policy_zone_too_wide"), _result("source_level_exhausted")]
 
-  monkeypatch.setattr(settings, "scanner_symbols", symbol)
-  monkeypatch.setattr(settings, "scanner_exec_tf", tf)
-  monkeypatch.setattr(settings, "scanner_htf", "M30,M15")
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": symbol})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": tf})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
 
   def _resolution(**_kwargs) -> ActionabilityResolution:
     gated = tuple(
