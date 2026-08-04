@@ -989,6 +989,37 @@ def test_structural_target_room_caps_configured_ladder():
   assert decision.fitted_targets_pips == (30, 50)
   assert decision.measured["configured_target_pips"] == [30, 50, 70]
   assert decision.measured["effective_target_pips"] == pytest.approx(50)
+  assert decision.reason_code == "opposing_barrier_target_capped"
+
+
+def test_structural_target_room_full_ladder_fits_is_not_labeled_capped():
+  """An opposing barrier far enough away that buffered room clears even the
+  largest configured target must not be labeled "capped" - nothing was
+  actually truncated, and the outcome (allow, effective=max(targets)) is
+  identical to no_opposing_barrier's. Regression for a real production log
+  (2026-08-04, XAU M5 Flip Zone) where room=377.6 pips still reported
+  opposing_barrier_target_capped for a [30,60,90,120,200] ladder.
+  """
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=4060.12,
+    candidate_entry_low=4057.9,
+    candidate_entry_high=4060.12,
+    configured_target_pips=(30, 60, 90, 120, 200),
+    actionable_entries=(
+      _entry("sell", 4099.8, 4108.1, tier="major"),
+    ),
+    atr=3.87,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+  )
+
+  assert decision.allowed
+  assert decision.hard_block is False
+  assert decision.reason_code == "opposing_barrier_full_ladder_fits"
+  assert decision.fitted_targets_pips == (30, 60, 90, 120, 200)
+  assert decision.effective_target_pips == pytest.approx(200)
+  assert decision.measured["preference_telemetry"] is True
 
 
 def test_structural_band_overlap_without_planned_entry_caps_not_blocks():
