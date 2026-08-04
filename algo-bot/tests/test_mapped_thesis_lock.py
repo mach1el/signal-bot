@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import map_strategy_cfg
+from tests.configuration.canonical_fixtures import (
+  install_runtime_overrides,
+  leaf,
+  map_strategy_cfg,
+)
 
 import pytest
 
@@ -128,21 +132,17 @@ def _match(
 @pytest.mark.asyncio
 async def test_incident_second_reaction_suppressed_by_thesis_lock(monkeypatch):
   """22:46 then 22:49 same zone/thesis, different reaction_id → one publish."""
-  from app.core import config as config_mod
-
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_enabled", True)
-  monkeypatch.setattr(
-    config_mod.runtime_config, "auto_trade_mapped_zone_enabled", True,
-  )
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_map_thesis_lock_enabled", True)
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_min_confluence", 1)
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_candidate_ttl", 600)
-  monkeypatch.setattr(
-    config_mod.runtime_config, "auto_trade_opposing_barrier_veto_enabled", False,
-  )
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_overlap_veto_enabled", False)
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_htf_veto_enabled", False)
+  cfg = install_runtime_overrides(monkeypatch, legacy_overrides={
+    "auto_trade_enabled": True,
+    "auto_trade_mapped_zone_enabled": True,
+    "auto_trade_map_thesis_lock_enabled": True,
+    "auto_trade_min_confluence": 1,
+    "auto_trade_candidate_ttl": 600,
+    "auto_trade_opposing_barrier_veto_enabled": False,
+    "auto_trade_overlap_veto_enabled": False,
+    "auto_trade_zone_cooldown_enabled": False,
+    "auto_trade_htf_veto_enabled": False,
+  })
 
   client = FakeRedis()
 
@@ -206,7 +206,7 @@ async def test_incident_second_reaction_suppressed_by_thesis_lock(monkeypatch):
   assert first is not None
   assert sum(
     1 for stream, _ in client.stream
-    if stream == config_mod.runtime_config.auto_trade_stream
+    if stream == leaf(cfg, "auto_trade_stream")
   ) == 1
 
   second = await _publish_strategy_match(
@@ -224,7 +224,7 @@ async def test_incident_second_reaction_suppressed_by_thesis_lock(monkeypatch):
   assert second is None
   assert sum(
     1 for stream, _ in client.stream
-    if stream == config_mod.runtime_config.auto_trade_stream
+    if stream == leaf(cfg, "auto_trade_stream")
   ) == 1
   metrics = client.metrics.get("auto_trade:metrics:XAU", {})
   assert metrics.get("mapped_thesis_claimed", 0) == 1

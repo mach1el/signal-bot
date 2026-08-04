@@ -202,7 +202,14 @@ async def test_one_card_and_one_setup_per_merged_zone(monkeypatch):
 
   assert cards == merged
   assert len(sent_texts) == 1
-  assert "Key Level + Supply · Supply Zone Reaction" in sent_texts[0]
+  # Card layout is the emoji-driven compact format now (PR #220) - there is
+  # no combined "tag1 + tag2 · setup" string anymore. The merge still shows
+  # up via the winning representative setup name plus both sources' own
+  # reasons surviving into Context.
+  text = sent_texts[0]
+  assert "SELL · Supply Zone Reaction" in text
+  assert "supply reaction" in text
+  assert "resistance reaction" in text
 
 
 def test_six_price_same_side_cluster_merges_before_ambiguity_gate(monkeypatch):
@@ -247,7 +254,7 @@ def test_six_price_same_side_cluster_merges_before_ambiguity_gate(monkeypatch):
     context=ctx,
     atr=2.0,
     pip_size=0.1,
-    cfg=settings,
+    cfg=runtime_config,
   )
 
   assert len(merged) == 1
@@ -344,7 +351,7 @@ async def test_opposing_sides_keep_identity_and_remain_actionable(
     context=ctx,
     atr=2.0,
     pip_size=0.1,
-    cfg=settings,
+    cfg=runtime_config,
   )
   assert resolution.observed == tuple(merged)
   assert len(resolution.actionable) == 2

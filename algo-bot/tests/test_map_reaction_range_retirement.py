@@ -6,7 +6,11 @@ from app.core.config import runtime_config
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import map_strategy_cfg, install_runtime_overrides
+from tests.configuration.canonical_fixtures import (
+  install_runtime_overrides,
+  map_strategy_cfg,
+  market_map_cfg,
+)
 
 import pandas as pd
 import pytest
@@ -341,7 +345,7 @@ def test_actionable_map_entry_appears_in_rendered_market_map():
     market_map,
     "XAU",
     datetime(2026, 7, 24, 10, 0, tzinfo=timezone.utc),
-    SimpleNamespace(seq_reset_tz="UTC", map_tag_limit=4),
+    market_map_cfg(seq_reset_tz="UTC"),
   )
   # "ACTIONABLE NOW" was misleading - these bands are only listed here
   # because the per-side display cap dropped them, not because price is

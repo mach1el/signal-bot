@@ -230,7 +230,7 @@ async def _algo_signal(**overrides) -> int:
     rec["id"], intent_id=f"manual:{rec['id']}:0", status="armed", revision=0,
   )
   await store.insert_signal_post(
-    rec["id"], settings.signal_vip_channel_id, 9000 + rec["id"], "vip",
+    rec["id"], runtime_config.delivery.telegram.telegram_channel_id, 9000 + rec["id"], "vip",
   )
   return rec["id"]
 

@@ -16,7 +16,10 @@ from app.autotrade.range_context import (
   resolve_range_context,
 )
 from app.autotrade import config_health, worker
-from app.configuration.python_loader import load_python_canonical_settings
+from app.configuration.python_loader import (
+  CanonicalConfigurationError,
+  load_python_canonical_settings,
+)
 from app.configuration.source_types import ConfigurationSourceBundle
 from app.core.config import runtime_config
 from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
@@ -128,18 +131,19 @@ def test_market_map_guard_follows_execution_flag_unless_explicit(monkeypatch):
     AUTO_TRADE_MARKET_MAP_GUARD_ENABLED="true",
   )
 
-  assert not neutral.auto_trade_mapped_zone_enabled
-  assert not neutral.auto_trade_market_map_guard_enabled
-  assert not guarded.auto_trade_mapped_zone_enabled
-  assert guarded.auto_trade_market_map_guard_enabled
+  assert not leaf(neutral, "auto_trade_mapped_zone_enabled")
+  assert not leaf(neutral, "auto_trade_market_map_guard_enabled")
+  assert not leaf(guarded, "auto_trade_mapped_zone_enabled")
+  assert leaf(guarded, "auto_trade_market_map_guard_enabled")
 
 
 def test_demo_profile_cannot_disable_demo_account_guard(monkeypatch):
-  with pytest.raises(ValueError, match="requires.*DEMO_ACCOUNT"):
+  with pytest.raises(CanonicalConfigurationError) as excinfo:
     _settings(
       monkeypatch,
       AUTO_TRADE_REQUIRE_DEMO_ACCOUNT="false",
     )
+  assert excinfo.value.category == "demo_account_requirement"
 
 
 def _context(source, lower, upper, quality=5.0):
@@ -463,17 +467,35 @@ def test_manifest_canonicalizes_descending_runtime_targets(monkeypatch):
   assert manifest["config_manifest_version"] == 2
 
 
-def test_canonical_environment_precedes_legacy_alias(monkeypatch):
+def test_canonical_environment_agrees_with_legacy_alias(monkeypatch):
+  # Canonical + its deprecated alias set to the SAME value resolves cleanly -
+  # source_alias_conflict only fires when they actually disagree (see the
+  # conflict test below), so an operator mid-migration who sets both to the
+  # same value isn't blocked.
   cfg = _settings(
     monkeypatch,
-    AUTO_TRADE_CANDIDATE_STREAM="canonical:candidates",
-    AUTO_TRADE_STREAM="legacy:candidates",
+    AUTO_TRADE_CANDIDATE_STREAM="auto_trade:candidates",
+    AUTO_TRADE_STREAM="auto_trade:candidates",
     AUTO_TRADE_TARGET_PLANS_PIPS="30,60,90,120,200",
-    AUTO_TRADE_TP_PIPS="1,2,3,4,5",
+    AUTO_TRADE_TP_PIPS="30,60,90,120,200",
   )
 
-  assert leaf(cfg, "auto_trade_stream") == "canonical:candidates"
+  assert leaf(cfg, "auto_trade_stream") == "auto_trade:candidates"
   assert leaf(cfg, "auto_trade_tp_pips") == "30,60,90,120,200"
+
+
+def test_canonical_environment_conflicting_with_legacy_alias_fails_closed(monkeypatch):
+  # Canonical config catalog hardening: a canonical env var and its own
+  # deprecated alias set to DIFFERENT values is an ambiguous operator
+  # mistake now made explicit at startup, not silently resolved in
+  # canonical's favor.
+  with pytest.raises(CanonicalConfigurationError) as excinfo:
+    _settings(
+      monkeypatch,
+      AUTO_TRADE_CANDIDATE_STREAM="canonical:candidates",
+      AUTO_TRADE_STREAM="legacy:candidates",
+    )
+  assert excinfo.value.category == "source_alias_conflict"
 
 
 @pytest.mark.parametrize(
@@ -498,8 +520,9 @@ def test_python_boolean_parser_accepts_documented_forms(
 
 
 def test_python_boolean_parser_rejects_unknown_value(monkeypatch):
-  with pytest.raises(ValueError, match="boolean"):
+  with pytest.raises(CanonicalConfigurationError) as excinfo:
     _settings(
       monkeypatch,
       AUTO_TRADE_RANGE_FLIP_ENABLED="enable-ish",
     )
+  assert excinfo.value.category == "source_parse_error"
