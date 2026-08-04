@@ -123,27 +123,42 @@ def test_opposing_barrier_reason_without_exclusion_args_is_unchanged():
 
 
 @pytest.mark.parametrize(
-  ("direction", "entry", "target", "zone", "source_side"),
+  ("direction", "entry", "target", "level", "source_side"),
   [
     (
-      "BUY", 4116.25, 4130.0,
-      Zone(4116.0, 4127.0, "supply", touches=8),
+      "BUY", 4083.70, 4130.0,
+      Level(price=4084.42, kind="round", touches=4, band=3.05),
       "demand",
     ),
     (
       "SELL", 4116.25, 4100.0,
-      Zone(4105.0, 4117.0, "demand", touches=8),
+      Level(price=4116.60, kind="reaction", touches=3, band=2.5),
       "supply",
     ),
   ],
 )
-def test_entry_inside_opposing_structure_is_preference_telemetry(
+def test_entry_inside_opposing_neutral_level_is_preference_telemetry(
   direction,
   entry,
   target,
-  zone,
+  level,
   source_side,
 ):
+  """A neutral key-level band (round number / reaction level) has no
+  directional side - unlike a genuine supply/demand zone, it is a weak
+  signal on its own. Production evidence (checked live, both prior
+  gate_reject:entry_inside_opposing_zone volume and the two most recent
+  live hits) shows this branch only ever fires on "round"/"reaction"
+  levels, never on a real opposing zone - see module docstring. Containment
+  inside one of these should warn, not consume an otherwise-good match.
+
+  Containment inside an actual opposing supply/demand zone remains an
+  unconditional hard block - see
+  test_opposing_barrier_reason_vetoes_buy_inside_opposing_supply and
+  test_opposing_barrier_reason_vetoes_sell_inside_opposing_demand in
+  test_auto_scalp_worker.py (23 Jul incident: a BUY filled inside an
+  8-touch SELL resistance band).
+  """
   source = StructuralSourceIdentity(
     strategy="Mapped Zone Reaction",
     strategy_family="mapped_zone_reaction",
@@ -156,22 +171,22 @@ def test_entry_inside_opposing_structure_is_preference_telemetry(
   )
 
   observed = worker._opposing_barrier_decision(
-    direction, entry, target, 1.2, [zone], [], 0.5,
+    direction, entry, target, 1.2, [], [level], 0.5,
     source=source,
     guard_mode="observe",
   )
   strict = worker._opposing_barrier_decision(
-    direction, entry, target, 1.2, [zone], [], 0.5,
+    direction, entry, target, 1.2, [], [level], 0.5,
     source=source,
     guard_mode="strict",
   )
 
   assert observed.outcome == "allow_with_warning"
   assert not observed.hard_block
-  assert observed.reason_code == "entry_inside_opposing_zone"
+  assert observed.reason_code == "entry_inside_opposing_level"
   assert strict.outcome == "allow_with_warning"
   assert not strict.hard_block
-  assert strict.reason_code == "entry_inside_opposing_zone"
+  assert strict.reason_code == "entry_inside_opposing_level"
 
 
 # ---------------------------------------------------------------------------
