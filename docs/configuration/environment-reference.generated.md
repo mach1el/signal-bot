@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `1dab7cdbe9266e96d6b9e2aa553d1848ab9e0cd42d8626385ebc2213a3bc6eac`
-- Environment-bound fields: `374`
+- Contract fingerprint: `eb2002bd01237007c3eacdba1a4b8a6cd07417d5fa44c354e31b511e9a423629`
+- Environment-bound fields: `376`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -149,6 +149,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_RETEST_TRIGGER_VALIDITY_BARS` | `lifecycle.retest.trigger_validity_bars` | `int` | no | no | — | `2` |
 | `AUTO_TRADE_RISK_PCT` | `risk.sizing.risk_pct` | `decimal` | no | no | — | `2` |
 | `AUTO_TRADE_SAME_DIRECTION_STACK_SIZE_FRACTION` | `risk.position_limits.same_direction_stack_size_fraction` | `float` | no | no | — | `0.6` |
+| `AUTO_TRADE_SCALP_MIN_CAPPED_TARGET_PIPS` | `actionability.target_room.scalp_minimum_capped_target_pips` | `float` | no | no | — | `8.0` |
+| `AUTO_TRADE_SCALP_OPPOSING_BARRIER_ATR` | `actionability.target_room.scalp_barrier_buffer_atr` | `float` | no | no | — | `0.15` |
 | `AUTO_TRADE_SESSION_LEVEL_REACTION_ENABLED` | `strategies.reaction.session_level.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_SIZING_MODE` | `risk.sizing.mode` | `str` | no | yes | — | `equity_table` |
 | `AUTO_TRADE_SL_DISTANCE` | `execution.stops.sl_distance` | `float` | no | yes | — | `6.5` |

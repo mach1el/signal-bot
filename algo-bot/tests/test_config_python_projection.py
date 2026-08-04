@@ -24,7 +24,7 @@ def test_python_projection_excludes_all_ctrader_only_fields():
 
 def test_python_projection_includes_all_python_fields():
   full = {e.path for e in iter_catalog_entries() if e.owner == "python"}
-  assert len(full) == 296
+  assert len(full) == 298
   assert full <= _by_path(PythonRuntimeConfig).keys()
 
 
@@ -42,7 +42,7 @@ def test_python_projection_has_no_legacy_attr_metadata():
 def test_python_projection_preserves_catalog_paths():
   full = _by_path(ApexVoidConfig)
   projected = _by_path(PythonRuntimeConfig)
-  assert len(projected) == 391
+  assert len(projected) == 393
   assert all(projected[path].as_dict() == full[path].as_dict() for path in projected)
 
 

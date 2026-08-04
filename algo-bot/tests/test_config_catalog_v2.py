@@ -44,13 +44,13 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 441,
-  "configurable": 374,
+  "entries": 443,
+  "configurable": 376,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 296, "shared": 95, "ctrader": 50},
-  "projection": 391,
-  "env": 374,
+  "owners": {"python": 298, "shared": 95, "ctrader": 50},
+  "projection": 393,
+  "env": 376,
   "deprecated_aliases": 21,
 }
 
@@ -301,7 +301,11 @@ def test_entry_behavior_types_match_v1_parity():
     ).read_text())["entry_behavior"]
   }
   for entry in iter_catalog_entries():
-    prior = hist[entry.path]
+    prior = hist.get(entry.path)
+    if prior is None:
+      # Entry introduced after the v1 snapshot was frozen - nothing to
+      # compare parity against.
+      continue
     assert entry.type == prior["type"], entry.path
     assert entry.canonical_env == prior["canonical_env"], entry.path
     assert list(entry.deprecated_aliases) == prior["deprecated_aliases"]

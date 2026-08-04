@@ -192,6 +192,64 @@ def test_buy_under_overlapping_sell_major_hard_gates_on_execution_cost(
   assert decision.measured["entry_overlap_price"] == pytest.approx(0.0)
 
 
+def test_scalp_setup_gets_lighter_room_requirement_than_swing_setup():
+  """Range/scalp setups trade close to structure by design - the same raw
+  room that starves a swing setup's wide buffer must still clear the
+  tighter scalp buffer. ATR=2.0 -> swing buffer=1.0 price (10 pips),
+  scalp buffer=0.3 price (3 pips); raw_room=0.6 price (6 pips) clears the
+  scalp buffer (room=0.3) but not the swing one (room=-0.4).
+  """
+  market_map = _map(
+    _entry("sell", 4045.60, 4050.0, tier="major"),
+    price=4045.0,
+  )
+  cfg = actionability_cfg(
+    barrier_buffer_atr=0.5,
+    scalp_barrier_buffer_atr=0.15,
+  )
+
+  scalp = _result(
+    "BUY",
+    4044.50,
+    4045.00,
+    setup="Range Edge Scalp",
+    current_price=4045.0,
+  )
+  scalp_resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[scalp],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert len(scalp_resolution.actionable) == 1
+  assert scalp_resolution.actionable[0].setup == "Range Edge Scalp"
+  assert scalp_resolution.gated == ()
+
+  swing = _result(
+    "BUY",
+    4044.50,
+    4045.00,
+    setup="Key Level Reaction",
+    current_price=4045.0,
+  )
+  swing_resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[swing],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="down"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert swing_resolution.actionable == ()
+  swing_decision = swing_resolution.gated[0][1]
+  assert swing_decision.reason_code == "execution_cost_insufficient_room"
+  assert swing_decision.hard_block is True
+
+
 def test_raw_room_zero_major_hard_gates():
   # Planned entry already past the opposing major (not contained inside it)
   # leaves negative raw room → hard structural gate.
