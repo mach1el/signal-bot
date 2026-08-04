@@ -2028,6 +2028,120 @@ async def test_status_includes_compact_profile_regime_groups_and_route(monkeypat
   assert "auto trader" not in text.lower()
 
 
+@pytest.mark.asyncio
+async def test_status_shows_manual_algo_pending_count(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  from app.persistence import store
+
+  await store.init_db()
+  rec = await store.store_manual_signal(
+    1_800_000_000, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_status(rec["id"], "pending")
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "algo <b>1</b>" in text
+
+
+@pytest.mark.asyncio
+async def test_status_shows_live_price_and_spread(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  client = redis_state.get_client()
+  await client.set(
+    "price:XAU:spot", json.dumps({"bid": 4071.85, "ask": 4072.15, "ts": 1}),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "XAU <b>4,071.85</b>/<b>4,072.15</b>" in text
+  assert "spread 3.0p" in text
+
+
+@pytest.mark.asyncio
+async def test_status_shows_cooldown_for_confirmed_stop_loss(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:zone:cooldown:XAU:SELL",
+    json.dumps({
+      "reason": "stop_loss",
+      "confidence": "confirmed",
+      "entry_price": 4070.0,
+      "stop_price": 4075.0,
+      "closed_at": 1,
+    }),
+    ex=900,
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Cooldown <b>SELL</b>" in text
+  assert "15m left" in text
+
+
+@pytest.mark.asyncio
+async def test_status_hides_cooldown_for_ambiguous_close(monkeypatch):
+  # Matches worker.py's own fail-open rule (_zone_cooldown_reason): a
+  # marker the engine could not positively attribute to a stop-loss must
+  # never look like an active block on /algo_status either.
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:zone:cooldown:XAU:SELL",
+    json.dumps({
+      "reason": "unknown",
+      "confidence": "ambiguous",
+      "entry_price": 4070.0,
+      "stop_price": 4075.0,
+      "closed_at": 1,
+    }),
+    ex=900,
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Cooldown" not in text
+
+
+@pytest.mark.asyncio
+async def test_status_warns_when_engine_snapshot_is_stale(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  client = redis_state.get_client()
+  stale_ts = int(datetime.now(timezone.utc).timestamp()) - 500
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({"symbol": "XAU", "group_ids": [], "updated_at": stale_ts}),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Engine stale" in text
+  assert "8m ago" in text
+
+
+@pytest.mark.asyncio
+async def test_status_silent_when_engine_snapshot_is_fresh(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  client = redis_state.get_client()
+  fresh_ts = int(datetime.now(timezone.utc).timestamp()) - 5
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({"symbol": "XAU", "group_ids": [], "updated_at": fresh_ts}),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Engine stale" not in text
+
+
 @pytest.mark.no_database
 @pytest.mark.asyncio
 async def test_status_warns_when_component_is_fatal(monkeypatch):

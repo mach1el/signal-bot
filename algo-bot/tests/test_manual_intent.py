@@ -306,3 +306,36 @@ async def test_get_signal_by_execution_intent_id_returns_none_when_unmatched():
   found = await store.get_signal_by_execution_intent_id("manual:999999:0")
 
   assert found is None
+
+
+@pytest.mark.asyncio
+async def test_count_pending_algo_signals_counts_only_still_resting_orders():
+  await store.init_db()
+  pending = await store.store_manual_signal(
+    1_800_000_000, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_status(pending["id"], "pending")
+
+  filled = await store.store_manual_signal(
+    1_800_000_001, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_fill(
+    filled["id"], broker_position_id=1, broker_fill_price=4100.0,
+  )
+
+  cancelled = await store.store_manual_signal(
+    1_800_000_002, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_status(cancelled["id"], "pending")
+  await store.cancel_manual_signal(cancelled["id"])
+
+  await store.store_manual_signal(
+    1_800_000_003, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+  )
+
+  count = await store.count_pending_algo_signals()
+
+  assert count == 1
