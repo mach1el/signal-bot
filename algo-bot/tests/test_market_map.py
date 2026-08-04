@@ -365,6 +365,51 @@ def test_resolve_cross_side_overlaps_ignores_a_minor_edge_touch():
   assert sell in result
 
 
+def test_cross_side_dropped_entry_does_not_resurface_in_actionable_entries():
+  # Live incident (2026-08-04): the card's "ALSO QUALIFIES (beyond display
+  # cap)" section showed a SELL zone that overlapped a stronger MAJOR BUY
+  # demand zone by more than half its own width - exactly the contradiction
+  # _resolve_cross_side_overlaps exists to drop from the main board. It WAS
+  # dropped from market_map.entries, but market_map.actionable_entries (the
+  # pool _beyond_display_cap_lines reads for that section) was built from
+  # the pre-reconciliation candidate pool, so the same contradictory zone
+  # reappeared there instead - and a StrategyMatch downstream tried to build
+  # a SELL setup whose own opposing structure was this same BUY zone,
+  # hard-blocked at execution_cost_insufficient_room only at the very last
+  # TradePlan-build step.
+  # price sits inside the BUY zone (contains_price keeps its full raw
+  # bounds - see _zone_entry), while the SELL zone renders geometrically
+  # (entirely above price) but still overlaps the BUY zone's upper tail.
+  buy = Zone(
+    4053.0, 4058.0, "demand",
+    source="supply_demand", score=17.5, score_reasons=["HTF zone"],
+  )
+  sell = Zone(4056.5, 4058.5, "supply", source="supply_demand", score=8.0)
+  # Unrelated, non-overlapping zones on both sides - a realistic market
+  # snapshot has more than two structures, and _resolve_cross_side_overlaps'
+  # circuit breaker (a single overlapping pair must not exceed 34% of the
+  # pool) needs a plausible denominator to not itself fail open here.
+  noise = [
+    Zone(4030.0, 4032.0, "demand", source="supply_demand", score=9.0),
+    Zone(4040.0, 4042.0, "demand", source="order_block", score=9.0),
+    Zone(4075.0, 4077.0, "supply", source="supply_demand", score=9.0),
+    Zone(4082.0, 4084.0, "supply", source="order_block", score=9.0),
+  ]
+
+  market_map = build_map(
+    _ctx({"M5": _item([buy, sell, *noise])}), 4056.0, _cfg(),
+  )
+
+  sell_entries = [e for e in market_map.entries if e.side == "sell"]
+  assert not any(e.hi <= 4058.5 and e.lo >= 4056.0 for e in sell_entries)
+  actionable_sell_entries = [
+    e for e in market_map.actionable_entries if e.side == "sell"
+  ]
+  assert not any(
+    e.hi <= 4058.5 and e.lo >= 4056.0 for e in actionable_sell_entries
+  )
+
+
 def test_resolve_cross_side_overlaps_circuit_breaker_fails_open():
   # If a pass would drop more than a third of the entries, something else
   # is wrong (e.g. a degenerate all-overlapping fixture) - fail open and
