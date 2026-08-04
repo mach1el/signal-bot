@@ -12,7 +12,7 @@ from app.configuration.catalog_validation import validate_active_catalog
 from app.configuration.models.python_runtime import PythonRuntimeConfig
 from app.configuration.profiles import ConfigProfile
 from app.configuration.profiles import ProfileAssignment
-from app.configuration.source_types import ConfigurationSourceBundle
+from app.configuration.source_types import SourceKind
 
 
 pytestmark = pytest.mark.no_database
@@ -83,24 +83,16 @@ def test_profile_cannot_override_algorithm_constant(monkeypatch):
 
 
 def test_invalid_profile_value_fails_before_model_construction(monkeypatch):
+  path = "execution.entry.maximum_chase_distance_pips"
   profile = ConfigProfile(
     name="broken",
-    assignments=(
-      ProfileAssignment(
-        "execution.entry.maximum_chase_distance_pips",
-        "not-a-number",
-      ),
-    ),
+    assignments=(ProfileAssignment(path, "not-a-number"),),
   )
   resolved = _resolved_with_profile(monkeypatch, profile)
   assert [conflict.code for conflict in resolved.conflicts] == [
     "profile_value_invalid"
   ]
-  assert "execution.entry.maximum_chase_distance_pips" not in (
-    resolved.trace.by_path()[
-      "execution.entry.maximum_chase_distance_pips"
-    ].overridden_lower_precedence_sources
-  )
+  assert resolved.trace.by_path()[path].source_kind is SourceKind.SCHEMA_DEFAULT
 
 
 def test_profile_values_use_canonical_typed_parser(monkeypatch):
