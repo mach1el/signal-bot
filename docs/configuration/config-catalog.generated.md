@@ -5,7 +5,7 @@
 - Catalog version: `1`
 - Source fingerprint: `bb24affb47b297c91637a83880cd2043e59a4cff0b5b17ca2d02fb4952fb54f0`
 - Items: `441`
-- Runtime status: inactive; legacy `app.core.config.Settings` remains active
+- Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
 

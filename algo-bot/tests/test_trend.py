@@ -6,12 +6,12 @@ from types import SimpleNamespace
 from app.autotrade import trend
 from app.autotrade.gate import AutoScalpBox, AutoScalpDecision, AutoScalpRail
 from app.analysis.types import Leg, SessionLevel, Swing, Zone
-from app.core.config import settings
-from tests.configuration.canonical_fixtures import canonical_ns_from_flat
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 def _nested_cfg():
   """Snapshot nested config from live settings (picks up monkeypatches)."""
-  return canonical_ns_from_flat(settings)
+  return runtime_config
 
 pytestmark = pytest.mark.no_database
 
@@ -173,7 +173,7 @@ def test_clear_uptrend_with_expanding_atr_classifies_as_trend():
 
   assert regime.state == "trend"
   assert regime.direction == "up"
-  assert regime.bos_count >= settings.trend_min_bos
+  assert regime.bos_count >= leaf(runtime_config, "trend_min_bos")
   assert regime.htf_aligned is True
 
 
@@ -183,7 +183,7 @@ def test_demo_eval_keeps_counter_bias_local_trend_executable(monkeypatch):
     "analyze",
     lambda *_args, **_kwargs: SimpleNamespace(htf_bias="down"),
   )
-  monkeypatch.setattr(settings, "auto_trade_allow_counter_bias", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_allow_counter_bias": True})
   frames = {
     "M1": _uptrend_m1(),
     "M15": _flat_frame(20, "15min"),
@@ -202,7 +202,7 @@ def test_demo_eval_keeps_counter_bias_local_trend_executable(monkeypatch):
 
 
 def test_same_shape_with_flat_atr_does_not_classify_as_trend(monkeypatch):
-  monkeypatch.setattr(settings, "trend_atr_expansion", 1.15)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"trend_atr_expansion": 1.15})
   m1 = _uniform_uptrend_m1()
   frames = {
     "M1": m1,
@@ -212,7 +212,7 @@ def test_same_shape_with_flat_atr_does_not_classify_as_trend(monkeypatch):
   regime = trend.classify_regime(frames, AutoScalpDecision("waiting_for_box"), _nested_cfg())
 
   assert regime.state != "trend"
-  assert regime.atr_ratio < settings.trend_atr_expansion
+  assert regime.atr_ratio < leaf(runtime_config, "trend_atr_expansion")
 
 
 def test_accepted_box_break_classifies_as_breakout_even_with_narrow_window():
@@ -287,7 +287,7 @@ def test_incident_replay_rejects_missing_m1_bar():
 def test_incident_replay_rejects_nearby_prebreak_barrier(monkeypatch):
   m1 = _box_breakout_replay_frame()
   box_decision, regime = _box_breakout_context()
-  monkeypatch.setattr(settings, "trend_breakout_min_room_pips", 35)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"trend_breakout_min_room_pips": 35})
 
   decision = trend.evaluate_trend_gate(
     {"M1": m1},
@@ -306,7 +306,7 @@ def test_incident_replay_rejects_nearby_prebreak_barrier(monkeypatch):
 def test_box_breakout_retest_with_room_can_trade(monkeypatch):
   m1 = _box_breakout_replay_frame(obstacle=4126.05)
   box_decision, regime = _box_breakout_context()
-  monkeypatch.setattr(settings, "trend_breakout_min_room_pips", 35)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"trend_breakout_min_room_pips": 35})
   monkeypatch.setattr(trend, "session_levels", lambda df, cfg: [])
   monkeypatch.setattr(trend, "previous_week_levels", lambda df: [])
   monkeypatch.setattr(trend, "displacement", lambda *args, **kwargs: [])
@@ -328,7 +328,7 @@ def test_box_breakout_retest_with_room_can_trade(monkeypatch):
 
 def test_sell_breakout_has_symmetric_prior_barrier_gate(monkeypatch):
   m1, box_decision, regime = _mirrored_sell_breakout_replay()
-  monkeypatch.setattr(settings, "trend_breakout_min_room_pips", 35)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"trend_breakout_min_room_pips": 35})
 
   decision = trend.evaluate_trend_gate(
     {"M1": m1},
@@ -543,7 +543,7 @@ def test_mode_b_opposing_major_level_inside_buffer_blocks_entry(monkeypatch):
 def test_mode_b_chase_disabled_with_no_pullback_does_not_fire(monkeypatch):
   m1 = _mode_b_frame(accepted=True)
   _patch_mode_b_primitives(monkeypatch, _mode_b_swings())
-  monkeypatch.setattr(settings, "trend_allow_chase", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"trend_allow_chase": False})
   regime = trend.RegimeInfo("trend", "up", 5, 1.2, True, None, ())
 
   decision = trend.evaluate_trend_gate(

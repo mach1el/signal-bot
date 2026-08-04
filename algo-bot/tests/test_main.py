@@ -11,15 +11,21 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from app import main
+
+
+pytestmark = pytest.mark.no_database
 
 
 @pytest.mark.asyncio
 async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
-  monkeypatch.setattr(settings, "telegram_owner_id", None)
-  monkeypatch.setattr(settings, "scanner_telegram_bot_token", "scanner-token")
-  monkeypatch.setattr(settings, "telegram_bot_token", "general-token")
+  install_runtime_overrides(monkeypatch, legacy_overrides={
+    "telegram_owner_id": None,
+    "scanner_telegram_bot_token": "scanner-token",
+    "telegram_bot_token": "general-token",
+  })
   init_db = AsyncMock()
   watcher = AsyncMock()
   calendar = AsyncMock()

@@ -5,7 +5,8 @@ shallow trigger/timing-only fetch.
 """
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import pytest
 
@@ -30,22 +31,22 @@ class _RecordingSource:
 
 def test_default_lookback_settings_fall_inside_the_documented_xau_ranges():
   # H1: major structure ~2.5-4 weeks
-  assert 300 <= settings.xau_lookback_h1_bars <= 500
+  assert 300 <= leaf(runtime_config, "xau_lookback_h1_bars") <= 500
   # M15: session structure ~2-3 days
-  assert 200 <= settings.xau_lookback_m15_bars <= 300
+  assert 200 <= leaf(runtime_config, "xau_lookback_m15_bars") <= 300
   # M5: current + previous session entry structure
-  assert 100 <= settings.xau_lookback_m5_bars <= 150
+  assert 100 <= leaf(runtime_config, "xau_lookback_m5_bars") <= 150
   # M1: trigger/timing only
-  assert 100 <= settings.xau_lookback_m1_bars <= 200
+  assert 100 <= leaf(runtime_config, "xau_lookback_m1_bars") <= 200
 
 
 def test_window_for_timeframe_resolves_each_timeframe_independently(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 250)
-  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 150)
-  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 150)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_h1_bars": 400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m15_bars": 250})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m5_bars": 150})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m1_bars": 150})
 
   assert ohlc_source.window_for_timeframe("H1") == 400
   assert ohlc_source.window_for_timeframe("M15") == 250
@@ -55,7 +56,7 @@ def test_window_for_timeframe_resolves_each_timeframe_independently(
 
 
 def test_window_for_timeframe_clamps_a_misconfigured_low_value(monkeypatch):
-  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 1)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m1_bars": 1})
   assert ohlc_source.window_for_timeframe("M1") == 50
 
 
@@ -63,9 +64,9 @@ def test_window_for_timeframe_clamps_a_misconfigured_low_value(monkeypatch):
 async def test_scanner_load_frames_requests_role_sized_windows(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 250)
-  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 150)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_h1_bars": 400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m15_bars": 250})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m5_bars": 150})
   source = _RecordingSource()
 
   await scanner._load_frames(source, "XAU", "M5", ["H1", "M15"])
@@ -79,10 +80,10 @@ async def test_scanner_load_frames_requests_role_sized_windows(
 async def test_worker_load_frames_gives_m1_a_trigger_window(
   monkeypatch,
 ):
-  monkeypatch.setattr(settings, "xau_lookback_h1_bars", 400)
-  monkeypatch.setattr(settings, "xau_lookback_m15_bars", 250)
-  monkeypatch.setattr(settings, "xau_lookback_m5_bars", 150)
-  monkeypatch.setattr(settings, "xau_lookback_m1_bars", 150)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_h1_bars": 400})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m15_bars": 250})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m5_bars": 150})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"xau_lookback_m1_bars": 150})
   source = _RecordingSource()
 
   await worker._load_frames(source, "XAU")

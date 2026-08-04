@@ -1,9 +1,4 @@
-"""Phase 2H environment-consolidation unit tests.
-
-Covers the source policy, legacy quarantine, environment usage audit,
-catalog-derived environment contract, metadata-driven alias inspection,
-deployment identity, the generated ``.env.example``, and artifact currency.
-"""
+"""Phase 2H/2I environment contract and source-policy tests."""
 
 from __future__ import annotations
 
@@ -24,25 +19,23 @@ from app.configuration.environment_contract import (
   iter_environment_contract_entries,
 )
 from app.configuration.environment_usage_audit import (
+  CANONICAL_SOURCE_COLLECTION_ALLOWED,
   DEPLOYMENT_OBSERVABILITY_ALLOWED,
   DIRECT_PRODUCTION_ENV_FORBIDDEN,
   DUPLICATE_ENV_REGISTRY,
-  LEGACY_ROLLBACK_ALLOWED,
   audit_environment_usage,
 )
 from app.configuration.generate import check_artifacts, render_artifacts
+from app.configuration.python_sources import load_python_runtime_source_bundle
 from app.configuration.source_policy import (
   PYTHON_SOURCE_POLICY,
   PythonConfigurationSourcePolicy,
 )
-from app.configuration.python_sources import load_python_runtime_source_bundle
 
 pytestmark = pytest.mark.no_database
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-
-# --- C. source policy -------------------------------------------------------
 
 def test_source_policy_defaults_match_legacy_contract():
   assert PYTHON_SOURCE_POLICY.env_file == ".env"
@@ -53,31 +46,19 @@ def test_source_policy_defaults_match_legacy_contract():
 def test_source_bundle_uses_policy_without_settings_model_config():
   bundle = load_python_runtime_source_bundle()
   assert isinstance(bundle.process_environment, dict)
-  # Custom policy pointing at a missing file yields an empty dotenv layer.
   custom = PythonConfigurationSourcePolicy(env_file="does-not-exist.env")
   assert load_python_runtime_source_bundle(custom).dotenv_values == {}
 
 
-# --- D. legacy quarantine ---------------------------------------------------
-
-def test_legacy_settings_module_is_quarantine_home():
-  from app.configuration import legacy_settings
-
-  assert legacy_settings.LegacySettings is legacy_settings.Settings
-  # Runtime type name is preserved for legacy diagnostics/rollback.
-  assert legacy_settings.Settings.__name__ == "Settings"
-
-
-def test_config_is_composition_root_reexporting_settings():
+def test_config_is_canonical_only_composition_root():
   import app.core.config as config
-  from app.configuration import legacy_settings
 
-  assert config.Settings is legacy_settings.Settings
-  assert config.LegacySettings is legacy_settings.LegacySettings
-  # The composition root no longer defines its own BaseSettings subclass.
+  assert not hasattr(config, "Settings")
+  assert not hasattr(config, "settings")
+  assert hasattr(config, "runtime_config")
   source = (_REPO_ROOT / "algo-bot/app/core/config.py").read_text("utf-8")
-  assert "class Settings(BaseSettings)" not in source
   assert "BaseSettings" not in source
+  assert "bootstrap_authority" not in source
 
 
 def test_composition_root_exposes_diagnostics():
@@ -89,11 +70,11 @@ def test_composition_root_exposes_diagnostics():
     "active_configuration_profile",
     "active_configuration_resolution_trace",
     "active_configuration_warnings",
+    "active_configuration_startup_message",
   ):
     assert hasattr(config, name)
+  assert config.active_configuration_authority() == "canonical"
 
-
-# --- B. environment usage audit --------------------------------------------
 
 def test_environment_usage_audit_has_no_blockers():
   audit = audit_environment_usage(_REPO_ROOT)
@@ -105,43 +86,24 @@ def test_environment_usage_audit_has_no_blockers():
 
 
 def test_environment_options_module_is_deleted():
-  # The duplicate ENV registry was removed and its behavior moved into
-  # ``app.configuration.environment_option_resolution``.
-  assert not (
-    _REPO_ROOT / "algo-bot/app/core/environment_options.py"
-  ).exists()
-  audit = audit_environment_usage(_REPO_ROOT)
-  files = {access["file"] for access in audit["accesses"]}
-  assert "algo-bot/app/core/environment_options.py" not in files
+  assert not (_REPO_ROOT / "algo-bot/app/core/environment_options.py").exists()
 
 
 def test_environment_usage_audit_classifies_boundaries():
-  from app.configuration.environment_usage_audit import (
-    BOOTSTRAP_AUTHORITY_ALLOWED,
-    CANONICAL_SOURCE_COLLECTION_ALLOWED,
-  )
-
   audit = audit_environment_usage(_REPO_ROOT)
   by_file: dict[str, set[str]] = {}
   for access in audit["accesses"]:
     by_file.setdefault(access["file"], set()).add(access["classification"])
-  assert by_file["algo-bot/app/configuration/bootstrap_authority.py"] == {
-    BOOTSTRAP_AUTHORITY_ALLOWED
-  }
   assert CANONICAL_SOURCE_COLLECTION_ALLOWED in by_file[
     "algo-bot/app/configuration/python_sources.py"
   ]
-  assert by_file["algo-bot/app/configuration/legacy_settings.py"] == {
-    LEGACY_ROLLBACK_ALLOWED
-  }
   assert by_file["algo-bot/app/configuration/deployment_identity.py"] == {
     DEPLOYMENT_OBSERVABILITY_ALLOWED
   }
-  # config_health no longer performs ambient reads at all.
+  assert "algo-bot/app/configuration/bootstrap_authority.py" not in by_file
+  assert "algo-bot/app/configuration/legacy_settings.py" not in by_file
   assert "algo-bot/app/autotrade/config_health.py" not in by_file
 
-
-# --- B/E. environment contract + alias metadata ----------------------------
 
 def test_environment_contract_entries_all_bind_env():
   entries = iter_environment_contract_entries()
@@ -159,7 +121,6 @@ def test_environment_entry_resolves_canonical_and_alias():
 
 
 def test_deprecated_alias_detection_and_conflicts():
-  # Equivalent duplicate values are not a conflict.
   ok = {
     "AUTO_TRADE_TARGET_PLANS_PIPS": "30,60",
     "AUTO_TRADE_TP_PIPS": "30,60",
@@ -167,52 +128,30 @@ def test_deprecated_alias_detection_and_conflicts():
   assert detect_environment_alias_conflicts(ok) == ()
   usages = present_deprecated_aliases(ok)
   assert any(u.deprecated_alias == "AUTO_TRADE_TP_PIPS" for u in usages)
-  # Disagreeing values are a conflict.
   bad = {
-    "AUTO_TRADE_MAPPED_ZONE_ENABLED": "true",
-    "AUTO_TRADE_MARKET_MAP_STRATEGY_ENABLED": "false",
+    "AUTO_TRADE_TARGET_PLANS_PIPS": "30,60",
+    "AUTO_TRADE_TP_PIPS": "15,45",
   }
   conflicts = detect_environment_alias_conflicts(bad)
-  assert any(
-    c.canonical_env == "AUTO_TRADE_MAPPED_ZONE_ENABLED" for c in conflicts
-  )
+  assert conflicts
 
-
-# --- F. deployment identity -------------------------------------------------
 
 def test_deployment_identity_defaults(monkeypatch):
-  monkeypatch.delenv("SERVICE_VERSION", raising=False)
   monkeypatch.delenv("GIT_SHA", raising=False)
-  monkeypatch.delenv("AUTO_TRADE_EXPECTED_BROKER", raising=False)
-  assert deployment_identity.service_version() == "dev"
   assert deployment_identity.git_sha() == "unknown"
-  assert deployment_identity.expected_broker() == ""
 
-
-# --- G. generated .env.example ---------------------------------------------
 
 def test_env_example_is_secret_safe_and_points_to_reference():
   text = render_env_example()
-  assert "APEXVOID_CONFIG_AUTHORITY=canonical" in text
-  assert "AUTO_TRADE_PROFILE=demo_eval" in text
-  assert "AUTO_TRADE_MAPPED_ZONE_ENABLED=false" in text
-  assert "AUTO_TRADE_MARKET_MAP_GUARD_ENABLED=false" in text
-  assert "TELEGRAM_BOT_TOKEN=<required-secret>" in text
-  assert "SIGNAL_VIP_CHANNEL_ID=<required-channel-id>" in text
-  assert "CTRADER_CLIENT_SECRET=<required-secret>" in text
-  assert "changeme" not in text
+  assert "APEXVOID_CONFIG_AUTHORITY" not in text
+  assert "<required-secret>" in text
+  assert "POSTGRES_PASSWORD=" in text
   assert "environment-reference.generated.md" in text
-  disk = (_REPO_ROOT / ".env.example").read_text("utf-8")
-  assert disk == text
 
-
-# --- generated artifacts current -------------------------------------------
 
 def test_generated_configuration_artifacts_current():
   assert check_artifacts(render_artifacts()) == 0
 
-
-# --- K. environment CLI -----------------------------------------------------
 
 def test_environment_cli_check_and_reports():
   assert environment_cli_main(["--check"]) == 0

@@ -1,3 +1,5 @@
+> Historical Phase 2A–2I-A artifact; superseded by Phase 2I-B structural completion. No observation evidence was fabricated.
+
 # Phase 2I-A.1 — Canonical typed domain injection
 
 ## 1. Scope and non-goals

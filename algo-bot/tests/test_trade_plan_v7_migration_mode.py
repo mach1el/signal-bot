@@ -8,45 +8,51 @@ docs/adr-trade-plan-v7-boundary.md.
 
 from __future__ import annotations
 
-import importlib
-import os
-
 import pytest
 
 from app.autotrade.config_health import CONTRACT_MODES, compare_manifests, python_manifest
 from app.autotrade.trade_plan import TRADE_PLAN_VERSION
+from app.configuration.python_loader import (
+  CanonicalConfigurationError,
+  load_python_canonical_settings,
+)
+from app.configuration.source_types import ConfigurationSourceBundle
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import leaf
 
 pytestmark = pytest.mark.no_database
 
+_SAFE = {
+  "TELEGRAM_BOT_TOKEN": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
+  "SIGNAL_VIP_CHANNEL_ID": "-100123456789",
+  "POSTGRES_PASSWORD": "apexvoid",
+}
+
+
+def _load(**extra):
+  return load_python_canonical_settings(ConfigurationSourceBundle(
+    process_environment={**_SAFE, **extra},
+  ))
+
 
 def test_default_contract_mode_is_v7_only():
-  from app.core.config import settings
-
-  assert settings.auto_trade_contract_mode == "v7_only"
+  assert leaf(runtime_config, "auto_trade_contract_mode") == "v7_only"
 
 
-def test_contract_mode_rejects_unknown_value(monkeypatch):
-  monkeypatch.setenv("AUTO_TRADE_CONTRACT_MODE", "definitely_not_a_mode")
-  config_module = importlib.import_module("app.core.config")
-  with pytest.raises(ValueError, match="AUTO_TRADE_CONTRACT_MODE"):
-    config_module.Settings()
+def test_contract_mode_rejects_unknown_value():
+  with pytest.raises(CanonicalConfigurationError):
+    _load(AUTO_TRADE_CONTRACT_MODE="definitely_not_a_mode")
 
 
-def test_legacy_v6_mode_value_is_rejected_not_silently_ignored(monkeypatch):
-  # V7 is the sole autonomous contract, unconditionally - a former mode
-  # value must fail closed at startup, never boot into a stale V6 path.
-  monkeypatch.setenv("AUTO_TRADE_CONTRACT_MODE", "legacy_v6")
-  config_module = importlib.import_module("app.core.config")
-  with pytest.raises(ValueError, match="AUTO_TRADE_CONTRACT_MODE"):
-    config_module.Settings()
+def test_legacy_v6_mode_value_is_rejected_not_silently_ignored():
+  with pytest.raises(CanonicalConfigurationError):
+    _load(AUTO_TRADE_CONTRACT_MODE="legacy_v6")
 
 
 @pytest.mark.parametrize("mode", CONTRACT_MODES)
-def test_every_documented_mode_is_accepted(monkeypatch, mode):
-  monkeypatch.setenv("AUTO_TRADE_CONTRACT_MODE", mode)
-  config_module = importlib.import_module("app.core.config")
-  settings = config_module.Settings()
-  assert settings.auto_trade_contract_mode == mode
+def test_every_documented_mode_is_accepted(mode):
+  result = _load(AUTO_TRADE_CONTRACT_MODE=mode)
+  assert leaf(result.config, "auto_trade_contract_mode") == mode
 
 
 def test_manifest_carries_trade_plan_version_and_contract_mode():
@@ -54,7 +60,6 @@ def test_manifest_carries_trade_plan_version_and_contract_mode():
   assert manifest["trade_plan_version"] == TRADE_PLAN_VERSION
   assert manifest["contract_mode"] in CONTRACT_MODES
   assert manifest["trade_plan_stream"] == "execution:trade_plans"
-
 
 def test_contract_mode_mismatch_is_fatal_not_a_warning():
   python = python_manifest()

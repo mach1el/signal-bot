@@ -65,8 +65,11 @@ def _bars(rows: list[dict], *, prior: dict | None = None) -> pd.DataFrame:
 @pytest.mark.parametrize("pattern", ALL_PATTERNS)
 def test_all_six_patterns_are_enabled_by_default(pattern):
   # Sanity check for the config default before testing each in isolation.
-  from app.core.config import Settings
-  assert pattern in Settings.model_fields["m1_trigger_patterns"].default
+  from app.core.config import runtime_config
+  from tests.configuration.canonical_fixtures import leaf
+
+  patterns = leaf(runtime_config, "m1_trigger_patterns")
+  assert pattern in patterns
 
 
 def test_wick_rejection_fires_and_non_qualifying_bar_does_not():

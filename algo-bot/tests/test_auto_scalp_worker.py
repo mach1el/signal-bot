@@ -1,5 +1,6 @@
 import inspect
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 import json
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -183,11 +184,11 @@ async def _seed_scanner_range_for_match(match: StrategyMatch, now: int) -> None:
 async def test_worker_publishes_one_durable_auto_only_candidate(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
-  monkeypatch.setattr(settings, "auto_trade_candidate_ttl", 3600)
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream_maxlen": 100})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_candidate_ttl": 3600})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   spot = worker.AutoTradeSpot(4017.2, now, True)
 
@@ -233,9 +234,9 @@ async def test_worker_publishes_one_durable_auto_only_candidate(monkeypatch):
 async def test_worker_handles_m1_without_calling_scanner(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
   source.window = AsyncMock(return_value=_frame())
@@ -292,12 +293,12 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
   now = int(datetime.now(timezone.utc).timestamp())
   match = _strategy_match(now)
   await client.set(strategy_match_key("XAU"), match.to_json(), ex=420)
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
-  monkeypatch.setattr(settings, "auto_trade_candidate_ttl", 3600)
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream_maxlen": 100})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_candidate_ttl": 3600})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
   source.window = AsyncMock(return_value=_frame())
@@ -382,10 +383,10 @@ async def test_worker_routes_m1_market_map_reaction_as_its_own_strategy(
     match,
     (4016.5, 4017.4),
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
   source.window = AsyncMock(return_value=_frame())
@@ -443,11 +444,11 @@ async def test_worker_publishes_range_match_as_strategy_and_disarms_edge(
   now = int(datetime.now(timezone.utc).timestamp())
   match = _range_strategy_match(now)
   await _seed_scanner_range_for_match(match, now)
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_stream_maxlen", 100)
-  monkeypatch.setattr(settings, "auto_trade_candidate_ttl", 3600)
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream_maxlen": 100})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_candidate_ttl": 3600})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   candidate_id = await worker._publish_strategy_match(
@@ -481,12 +482,10 @@ async def test_range_edge_match_blocked_outside_chop_regime(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _range_strategy_match(now)
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", "strict",
-  )
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "strict",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   trend_regime = RegimeInfo("trend", "up", 5, 1.3, True, None, ("forced trend",))
 
@@ -518,20 +517,16 @@ async def test_private_range_regime_guard_is_profile_aware(
 ):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", guard_mode,
-  )
-  monkeypatch.setattr(settings, "auto_trade_eq_exclusion_fraction", 0.0)
-  monkeypatch.setattr(settings, "auto_trade_edge_proximity_atr", 999.0)
-  monkeypatch.setattr(settings, "auto_trade_htf_veto_enabled", False)
-  monkeypatch.setattr(
-    settings, "auto_trade_opposing_barrier_veto_enabled", False,
-  )
-  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", False)
-  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": guard_mode,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_eq_exclusion_fraction": 0.0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_edge_proximity_atr": 999.0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_htf_veto_enabled": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_veto_enabled": False,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_overlap_veto_enabled": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_cooldown_enabled": False})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   candidate_id = await worker._publish_candidate(
@@ -563,9 +558,9 @@ async def test_non_range_edge_strategy_match_ignores_regime(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _strategy_match(now)  # Liquidity Sweep, not is_range_edge
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   trend_regime = RegimeInfo("trend", "up", 5, 1.3, True, None, ("forced trend",))
 
@@ -584,11 +579,7 @@ async def test_non_range_edge_strategy_match_ignores_regime(monkeypatch):
 @pytest.mark.asyncio
 async def test_broken_box_is_retired_and_cannot_publish_again(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(
-    settings,
-    "auto_trade_box_retire_seconds",
-    3600,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_box_retire_seconds": 3600,})
   candidate = _decision()
   broken = AutoScalpDecision(
     "box_broken",
@@ -667,14 +658,14 @@ async def test_worker_ignores_forming_timeframe_and_scanner_still_ignores_m1(
   monkeypatch,
 ):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
   assert await worker._handle_event(
     "XAU:M5:1784552400",
     client=client,
   ) is None
 
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
   assert await scanner._handle_event(
     "XAU:M1:1784552400",
     client=client,
@@ -685,8 +676,8 @@ async def test_worker_ignores_forming_timeframe_and_scanner_still_ignores_m1(
 @pytest.mark.asyncio
 async def test_candidate_fails_closed_on_news_missing_or_stale_spot(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
   monkeypatch.setattr(
     worker,
     "event_in_window",
@@ -717,8 +708,8 @@ async def test_candidate_fails_closed_on_news_missing_or_stale_spot(monkeypatch)
 @pytest.mark.asyncio
 async def test_non_candidate_decision_is_never_published(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
   spot = worker.AutoTradeSpot(4100.0, 1, True)
 
   assert await worker._publish_candidate(
@@ -740,11 +731,11 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_trend_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_trend_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
   source.window = AsyncMock(return_value=_frame())
@@ -821,11 +812,11 @@ async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_trend_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_trend_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
   source.window = AsyncMock(return_value=_frame())
@@ -902,11 +893,11 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_trend_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_symbols", "XAU")
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_trend_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   trend_context = AutoScaleContext(
     bar_ts=now - 60,
@@ -1131,13 +1122,11 @@ async def test_eq_exclusion_blocks_publish_and_is_not_applied_to_trend(
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", "strict",
-  )
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(settings, "auto_trade_eq_exclusion_fraction", 0.15)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "strict",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_eq_exclusion_fraction": 0.15})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   decision = _decision()  # box: support level=4016.8, resistance level=4025.1
   eq = (decision.box.lower.level + decision.box.upper.level) / 2  # 4020.95
@@ -1190,23 +1179,21 @@ async def test_htf_veto_blocks_publish_when_enabled_and_passes_when_disabled(
 ):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", "strict",
-  )
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "strict",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   # Push the rail/entry far enough from EQ and from each other that A1's
   # guards don't also fire - isolate the HTF veto under test.
-  monkeypatch.setattr(settings, "auto_trade_eq_exclusion_fraction", 0.0)
-  monkeypatch.setattr(settings, "auto_trade_edge_proximity_atr", 999.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_eq_exclusion_fraction": 0.0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_edge_proximity_atr": 999.0})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   decision = _decision()  # direction="BUY", rail (support) level=4016.8
   spot = worker.AutoTradeSpot(4016.8, now, True)
   # Fresh demand zone below price the BUY hasn't reached yet -> untested-ahead.
   untested_demand = [Zone(4010.0, 4014.0, "demand", touches=0)]
 
-  monkeypatch.setattr(settings, "auto_trade_htf_veto_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_htf_veto_enabled": True})
   vetoed = await worker._publish_candidate(
     client, "XAU", "1", spot, decision, _scale_context(now),
     htf_zones=untested_demand,
@@ -1217,7 +1204,7 @@ async def test_htf_veto_blocks_publish_when_enabled_and_passes_when_disabled(
   )
   assert reject_count is not None and int(reject_count) >= 1
 
-  monkeypatch.setattr(settings, "auto_trade_htf_veto_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_htf_veto_enabled": False})
   passed = await worker._publish_candidate(
     client, "XAU", "2", spot, decision, _scale_context(now),
     htf_zones=untested_demand,
@@ -1289,14 +1276,12 @@ async def test_opposing_barrier_blocks_strategy_match_into_round_number(
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _strategy_match(now)  # BUY, entry 4016.5-4017.4
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", "strict",
-  )
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_veto_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_atr", 0.5)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "strict",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_veto_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_atr": 0.5})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   spot = worker.AutoTradeSpot(4017.2, now, True)
   round_level = [Level(price=4017.5, kind="round", touches=4, band=0.1)]
@@ -1310,9 +1295,7 @@ async def test_opposing_barrier_blocks_strategy_match_into_round_number(
   )
   assert reject_count is not None and int(reject_count) >= 1
 
-  monkeypatch.setattr(
-    settings, "auto_trade_opposing_barrier_veto_enabled", False,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_veto_enabled": False,})
   passed = await worker._publish_strategy_match(
     client, "XAU", spot, match, htf_levels=round_level,
   )
@@ -1399,9 +1382,9 @@ async def test_counter_bias_target_barrier_adapts_before_eq(monkeypatch):
     tags=("counter_bias",),
     target_price=4084.0,
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   barrier = Zone(4080.0, 4082.0, "supply", touches=0)
 
@@ -1448,9 +1431,9 @@ async def test_counter_bias_tag_reaches_candidate_setup_and_stats_label(
     tags=("counter_bias",),
     target_price=4084.0,
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
 
   candidate_id = await worker._publish_strategy_match(
@@ -1535,7 +1518,7 @@ def test_opposing_barrier_reason_containment_is_boundary_inclusive():
 
 def test_opposing_barrier_condition_containment_has_its_own_counter(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_atr", 0.5)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_atr": 0.5})
   supply = [Zone(4116.0, 4127.0, "supply", touches=8)]
   reason = worker._opposing_barrier_reason("BUY", 4116.25, 1.2, supply, [], 0.5)
 
@@ -1594,9 +1577,7 @@ async def test_zone_cooldown_reason_ignores_legacy_ambiguous_marker():
 @pytest.mark.asyncio
 async def test_zone_cooldown_reason_vetoes_confirmed_stop_loss(monkeypatch):
   client = redis_state.get_client()
-  monkeypatch.setattr(
-    settings, "auto_trade_zone_cooldown_enabled", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_cooldown_enabled": True,})
   await client.set(
     worker._zone_cooldown_key("XAU", "BUY"),
     json.dumps({
@@ -1661,16 +1642,12 @@ async def test_zone_cooldown_reason_none_outside_atr_band():
 async def test_publish_candidate_is_vetoed_during_active_cooldown(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(
-    settings, "auto_trade_structural_guard_mode", "strict",
-  )
-  monkeypatch.setattr(
-    settings, "auto_trade_zone_cooldown_enabled", True,
-  )
-  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_atr", 1.0)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "strict",})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_cooldown_enabled": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_cooldown_atr": 1.0})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   decision = _decision()  # BUY, rail level=4016.8
   await client.set(
@@ -1740,9 +1717,9 @@ async def test_publish_candidate_overlap_veto_disabled_still_increments_counter(
 ):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_stream", "auto_trade:test")
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_stream": "auto_trade:test"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   decision = _decision()  # BUY, rail level=4016.8, EQ far from spot
   spot = worker.AutoTradeSpot(4016.8, now, True)
@@ -1751,14 +1728,14 @@ async def test_publish_candidate_overlap_veto_disabled_still_increments_counter(
     _map_entry("buy", 4015.0, 4017.5),
   ])
 
-  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_overlap_veto_enabled": False})
   passed = await worker._publish_candidate(
     client, "XAU", "1", spot, decision, _scale_context(now),
     market_map=market_map,
   )
   assert passed is not None
 
-  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_overlap_veto_enabled": True})
   warned = await worker._publish_candidate(
     client, "XAU", "2", spot, decision, _scale_context(now),
     market_map=market_map,

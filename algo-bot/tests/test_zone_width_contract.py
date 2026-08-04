@@ -9,7 +9,8 @@ than silently kept.
 """
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 import pytest
 
@@ -174,11 +175,11 @@ def test_custom_width_overrides_are_respected():
 def test_scanner_gate_keeps_a_too_narrow_zone_as_preference_telemetry(monkeypatch):
   narrow = [_structural_zone_result(4100.0, 4100.5, structural_id="sd-narrow")]
 
-  monkeypatch.setattr(settings, "scanner_zone_width_gate_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": False})
   merged_off = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
   assert len(merged_off) == 1
 
-  monkeypatch.setattr(settings, "scanner_zone_width_gate_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": True})
   merged_on = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
   # Zone-width quality is preference telemetry — merged zone is retained.
   assert len(merged_on) == 1
@@ -200,9 +201,7 @@ def test_key_level_band_is_never_width_dropped_regardless_of_the_gate(
   narrow = [_key_level_result(4100.0, 4100.5, structural_id="kl-narrow")]
 
   for gate_enabled in (True, False):
-    monkeypatch.setattr(
-      settings, "scanner_zone_width_gate_enabled", gate_enabled,
-    )
+    install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": gate_enabled,})
     merged = scanner._merge_detection_confluence("XAU", "M5", narrow, atr=2.0)
     assert len(merged) == 1
 
@@ -210,7 +209,7 @@ def test_key_level_band_is_never_width_dropped_regardless_of_the_gate(
 def test_scanner_gate_keeps_a_contract_width_zone_when_enabled(monkeypatch):
   normal = [_key_level_result(4113.0, 4116.0, structural_id="kl-normal")]
 
-  monkeypatch.setattr(settings, "scanner_zone_width_gate_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_zone_width_gate_enabled": True})
   merged = scanner._merge_detection_confluence("XAU", "M5", normal, atr=2.0)
 
   assert len(merged) == 1

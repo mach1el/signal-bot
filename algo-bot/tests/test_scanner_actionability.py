@@ -1,7 +1,7 @@
 """Cross-side scanner actionability and structural target-room regressions."""
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
-from tests.configuration.canonical_fixtures import actionability_cfg
+from tests.configuration.canonical_fixtures import actionability_cfg, install_runtime_overrides
 from app.analysis.actionability import resolve_actionability
 from app.analysis import scanner
 from app.analysis.detectors import DetectionResult
@@ -1205,12 +1205,12 @@ def test_filter_displaced_opposing_entries_requires_a_close_not_a_wick():
 
 
 def test_barrier_capped_target_is_used_by_reward_risk_pre_gate(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_tp_pips", "30,50,70")
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_tp_pips": "30,50,70"})
   # This fixture's _result() helper labels every BUY "counter_bias"
   # regardless of the ctx.htf_bias passed in below (a fixture quirk, not
   # something this test is exercising) - this test is about barrier-capped
   # target room, not counter-bias policy, so keep it enabled here.
-  monkeypatch.setattr(settings, "auto_trade_allow_counter_bias", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_allow_counter_bias": True})
   result = _result(
     "BUY",
     4095.0,
@@ -1515,17 +1515,13 @@ async def test_live_incident_never_reaches_lifecycle_card_or_strategy_match(
     _entry("buy", 4042.0, 4051.0, tier="major", contains_price=True),
     price=4045.95,
   )
-  monkeypatch.setattr(settings, "scanner_symbols", "XAU")
-  monkeypatch.setattr(settings, "scanner_exec_tf", "M5")
-  monkeypatch.setattr(settings, "scanner_htf", "H1,M15")
-  monkeypatch.setattr(settings, "telegram_owner_id", 4242)
-  monkeypatch.setattr(settings, "scanner_gate_max_source_touches", 0)
-  monkeypatch.setattr(
-    settings, "scanner_actionability_gate_enabled", True,
-  )
-  monkeypatch.setattr(
-    settings, "key_level_role_ambiguity_gate_enabled", True,
-  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "H1,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_gate_max_source_touches": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_actionability_gate_enabled": True,})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"key_level_role_ambiguity_gate_enabled": True,})
   monkeypatch.setattr(
     scanner,
     "_load_market_context_for_symbol",

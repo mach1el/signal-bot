@@ -1,20 +1,15 @@
-"""Production canonical Python loader behavior and facade parity."""
+"""Canonical Python loader behavior (Phase 2I final)."""
 
 from unittest.mock import patch
 
 import pytest
 
-from app.configuration.facade import CanonicalSettingsFacade
-from app.configuration.generated.legacy_access import (
-  DERIVED_LEGACY_PROPERTIES,
-  DIRECT_LEGACY_PATHS,
-)
+from app.configuration.models.python_runtime import PythonRuntimeConfig
 from app.configuration.python_loader import (
   CanonicalConfigurationError,
   load_python_canonical_settings,
 )
 from app.configuration.source_types import ConfigurationSourceBundle
-from app.core.config import Settings
 
 
 pytestmark = pytest.mark.no_database
@@ -32,30 +27,29 @@ def _load(extra=None):
   ))
 
 
-def _legacy(extra=None):
-  environment = {**_SAFE, **(extra or {})}
-  with patch.dict("os.environ", environment, clear=True):
-    return Settings(_env_file=None)
-
-
 def test_canonical_python_loader_does_not_require_ctrader_credentials():
   result = _load()
   assert result.success
-  assert not any(path.startswith("bootstrap.ctrader") for path in result.provenance.by_path())
+  assert isinstance(result.config, PythonRuntimeConfig)
+  assert not any(
+    path.startswith("bootstrap.ctrader") for path in result.provenance.by_path()
+  )
 
 
 @pytest.mark.parametrize("missing", tuple(_SAFE))
 def test_canonical_python_loader_requires_python_secrets(missing):
   values = {key: value for key, value in _SAFE.items() if key != missing}
   with pytest.raises(CanonicalConfigurationError, match="missing_required_input"):
-    load_python_canonical_settings(ConfigurationSourceBundle(process_environment=values))
+    load_python_canonical_settings(
+      ConfigurationSourceBundle(process_environment=values),
+    )
 
 
 def test_canonical_python_loader_preserves_profile_semantics():
   result = _load({"AUTO_TRADE_PROFILE": "demo_eval"})
   assert result.profile == "demo_eval"
-  assert result.facade.auto_trade_enabled is True
-  assert result.facade.auto_trade_dry_run is False
+  assert result.config.runtime.auto_trade.enabled is True
+  assert result.config.runtime.auto_trade.dry_run is False
 
 
 def test_canonical_python_loader_preserves_alias_conflicts():
@@ -68,39 +62,24 @@ def test_canonical_python_loader_preserves_alias_conflicts():
 
 def test_canonical_python_loader_preserves_provenance():
   result = _load()
-  assert len(result.provenance.fields) == 387
+  assert len(result.provenance.fields) == len(
+    [entry for entry in __import__('app.configuration.catalog', fromlist=['iter_catalog_entries']).iter_catalog_entries()
+     if entry.owner in {'python', 'shared'}]
+  )
   token = result.provenance.by_path()["bootstrap.telegram.bot_token"]
   assert token.secret and token.explicit
 
 
-def test_active_canonical_facade_direct_parity():
-  facade = _load().facade
-  legacy = _legacy()
-  assert len(DIRECT_LEGACY_PATHS) == 316
-  assert all(getattr(facade, name) == getattr(legacy, name) for name in DIRECT_LEGACY_PATHS)
+def test_canonical_models_are_frozen():
+  config = _load().config
+  with pytest.raises(Exception):
+    config.runtime.profile = "demo_eval"  # type: ignore[misc]
 
 
-def test_active_canonical_facade_derived_parity():
-  facade = _load().facade
-  legacy = _legacy()
-  assert len(DERIVED_LEGACY_PROPERTIES) == 4
-  assert all(getattr(facade, name) == getattr(legacy, name) for name in DERIVED_LEGACY_PROPERTIES)
-
-
-def test_active_canonical_facade_exact_types():
-  facade = _load().facade
-  legacy = _legacy()
-  names = (*DIRECT_LEGACY_PATHS, *DERIVED_LEGACY_PROPERTIES)
-  assert all(type(getattr(facade, name)) is type(getattr(legacy, name)) for name in names)
-
-
-def test_active_canonical_facade_is_immutable():
-  with pytest.raises(TypeError, match="immutable"):
-    _load().facade.log_level = "DEBUG"
-
-
-def test_active_canonical_facade_repr_is_secret_safe():
-  rendered = repr(_load().facade)
-  assert isinstance(_load().facade, CanonicalSettingsFacade)
+def test_canonical_error_is_secret_safe():
+  with pytest.raises(CanonicalConfigurationError) as caught:
+    load_python_canonical_settings(ConfigurationSourceBundle(process_environment={}))
+  rendered = str(caught.value)
   assert _SAFE["TELEGRAM_BOT_TOKEN"] not in rendered
-  assert _SAFE["POSTGRES_PASSWORD"] not in rendered
+  assert "recovery_action=" in rendered
+  assert "APEXVOID_CONFIG_AUTHORITY" not in rendered

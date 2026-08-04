@@ -202,19 +202,19 @@ def _mapped_zone_reaction_match(
 async def test_incident_replay_publishes_one_candidate(monkeypatch):
   """Exact 21:43–21:49 replay: one match identity, one publish, six suppressed."""
   from app.core import config as config_mod
-  monkeypatch.setattr(config_mod.settings, "auto_trade_enabled", True)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_enabled", True)
   monkeypatch.setattr(
-    config_mod.settings, "auto_trade_mapped_zone_enabled", True,
+    config_mod.runtime_config, "auto_trade_mapped_zone_enabled", True,
   )
-  monkeypatch.setattr(config_mod.settings, "auto_trade_min_confluence", 1)
-  monkeypatch.setattr(config_mod.settings, "auto_trade_candidate_ttl", 600)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_min_confluence", 1)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_candidate_ttl", 600)
   monkeypatch.setattr(
-    config_mod.settings, "auto_trade_opposing_barrier_veto_enabled", False,
+    config_mod.runtime_config, "auto_trade_opposing_barrier_veto_enabled", False,
   )
-  monkeypatch.setattr(config_mod.settings, "auto_trade_overlap_veto_enabled", False)
-  monkeypatch.setattr(config_mod.settings, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(config_mod.settings, "auto_trade_htf_veto_enabled", False)
-  monkeypatch.setattr(config_mod.settings, "auto_trade_map_thesis_lock_enabled", True)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_overlap_veto_enabled", False)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_zone_cooldown_enabled", False)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_htf_veto_enabled", False)
+  monkeypatch.setattr(config_mod.runtime_config, "auto_trade_map_thesis_lock_enabled", True)
 
   class FakeRedis:
     def __init__(self):
@@ -325,7 +325,7 @@ async def test_incident_replay_publishes_one_candidate(monkeypatch):
   assert metrics.get("mapped_thesis_claimed", 0) == 1
   assert sum(
     1 for stream, _ in client.stream
-    if stream == config_mod.settings.auto_trade_stream
+    if stream == config_mod.runtime_config.auto_trade_stream
   ) == 1
 
 

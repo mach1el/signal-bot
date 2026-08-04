@@ -10,7 +10,8 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TELEGRAM_CHAT_ID", "-100123456789")
 
-from app.core.config import settings
+from app.core.config import runtime_config
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from app.bot import wiring
 
 OWNER = 424242
@@ -34,7 +35,7 @@ def _cb(data: str, uid: int = OWNER, html: str = "🎯 TP HIT | #2"):
 
 @pytest.fixture(autouse=True)
 def _owner(monkeypatch):
-  monkeypatch.setattr(settings, "telegram_owner_id", OWNER)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": OWNER})
   monkeypatch.setattr(wiring, "symbol_for_channel", lambda _cid: "XAU")
 
 

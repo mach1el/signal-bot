@@ -1,5 +1,5 @@
 import json
-from app.core.config import settings
+from app.core.config import runtime_config
 import time
 
 import pytest
@@ -14,7 +14,7 @@ from app.autotrade.multi_match import (
 )
 from app.autotrade.strategy_match import StrategyMatch
 from app.persistence import redis_state
-from tests.configuration.canonical_fixtures import canonical_ns_from_flat
+from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
 
 pytestmark = pytest.mark.no_database
@@ -70,17 +70,17 @@ def _supply_match() -> StrategyMatch:
 
 
 def _enable_supply(monkeypatch):
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_dry_run", False)
-  monkeypatch.setattr(settings, "auto_trade_strategy_match_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_supply_reaction_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_mapped_zone_enabled", False)
-  monkeypatch.setattr(settings, "auto_trade_structural_guard_mode", "observe")
-  monkeypatch.setattr(settings, "auto_trade_zone_cooldown_enabled", False)
-  monkeypatch.setattr(settings, "auto_trade_news_guard_minutes", 0)
-  monkeypatch.setattr(settings, "auto_trade_min_confluence", 2)
-  monkeypatch.setattr(settings, "auto_trade_opposing_barrier_veto_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_overlap_veto_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_supply_reaction_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_mapped_zone_enabled": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_structural_guard_mode": "observe"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_cooldown_enabled": False})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_news_guard_minutes": 0})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_min_confluence": 2})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_veto_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_overlap_veto_enabled": True})
 
 
 @pytest.mark.asyncio
@@ -106,7 +106,7 @@ async def test_supply_incident_inside_zone_publishes_with_mapped_zone_disabled(
   )
 
   assert candidate_id == match.match_id
-  entries = await client.xrange(settings.auto_trade_stream)
+  entries = await client.xrange(leaf(runtime_config, "auto_trade_stream"))
   assert len(entries) == 1
   payload = json.loads(entries[0][1]["payload"])
   assert payload["source_strategy"] == "Supply Zone Reaction"
@@ -135,7 +135,7 @@ async def test_stream_failure_rolls_back_claim_and_retains_match(monkeypatch):
   original_xadd = client.xadd
 
   async def fail_candidate_stream(name, *args, **kwargs):
-    if name == settings.auto_trade_stream:
+    if name == leaf(runtime_config, "auto_trade_stream"):
       raise ConnectionError("forced XADD failure")
     return await original_xadd(name, *args, **kwargs)
 
@@ -165,7 +165,7 @@ def test_oversized_singleton_zone_is_context_only():
     Zone(4040.57, 4075.04, "supply", source="supply_demand"),
     atr=10.0,
     pip_size=0.1,
-    cfg=canonical_ns_from_flat(settings),
+    cfg=runtime_config,
   )
   assert classification.width_pips == pytest.approx(344.7)
   assert classification.context_only

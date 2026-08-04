@@ -125,8 +125,8 @@ def _assert_legacy_round_trip(values: dict[str, Any]) -> None:
       assert actual == expected, legacy_attr
 
 
-def test_complete_model_contains_437_catalog_items():
-  assert len(ENTRIES) == 437
+def test_complete_model_contains_current_catalog_items():
+  assert len(ENTRIES) == 441
 
 
 def test_complete_model_contains_316_legacy_fields():
@@ -134,7 +134,7 @@ def test_complete_model_contains_316_legacy_fields():
 
 
 def test_complete_model_kind_counts():
-  assert sum(entry.configurable for entry in ENTRIES) == 370
+  assert sum(entry.configurable for entry in ENTRIES) == 374
   assert sum(entry.protocol_constant for entry in ENTRIES) == 10
   assert sum(entry.algorithm_constant for entry in ENTRIES) == 57
 
@@ -170,9 +170,11 @@ def test_no_representative_shell_placeholders_remain():
 def test_typed_catalog_matches_phase2a_normalized_oracle(oracle, snapshot):
   expected = {item["proposed_path"]: item for item in oracle["items"]}
   inventory = {item["name"]: item for item in snapshot["legacy_inventory"]}
-  assert set(ENTRY_BY_PATH) == set(expected)
-  for path, entry in ENTRY_BY_PATH.items():
-    item = expected[path]
+  # Current catalog may grow after Phase 2A; the Phase 2A oracle remains a
+  # required subset of the live typed catalog.
+  assert set(expected) <= set(ENTRY_BY_PATH)
+  for path, item in expected.items():
+    entry = ENTRY_BY_PATH[path]
     assert entry.item_id == item["item_id"], path
     assert entry.legacy_attr == item["legacy_attr"], path
     assert entry.canonical_env == item["canonical_env"], path
@@ -354,11 +356,14 @@ def test_generated_artifacts_redact_secrets():
   )
 
 
-def test_direct_legacy_map_contains_only_fields(snapshot):
-  artifact = json.loads(
-    (REPOSITORY_ROOT / "contracts/configuration/legacy-map.generated.json")
-    .read_text(encoding="utf-8")
+def test_historical_legacy_map_is_archived_not_generated(snapshot):
+  active = REPOSITORY_ROOT / "contracts/configuration/legacy-map.generated.json"
+  historical = (
+    REPOSITORY_ROOT
+    / "docs/configuration/history/artifacts/legacy-map.historical.json"
   )
+  assert not active.exists()
+  artifact = json.loads(historical.read_text(encoding="utf-8"))
   expected = {item["name"] for item in snapshot["legacy_inventory"]}
   assert artifact["count"] == len(artifact["map"]) == 316
   assert set(artifact["map"]) == expected
@@ -367,11 +372,16 @@ def test_direct_legacy_map_contains_only_fields(snapshot):
   )
 
 
-def test_derived_legacy_properties_are_separate():
-  artifact = json.loads(
-    (REPOSITORY_ROOT / "contracts/configuration/legacy-derived.generated.json")
-    .read_text(encoding="utf-8")
+def test_historical_derived_legacy_properties_are_archived():
+  active = (
+    REPOSITORY_ROOT / "contracts/configuration/legacy-derived.generated.json"
   )
+  historical = (
+    REPOSITORY_ROOT
+    / "docs/configuration/history/artifacts/legacy-derived.historical.json"
+  )
+  assert not active.exists()
+  artifact = json.loads(historical.read_text(encoding="utf-8"))
   assert artifact["count"] == 4
   assert {item["property_name"] for item in artifact["properties"]} == {
     "telegram_chat_id",
@@ -428,14 +438,16 @@ def test_configuration_package_does_not_import_active_settings():
     ), source
 
 
-def test_active_config_module_imports_selectable_runtime_not_full_grouped_root():
+def test_active_config_module_is_canonical_only_composition_root():
   source = (
     Path(__file__).parents[1] / "app/core/config.py"
   ).read_text(encoding="utf-8")
   assert "app.configuration.python_loader" in source
   assert "app.configuration.models.root" not in source
   assert ".generated.json" not in source
-  assert "settings = _ACTIVE_CONFIGURATION.settings" in source
+  assert "runtime_config = _ACTIVE_CONFIGURATION.runtime_config" in source
+  assert "settings = _ACTIVE_CONFIGURATION.settings" not in source
+  assert "BaseSettings" not in source
 
 
 def test_application_startup_uses_no_generated_json_runtime_inputs():

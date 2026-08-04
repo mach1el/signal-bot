@@ -1,14 +1,14 @@
 """Regression coverage for cross-engine execution integrity."""
 
 from __future__ import annotations
-from app.core.config import settings
+from app.core.config import runtime_config
 
 import asyncio
 import json
 from dataclasses import replace
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import execution_cfg
+from tests.configuration.canonical_fixtures import execution_cfg, install_runtime_overrides, leaf
 from unittest.mock import AsyncMock
 
 import fakeredis
@@ -490,8 +490,8 @@ async def test_zone_split_capability_gate_rejects_via_execution_policy(
     current_price=4100.6,
     structure_swing=4098.0,
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", False)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_fill_enabled": False})
 
   evaluation = evaluate_execution_policy(
     subject,
@@ -507,7 +507,7 @@ async def test_zone_split_capability_gate_rejects_via_execution_policy(
   # ``evaluate_execution_policy`` (see the ``zone_split_capability_unavailable``
   # gate inside ``_publish_trade_plan_v7``). Behaviour is verified via the V7
   # publish path in ``test_publish_trade_plan_v7.py``.
-  assert not settings.auto_trade_zone_fill_enabled
+  assert not leaf(runtime_config, "auto_trade_zone_fill_enabled")
 
 
 @pytest.mark.asyncio
@@ -557,8 +557,8 @@ async def test_required_limit_side_gate_uses_execution_policy(
     current_price=4100.0,
     structure_swing=4098.0,
   )
-  monkeypatch.setattr(settings, "auto_trade_enabled", True)
-  monkeypatch.setattr(settings, "auto_trade_zone_fill_enabled", True)
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_zone_fill_enabled": True})
 
   evaluation = evaluate_execution_policy(
     subject,
