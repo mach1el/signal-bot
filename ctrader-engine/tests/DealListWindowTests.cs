@@ -78,6 +78,21 @@ public sealed class DealListWindowTests
   }
 
   [Fact]
+  public void DealListLookupTimeoutStaysWellUnderTheDefaultRequestTimeout()
+  {
+    // This lookup is best-effort (close reason/exit price for a position
+    // the broker already closed) and shares one global in-flight slot with
+    // live order management. Seen live: a windowed timeout followed by a
+    // fallback timeout at the full 30s RequestTimeout held that slot -
+    // blocking SL trailing / order submission for every other open
+    // position - for 60s after every SL/BE close. Both legs together must
+    // stay far below the 30s default so a slow/unresponsive broker fails
+    // this diagnostic lookup fast instead of stalling the whole client.
+    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout <= TimeSpan.FromSeconds(10));
+    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout * 2 < TimeSpan.FromSeconds(30));
+  }
+
+  [Fact]
   public void ToUnixMillisecondsDetectsSecondsVsMilliseconds()
   {
     Assert.Equal(1_700_000_000_000L, CTraderOpenApiFeedClient.ToUnixMilliseconds(1_700_000_000L));
