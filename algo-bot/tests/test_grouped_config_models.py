@@ -89,7 +89,7 @@ def test_live_catalog_matches_model_leaves():
   catalog_paths = {entry.path for entry in iter_catalog_entries()}
   model_paths = {path for path, _field, _metadata in _leaf_fields()}
   assert catalog_paths == model_paths
-  assert len(catalog_paths) == 441
+  assert len(catalog_paths) == 443
 
 
 def test_metadata_is_derived_by_recursive_model_traversal():
@@ -99,7 +99,7 @@ def test_metadata_is_derived_by_recursive_model_traversal():
   assert "item_id" not in profile
   assert "legacy_attr" not in profile
   assert profile["catalog_version"] == 2
-  assert len(entries) == 441
+  assert len(entries) == 443
 
 
 def test_secret_shell_metadata_never_contains_a_value():

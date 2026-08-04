@@ -111,6 +111,49 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
+  public void MarketWatchSubmitsWhenBidInsideZoneEvenIfAskPokesJustAbove()
+  {
+    // 04 Aug 23:42 incident: BUY zone [4085.71, 4086.11] (0.40 wide, ~4
+    // pips). Bid-based M1 bars showed price genuinely trading at 4086.03,
+    // inside the zone, but the plan still expired 7 minutes later with
+    // last_wait_reason=outside_zone. Root cause: the ask-only check
+    // required the single trade-side quote strictly inside a zone
+    // narrower than typical spread, so a normal spread of a few ticks put
+    // ask just above zone high the entire time bid sat inside it. Reproduce
+    // that exact geometry: bid inside, ask a few ticks over the top edge.
+    var plan = MarketWatchPlan(
+      zoneLow: 4085.71m, zoneHigh: 4086.11m, maxSpreadTicks: null
+    );
+
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan, bid: 4086.03m, ask: 4086.15m, spreadTicks: 12m,
+      nowUnixSeconds: 1_720_000_100
+    );
+
+    Assert.Equal(TradePlanEntryAction.SubmitMarket, decision.Action);
+    Assert.True(decision.ShouldSubmit);
+  }
+
+  [Fact]
+  public void MarketWatchWaitsWhenNeitherBidNorAskReachTheZone()
+  {
+    // A spread wide enough that the whole [bid, ask] range still sits
+    // clear of the zone must still wait - this is not "any touch fires",
+    // it is "the tradable range overlaps the zone".
+    var plan = MarketWatchPlan(
+      zoneLow: 4085.71m, zoneHigh: 4086.11m, maxSpreadTicks: null
+    );
+
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan, bid: 4086.20m, ask: 4086.30m, spreadTicks: 10m,
+      nowUnixSeconds: 1_720_000_100
+    );
+
+    Assert.Equal(TradePlanEntryAction.Wait, decision.Action);
+    Assert.Equal("outside_zone", decision.RejectReason);
+  }
+
+  [Fact]
   public void MarketWatchWaitsWhenSpreadExceedsDeclaredLimit()
   {
     var plan = MarketWatchPlan(maxSpreadTicks: 8);

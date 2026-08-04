@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `1dab7cdbe9266e96d6b9e2aa553d1848ab9e0cd42d8626385ebc2213a3bc6eac`
-- Document fingerprint: `270f97eb425dae560f1be5d22055b89fadb86ffafa56512eeaf2cb48ca487b57`
-- Items: `441`
+- Contract fingerprint: `eb2002bd01237007c3eacdba1a4b8a6cd07417d5fa44c354e31b511e9a423629`
+- Document fingerprint: `3f6103d0050adf11692fd86d203620cb3040f39395ebea46f12caff5fe632bf3`
+- Items: `443`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -37,6 +37,8 @@
 | `actionability.structural_guard.guard_mode` | `AUTO_TRADE_STRUCTURAL_GUARD_MODE` | `str` | `enum` | `configurable` | `"balanced"` |
 | `actionability.target_room.barrier_buffer_atr` | `AUTO_TRADE_OPPOSING_BARRIER_ATR` | `float` | `atr` | `configurable` | `0.5` |
 | `actionability.target_room.minimum_capped_target_pips` | `AUTO_TRADE_MIN_CAPPED_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
+| `actionability.target_room.scalp_barrier_buffer_atr` | `AUTO_TRADE_SCALP_OPPOSING_BARRIER_ATR` | `float` | `atr` | `configurable` | `0.15` |
+| `actionability.target_room.scalp_minimum_capped_target_pips` | `AUTO_TRADE_SCALP_MIN_CAPPED_TARGET_PIPS` | `float` | `pips` | `configurable` | `8.0` |
 | `actionability.zone_reconciliation.enabled` | `AUTO_TRADE_ZONE_RECONCILE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `actionability.zone_reconciliation.mode` | `AUTO_TRADE_ZONE_RECONCILE_MODE` | `str` | `enum` | `configurable` | `"enforce"` |
 
