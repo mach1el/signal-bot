@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -19,9 +21,16 @@ def _signal(**overrides) -> dict:
     "tps": [4095.0, 4090.0, 4080.0],
     "setup_type": "golden-fib",
     "confluence": 2,
+    "trade_date": "2024-01-15",
   }
   base.update(overrides)
   return base
+
+
+def _end_of_trade_day(trade_date: str) -> int:
+  tz = ZoneInfo(runtime_config.delivery.presentation.seq_reset_tz)
+  day = datetime.fromisoformat(trade_date).date()
+  return int(datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz).timestamp())
 
 
 def test_build_intent_maps_fields_and_formats_intent_id():
@@ -36,10 +45,29 @@ def test_build_intent_maps_fields_and_formats_intent_id():
   assert intent.sl == pytest.approx(4110.0)
   assert intent.tps == (4095.0, 4090.0, 4080.0)
   assert intent.created_at == 1_800_000_000
-  assert intent.expires_at is None
+  assert intent.expires_at == _end_of_trade_day("2024-01-15")
   assert intent.setup_type == "golden-fib"
   assert intent.confluence == 2
   assert intent.execution_mode == "algo"
+
+
+def test_build_intent_expires_at_end_of_trade_day_local_tz():
+  intent = build_intent(_signal(trade_date="2024-03-01"))
+
+  tz = ZoneInfo(runtime_config.delivery.presentation.seq_reset_tz)
+  expiry = datetime.fromtimestamp(intent.expires_at, tz=tz)
+  assert expiry == datetime(2024, 3, 2, 0, 0, tzinfo=tz)
+
+
+def test_build_intent_falls_back_to_today_when_trade_date_missing():
+  signal = _signal()
+  del signal["trade_date"]
+
+  intent = build_intent(signal)
+
+  tz = ZoneInfo(runtime_config.delivery.presentation.seq_reset_tz)
+  today = datetime.now(tz).date()
+  assert intent.expires_at == _end_of_trade_day(today.isoformat())
 
 
 def test_build_intent_respects_revision():
@@ -82,7 +110,7 @@ async def test_publish_intent_xadds_full_payload_to_configured_stream(monkeypatc
     "sl": 4110.0,
     "tps": [4095.0, 4090.0, 4080.0],
     "created_at": 1_800_000_000,
-    "expires_at": None,
+    "expires_at": _end_of_trade_day("2024-01-15"),
     "setup_type": "golden-fib",
     "confluence": 2,
     "execution_mode": "algo",
@@ -278,3 +306,36 @@ async def test_get_signal_by_execution_intent_id_returns_none_when_unmatched():
   found = await store.get_signal_by_execution_intent_id("manual:999999:0")
 
   assert found is None
+
+
+@pytest.mark.asyncio
+async def test_count_pending_algo_signals_counts_only_still_resting_orders():
+  await store.init_db()
+  pending = await store.store_manual_signal(
+    1_800_000_000, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_status(pending["id"], "pending")
+
+  filled = await store.store_manual_signal(
+    1_800_000_001, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_fill(
+    filled["id"], broker_position_id=1, broker_fill_price=4100.0,
+  )
+
+  cancelled = await store.store_manual_signal(
+    1_800_000_002, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+    execution_mode="algo",
+  )
+  await store.set_execution_status(cancelled["id"], "pending")
+  await store.cancel_manual_signal(cancelled["id"])
+
+  await store.store_manual_signal(
+    1_800_000_003, "SELL", 4100, 4105, 4110, [4095, 4090, 4080],
+  )
+
+  count = await store.count_pending_algo_signals()
+
+  assert count == 1
