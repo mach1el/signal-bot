@@ -1,13 +1,11 @@
-"""Structural tests for the inactive grouped Pydantic model shells."""
+"""Structural tests for Catalog V2 grouped Pydantic models."""
 
-import json
 from dataclasses import FrozenInstanceError
-from decimal import Decimal
-from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from app.configuration.catalog import iter_catalog_entries
 from app.configuration.metadata import ConfigMetadata
 from app.configuration.metadata import ContextDefault
 from app.configuration.metadata import ConfigKind
@@ -19,7 +17,6 @@ from app.configuration.metadata import ReloadPolicy
 from app.configuration.metadata import RiskClassification
 from app.configuration.metadata import config_field
 from app.configuration.models.base import FrozenConfigModel
-from app.configuration.models.bootstrap import BootstrapConfig
 from app.configuration.models.bootstrap import BootstrapTelegramConfig
 from app.configuration.models.root import ApexVoidConfig
 from app.configuration.models.runtime import RuntimeConfig
@@ -27,11 +24,6 @@ from app.configuration.traversal import iter_config_metadata
 
 
 pytestmark = pytest.mark.no_database
-
-_PHASE2A_CATALOG = (
-  Path(__file__).parents[2]
-  / "docs/configuration/config-catalog-phase-2a-normalized.json"
-)
 
 
 def _all_model_types():
@@ -58,22 +50,6 @@ def _leaf_fields(model=ApexVoidConfig, prefix=()):
     annotation = field.annotation
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
       yield from _leaf_fields(annotation, (*prefix, name))
-
-
-def _expected_type(type_name):
-  return {
-    "bool": bool,
-    "decimal": Decimal,
-    "float": float,
-    "int": int,
-    "long": int,
-    "str": str,
-    "string": str,
-    "Optional[int]": int | None,
-    "Optional[str]": str | None,
-    "list[int]": list[int],
-    "list[string]": list[str],
-  }[type_name]
 
 
 def test_grouped_model_shells_are_frozen():
@@ -108,78 +84,21 @@ def test_root_contains_the_normalized_domains():
   )
 
 
-def test_representative_declarations_match_phase2a_oracle():
-  catalog = json.loads(_PHASE2A_CATALOG.read_text(encoding="utf-8"))
-  oracle = {item["proposed_path"]: item for item in catalog["items"]}
-  for path, field, metadata in _leaf_fields():
-    item = oracle[path]
-    assert field.annotation == _expected_type(item["type"]), path
-    for metadata_key, item_key in (
-      ("legacy_attr", "legacy_attr"),
-      ("canonical_env", "canonical_env"),
-      ("owner", "owner"),
-      ("reload_policy", "reload_policy"),
-      ("unit", "unit"),
-      ("risk_classification", "risk_classification"),
-      ("kind", "kind"),
-      ("secret", "secret"),
-      ("shared_with_ctrader", "shared_with_ctrader"),
-      ("mismatch_policy", "mismatch_policy"),
-    ):
-      assert metadata[metadata_key] == item[item_key], path
-    assert metadata["deprecated_aliases"] == item["deprecated_aliases"], path
-    if item["default"] not in {"<redacted>", "<required>"}:
-      expected_default = item["default"]
-      if item["legacy_attr"] == "telegram_owner_id":
-        # Phase 2A oracle captured fixture evidence instead of the schema
-        # default; legacy characterization is authoritative for Phase 2B.
-        expected_default = None
-      if item["type"] == "decimal":
-        expected_default = Decimal(str(expected_default))
-      elif item["type"] == "list[int]":
-        expected_default = [
-          int(value) for value in str(expected_default).split(",")
-        ]
-      elif item["type"] == "list[string]":
-        expected_default = str(expected_default).split(",")
-      assert field.default == expected_default, path
+def test_live_catalog_matches_model_leaves():
+  catalog_paths = {entry.path for entry in iter_catalog_entries()}
+  model_paths = {path for path, _field, _metadata in _leaf_fields()}
+  assert catalog_paths == model_paths
+  assert len(catalog_paths) == 441
 
 
 def test_metadata_is_derived_by_recursive_model_traversal():
   entries = dict(iter_config_metadata(ApexVoidConfig))
   assert entries["runtime.profile"]["canonical_env"] == "AUTO_TRADE_PROFILE"
-  assert entries["contract.versions.trade_plan"] == {
-    "item_id": "hardcoded.contract.trade_plan_version",
-    "legacy_attr": None,
-    "canonical_env": None,
-    "deprecated_aliases": [],
-    "owner": "shared",
-    "reload_policy": "code_release",
-    "runtime_reload_policy": "code_release",
-    "unit": "version",
-    "risk_classification": "cross_service_contract",
-    "kind": "protocol_constant",
-    "configurable": False,
-    "protocol_constant": True,
-    "algorithm_constant": False,
-    "secret": False,
-    "shared_with_ctrader": True,
-    "mismatch_policy": "fatal",
-    "description": (
-      "Config-like hardcoded value proposed at "
-      "contract.versions.trade_plan."
-    ),
-    "default_contexts": [],
-    "allowed_values": [],
-    "validation_summary": "none; source constant",
-    "evidence_notes": [],
-    "catalog_version": 1,
-    "introduced_in": "config-catalog-v1",
-    "deprecated": False,
-    "replacement_path": None,
-    "terminal_deprecation_reason": None,
-  }
-  assert len(entries) >= 20
+  profile = entries["runtime.profile"]
+  assert "item_id" not in profile
+  assert "legacy_attr" not in profile
+  assert profile["catalog_version"] == 2
+  assert len(entries) == 441
 
 
 def test_secret_shell_metadata_never_contains_a_value():
@@ -192,10 +111,8 @@ def test_secret_shell_metadata_never_contains_a_value():
 
 def test_config_metadata_object_is_frozen():
   metadata = ConfigMetadata(
-    item_id="test.example",
-    legacy_attr="example",
     canonical_env="EXAMPLE",
-    deprecated_aliases=(),
+    deprecated_env_aliases=(),
     owner=ConfigOwner.PYTHON,
     reload_policy=ReloadPolicy.RESTART,
     runtime_reload_policy=ReloadPolicy.RESTART,
@@ -218,9 +135,7 @@ def test_metadata_supports_context_defaults_and_real_constraints():
   class ConstrainedConfig(FrozenConfigModel):
     count: int = config_field(
       3,
-      item_id="test.constrained_count",
-      legacy_attr="constrained_count",
-      env="CONSTRAINED_COUNT",
+      canonical_env="CONSTRAINED_COUNT",
       owner=ConfigOwner.SHARED,
       reload=ReloadPolicy.NEW_SETUP_ONLY,
       runtime_reload=ReloadPolicy.RESTART,
@@ -251,10 +166,8 @@ def test_metadata_supports_context_defaults_and_real_constraints():
 def test_secret_context_defaults_must_be_redacted():
   with pytest.raises(ValueError, match="must be redacted"):
     ConfigMetadata(
-      item_id="test.secret",
-      legacy_attr="secret",
       canonical_env="SECRET",
-      deprecated_aliases=(),
+      deprecated_env_aliases=(),
       owner=ConfigOwner.PYTHON,
       reload_policy=ReloadPolicy.RESTART,
       runtime_reload_policy=ReloadPolicy.RESTART,
@@ -272,3 +185,10 @@ def test_secret_context_defaults_must_be_redacted():
         ContextDefault(DefaultContext.PYTHON_SCHEMA, "leaked"),
       ),
     )
+
+
+def test_no_deprecated_legacy_risk_classification():
+  assert not hasattr(RiskClassification, "DEPRECATED_LEGACY")
+  assert RiskClassification.DEPRECATED_CONFIGURATION.value == (
+    "deprecated_configuration"
+  )

@@ -34,3 +34,8 @@ observation window was fabricated.
 
 Trading behavior, defaults, profiles, C#, and CI workflows are unchanged by this
 decision.
+
+
+## Catalog V2 closeout
+
+Catalog identity is the canonical path. Migration-era `item_id` and `legacy_attr` metadata are removed. Phase gates are replaced by `configuration_integrity_gate`.

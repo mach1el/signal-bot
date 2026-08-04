@@ -1,31 +1,67 @@
-"""Canonical configuration fixtures for tests (Phase 2I final).
+"""Canonical configuration fixtures for tests.
 
 Helpers build or override typed ``PythonRuntimeConfig`` trees. There is no flat
-Settings adapter and no generated ``DIRECT_LEGACY_PATHS`` dependency.
-
-Override kwargs may use catalog ``legacy_attr`` names as a convenience when
-calling domain fixture builders; those names are translated through the
-canonical catalog metadata into dotted paths and applied via ``model_copy``.
+Settings adapter. Short override names are resolved through the frozen Catalog
+V1 identity map for test convenience only; production code uses dotted paths.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from functools import lru_cache
 from typing import Any, Iterable, Mapping
 
 from app.configuration.catalog import iter_catalog_entries
+from app.configuration.generate import REPOSITORY_ROOT
 from app.configuration.models.python_runtime import PythonRuntimeConfig
 from app.core import config as config_module
 
 
 @lru_cache(maxsize=1)
-def _legacy_attr_to_path() -> Mapping[str, tuple[str, ...]]:
-  return {
-    entry.legacy_attr: tuple(entry.path.split("."))
-    for entry in iter_catalog_entries()
-    if entry.legacy_attr
-  }
+def _short_name_to_path() -> Mapping[str, tuple[str, ...]]:
+  """Map historical flat names and unique path leaves to canonical paths.
+
+  Loads the frozen Catalog V1 legacy map for test convenience only. Production
+  code never imports this mapping.
+  """
+  mapping: dict[str, tuple[str, ...]] = {}
+  ambiguous: set[str] = set()
+  legacy_map_path = (
+    REPOSITORY_ROOT
+    / "docs/configuration/history/artifacts"
+    / "legacy-map.historical.json"
+  )
+  if legacy_map_path.exists():
+    for name, path in json.loads(legacy_map_path.read_text()).get("map", {}).items():
+      mapping[str(name)] = tuple(str(path).split("."))
+  identity_path = (
+    REPOSITORY_ROOT
+    / "docs/configuration/history/artifacts"
+    / "catalog-v1-to-v2-identity-map.historical.json"
+  )
+  if identity_path.exists():
+    for row in json.loads(identity_path.read_text())["entries"]:
+      path = tuple(str(row["canonical_path"]).split("."))
+      old = str(row["old_item_id"])
+      if old.startswith("python.settings."):
+        short = old[len("python.settings."):]
+        if short in mapping and mapping[short] != path:
+          ambiguous.add(short)
+        else:
+          mapping[short] = path
+  for entry in iter_catalog_entries():
+    leaf = entry.path.split(".")[-1]
+    path = tuple(entry.path.split("."))
+    if leaf in mapping and mapping[leaf] != path:
+      ambiguous.add(leaf)
+    elif leaf not in mapping:
+      mapping[leaf] = path
+  for name in ambiguous:
+    # Prefer the historical flat-name mapping over ambiguous leaf collisions.
+    if name not in json.loads(legacy_map_path.read_text()).get("map", {}):
+      mapping.pop(name, None)
+  return mapping
 
 
 def _get_path(root: Any, path: tuple[str, ...]) -> Any:
@@ -41,7 +77,6 @@ def apply_path_overrides(
 ) -> PythonRuntimeConfig:
   """Return a new config with dotted canonical-path overrides applied."""
   current: Any = config
-  # Group by top-level field for efficient nested model_copy.
   nested: dict[str, Any] = {}
   for dotted, value in overrides.items():
     parts = tuple(dotted.split(".")) if isinstance(dotted, str) else tuple(dotted)
@@ -65,26 +100,31 @@ def apply_path_overrides(
   return _merge(current, nested)
 
 
-def apply_legacy_named_overrides(
+def apply_named_overrides(
   config: PythonRuntimeConfig,
   overrides: Mapping[str, Any],
 ) -> PythonRuntimeConfig:
-  """Translate catalog legacy_attr kwargs into path overrides."""
-  mapping = _legacy_attr_to_path()
+  """Translate unique short names / historical flat names into path overrides."""
+  mapping = _short_name_to_path()
   path_values: dict[str, Any] = {}
   for name, value in overrides.items():
+    if "." in name:
+      path_values[name] = value
+      continue
     path = mapping.get(name)
     if path is None:
-      raise KeyError(f"unknown catalog legacy_attr override: {name}")
+      raise KeyError(f"unknown catalog override name: {name}")
     path_values[".".join(path)] = value
   return apply_path_overrides(config, path_values)
 
 
-def leaf(config: Any, legacy_attr: str) -> Any:
-  """Read one catalog-mapped leaf from a nested config object."""
-  path = _legacy_attr_to_path().get(legacy_attr)
+def leaf(config: Any, name: str) -> Any:
+  """Read one catalog leaf by dotted path or unique short name."""
+  if "." in name:
+    return _get_path(config, tuple(name.split(".")))
+  path = _short_name_to_path().get(name)
   if path is None:
-    raise KeyError(f"unknown catalog legacy_attr: {legacy_attr}")
+    raise KeyError(f"unknown catalog leaf name: {name}")
   return _get_path(config, path)
 
 
@@ -98,7 +138,7 @@ def install_runtime_overrides(
   """Install a model_copy of runtime_config across imported module bindings.
 
   ``overrides`` keys are dotted canonical paths.
-  ``legacy_overrides`` keys are catalog legacy_attr names.
+  ``legacy_overrides`` accepts unique short / historical flat names for tests.
   Does not mutate the original frozen config object.
   """
   current = base if base is not None else config_module.runtime_config
@@ -108,7 +148,7 @@ def install_runtime_overrides(
   if overrides:
     updated = apply_path_overrides(updated, overrides)
   if legacy_overrides:
-    updated = apply_legacy_named_overrides(updated, legacy_overrides)
+    updated = apply_named_overrides(updated, legacy_overrides)
   old = config_module.runtime_config
   monkeypatch.setattr(config_module, "runtime_config", updated)
   for module in list(sys.modules.values()):
@@ -125,7 +165,7 @@ def install_runtime_overrides(
 
 def runtime_cfg(**legacy_overrides: Any) -> PythonRuntimeConfig:
   """Build an overridden PythonRuntimeConfig from the process runtime root."""
-  return apply_legacy_named_overrides(
+  return apply_named_overrides(
     config_module.runtime_config,
     legacy_overrides,
   )

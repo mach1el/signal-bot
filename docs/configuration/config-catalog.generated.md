@@ -1,9 +1,10 @@
 # Generated configuration catalog
 
-> Generated from the inactive typed `ApexVoidConfig` schema. Do not edit manually.
+> Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
-- Catalog version: `1`
-- Source fingerprint: `bb24affb47b297c91637a83880cd2043e59a4cff0b5b17ca2d02fb4952fb54f0`
+- Catalog version: `2`
+- Contract fingerprint: `1dab7cdbe9266e96d6b9e2aa553d1848ab9e0cd42d8626385ebc2213a3bc6eac`
+- Document fingerprint: `270f97eb425dae560f1be5d22055b89fadb86ffafa56512eeaf2cb48ca487b57`
 - Items: `441`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 

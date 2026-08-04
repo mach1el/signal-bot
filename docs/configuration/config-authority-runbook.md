@@ -59,3 +59,8 @@ python -m app.configuration.phase2i_completion_gate --check
 
 Catalog-backed deprecated aliases remain supported (equal duplicates warn;
 conflicts fail closed).
+
+
+## Evergreen integrity
+
+Use `python -m app.configuration.configuration_integrity_gate --check`. Phase 2I completion gate is historical.
