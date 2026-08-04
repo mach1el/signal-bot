@@ -257,11 +257,117 @@ async def test_position_activated_rewrites_the_stale_setup_forming_head():
   assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
   # Live incident: line[1] used to repeat the identical "POSITION
   # ACTIVATED" text the header now already says, reading as a duplicated
-  # line. The header alone is enough - the status slot collapses to the
-  # same invisible placeholder PLAN PUBLISHED already uses.
-  assert lines[1] == setup_card._PLAN_PUBLISHED_STATUS_SLOT
+  # line. The header alone is enough. A blank placeholder line was tried
+  # (an invisible-character-only line) but Telegram still renders that
+  # at full line-height, showing a stray empty line under the header -
+  # so the slot line is removed outright instead of blanked.
+  assert lines[1] == "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐"
   assert text.count("POSITION ACTIVATED") == 1
   assert "SETUP FORMING" not in text
+
+
+@pytest.mark.asyncio
+async def test_second_fill_event_does_not_double_the_activated_header():
+  """Live incident: a multi-leg entry fires order_filled once per leg
+  (L1 filled, then ENTRY GROUP FULLY FILLED). The second call used to
+  re-parse the header this same function had already rewritten on the
+  first call, reading "POSITION ACTIVATED" itself as the symbol/tf
+  tokens and mangling the header into "POSITION ACTIVATED · POSITION
+  ACTIVATED" - losing the real symbol/timeframe entirely.
+  """
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-activated-twice")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "​",
+    "🔴 <b>SELL · Trendline Reaction</b> · ⭐⭐",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-activated-twice",
+    chat_id=123,
+    message_id=4244,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-activated-twice",
+    "✅ <b>POSITION ACTIVATED</b>",
+    state="order_filled",
+    edit_fn=edit_fn,
+  )
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-activated-twice",
+    "✅ <b>POSITION ACTIVATED</b>",
+    state="order_filled",
+    edit_fn=edit_fn,
+  )
+
+  assert len(edited) == 1, "second identical fill event should be a no-op edit"
+  text = edited[0][2]
+  assert text.splitlines()[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert text.count("POSITION ACTIVATED") == 1
+
+
+@pytest.mark.asyncio
+async def test_second_post_fill_status_replaces_not_stacks():
+  """After activation, a real status line is re-inserted (SL move). A
+  second real status later (TP hit) must replace that same line, not
+  stack a new one above the body - both are non-order_filled updates so
+  neither one rewrites the header again to signal "already handled".
+  """
+  client = redis_state.get_client()
+  await _confirmed_setup(client, "setup-post-fill-status")
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "​",
+    "🔴 <b>SELL · Trendline Reaction</b> · ⭐⭐",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    "setup-post-fill-status",
+    chat_id=123,
+    message_id=4245,
+    text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-post-fill-status",
+    "✅ <b>POSITION ACTIVATED</b>",
+    state="order_filled",
+    edit_fn=edit_fn,
+  )
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-post-fill-status",
+    "🛡 <b>SL MOVED TO BE</b>",
+    state="sl_moved",
+    edit_fn=edit_fn,
+  )
+  await setup_card.edit_forming_card_status(
+    client,
+    "setup-post-fill-status",
+    "🎯 <b>TP1 HIT</b>",
+    state="tp_booked",
+    edit_fn=edit_fn,
+  )
+
+  final_lines = edited[-1][2].splitlines()
+  assert final_lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert final_lines[1] == "🎯 <b>TP1 HIT</b>"
+  assert final_lines[2] == "🔴 <b>SELL · Trendline Reaction</b> · ⭐⭐"
+  assert len(final_lines) == 3, "TP status must replace SL line, not stack"
 
 
 @pytest.mark.asyncio

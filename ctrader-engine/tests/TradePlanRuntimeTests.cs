@@ -206,6 +206,15 @@ public sealed class TradePlanRuntimeTests
       logs, line => line.Contains("v7 plan expired")
         && line.Contains("last_wait_reason=outside_zone")
     );
+    // Live incident: this branch used to log-and-forget with no
+    // PublishEventAsync call at all, unlike every other terminal
+    // transition in this file (plan_rejected/order_filled/...) - the
+    // owner's forming card never resolved and nothing told them the
+    // setup died. Must now publish like everything else does.
+    Assert.Contains(
+      store.Events, e => e.Type == "plan_expired"
+        && e.Message.Contains("outside_zone")
+    );
   }
 
   [Fact]
@@ -232,6 +241,10 @@ public sealed class TradePlanRuntimeTests
     Assert.Contains(
       logs, line => line.Contains("v7 plan expired")
         && line.Contains("last_wait_reason=never_evaluated")
+    );
+    Assert.Contains(
+      store.Events, e => e.Type == "plan_expired"
+        && e.Message.Contains("never_evaluated")
     );
   }
 

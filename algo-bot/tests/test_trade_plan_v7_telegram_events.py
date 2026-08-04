@@ -322,3 +322,21 @@ def test_plan_rejected_event_renders_without_crashing():
 
   assert text is not None
   assert "PLAN REJECTED" in text
+
+
+def test_plan_expired_event_renders_without_crashing():
+  # Live incident: a market_watch entry (eg. Fade Scalp) that never got a
+  # live quote back inside its declared zone used to expire in
+  # TradePlanRuntime.cs with no PublishEventAsync call at all - the owner's
+  # "SETUP FORMING" card just sat there forever with no resolution. Now
+  # published like every other terminal transition in that file.
+  text = delivery.render_auto_trade_event({
+    "type": "plan_expired",
+    "message": (
+      "TradePlan V7 expired SELL · price never returned to the entry "
+      "zone (outside_zone)"
+    ),
+  })
+
+  assert text is not None
+  assert "PLAN EXPIRED" in text
