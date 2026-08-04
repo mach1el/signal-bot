@@ -586,13 +586,16 @@ async def test_order_filled_replies_using_v7_plan_id_without_head_fill(monkeypat
   assert "• ✅" not in body
   assert "• ENTRY L1 FILLED lot=0.08 @ 4074.68; L2 still pending" in body
   # Reply keeps ORDER FILLED; SETUP FORMING head becomes POSITION ACTIVATED.
+  # The header alone carries the text now - the status slot beneath it
+  # collapses to invisible instead of repeating it (see setup_card.py's
+  # apply_forming_card_status).
   head_edits = [e for e in edited if e[1] == 7001]
   assert len(head_edits) == 1
-  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2].splitlines()[1]
+  assert "✅ <b>POSITION ACTIVATED · XAU M5</b>" in head_edits[0][2].splitlines()[0]
   assert "ORDER FILLED" not in head_edits[0][2]
   assert "PLAN PUBLISHED" not in head_edits[0][2]
   card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
-  assert "✅ <b>POSITION ACTIVATED</b>" in card["text"].splitlines()[1]
+  assert "✅ <b>POSITION ACTIVATED · XAU M5</b>" in card["text"].splitlines()[0]
   assert "ORDER FILLED" not in card["text"]
   assert "PLAN PUBLISHED" not in card["text"]
 
@@ -648,7 +651,7 @@ async def test_order_filled_prefers_live_forming_card_over_stale_root(monkeypatc
   # SETUP FORMING head becomes POSITION ACTIVATED; stale root id 1111 unused.
   head_edits = [e for e in edited if e[1] == 9002]
   assert len(head_edits) == 1
-  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2]
+  assert "✅ <b>POSITION ACTIVATED · XAU M5</b>" in head_edits[0][2]
   assert all(e[1] != 1111 for e in edited)
 
 
@@ -1180,7 +1183,7 @@ async def test_order_filled_skips_standalone_when_reply_rejected(monkeypatch):
   assert calls[0][1]["reply_to"] == 7001
   head_edits = [e for e in edited if e[1] == 7001]
   assert len(head_edits) == 1
-  assert "✅ <b>POSITION ACTIVATED</b>" in head_edits[0][2]
+  assert "✅ <b>POSITION ACTIVATED · XAU M5</b>" in head_edits[0][2]
   card = json.loads(await client.get(delivery._forming_message_key(setup_id)))
   assert "ORDER FILLED" not in card["text"]
   assert "POSITION ACTIVATED" in card["text"]

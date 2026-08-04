@@ -19,7 +19,6 @@ import pytest
 from app.analysis.scanner import clear_active_setup_tracking
 from app.autotrade import delivery, setup_card
 from app.autotrade.delivery import (
-  POSITION_ACTIVATED_STATUS_LINE,
   _compact_route_line,
   _group_message_key,
   _mark_forming_card_position_activated,
@@ -189,6 +188,8 @@ async def test_mark_forming_card_position_activated_rewrites_head_and_stop(
   assert card is not None
   lines = card["text"].splitlines()
   assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
-  assert POSITION_ACTIVATED_STATUS_LINE in card["text"]
+  # The header alone carries the POSITION ACTIVATED text now - the status
+  # slot beneath it collapses to invisible instead of repeating it.
+  assert card["text"].count("POSITION ACTIVATED") == 1
   assert "• <b>Stop:</b> <b>3,395.50</b>" in card["text"]
   assert "SL</b>" not in card["text"]
