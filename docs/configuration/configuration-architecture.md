@@ -6,14 +6,18 @@ are derived as `config:<path>`.
 
 ## Runtime flow
 
-1. Source bundle (schema → profile → file secrets → dotenv → process ENV → init)
-2. Canonical resolver
-3. `PythonRuntimeConfig`
+1. Source bundle (schema → profile → file secrets → **config file** → dotenv →
+   process ENV → init)
+2. Canonical resolver (compatibility rules + instrument registry projection)
+3. `PythonRuntimeConfig` (includes typed `instruments` registry)
 4. `app.core.config.runtime_config`
 5. Typed production consumers
 
 There is exactly one Python configuration authority. There is no Settings
 singleton, flat facade, or runtime legacy selector.
+
+See also `config-file-and-instrument-registry.md` for the YAML CONFIG_FILE
+layer, XAU leaf projection, and deprecated ENV alias policy.
 
 ## Fingerprints
 

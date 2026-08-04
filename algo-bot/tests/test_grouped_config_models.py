@@ -81,6 +81,7 @@ def test_root_contains_the_normalized_domains():
     "lifecycle",
     "delivery",
     "manual_algo",
+    "instruments",
   )
 
 
