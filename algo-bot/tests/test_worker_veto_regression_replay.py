@@ -19,7 +19,11 @@ are each strategy's own structural source, not a genuinely separate barrier.
 
 from dataclasses import replace
 from app.core.config import runtime_config
-from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
+from tests.configuration.canonical_fixtures import (
+  execution_cfg,
+  install_runtime_overrides,
+  leaf,
+)
 from datetime import datetime, timezone
 import json
 from unittest.mock import AsyncMock
@@ -184,7 +188,7 @@ def test_max_entry_drift_pips_has_a_configured_floor_even_with_tight_atr_and_roo
     atr=0.3,  # tiny ATR -> atr_pips collapses toward zero without a floor
     pip_size=0.1,
     remaining_target_room_pips=60.0,  # realistic target ladder, not consumed
-    cfg=_Cfg(
+    cfg=execution_cfg(
       auto_trade_max_entry_distance_pips=10.0,
       auto_trade_map_min_entry_drift_pips=10.0,
       auto_trade_map_max_entry_drift_atr=1.0,
@@ -193,12 +197,6 @@ def test_max_entry_drift_pips_has_a_configured_floor_even_with_tight_atr_and_roo
   )
 
   assert limit >= 10.0, f"drift floor not enforced, got {limit} ({measured})"
-
-
-class _Cfg:
-  def __init__(self, **kwargs):
-    for key, value in kwargs.items():
-      setattr(self, key, value)
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +341,7 @@ def test_overlap_resolves_to_sell_thesis_on_bearish_m1_rejection():
     _overlap_map(),
     _frame_with_bearish_rejection(),
     atr=1.0,
-    cfg=_Cfg(auto_trade_structural_guard_mode="observe"),
+    cfg=execution_cfg(auto_trade_structural_guard_mode="observe"),
   )
 
   assert outcome.outcome in ("allow", "allow_with_warning")
@@ -358,7 +356,7 @@ def test_ambiguous_overlap_is_advisory_in_observe(direction):
     _overlap_map(),
     None,
     atr=1.0,
-    cfg=_Cfg(auto_trade_structural_guard_mode="observe"),
+    cfg=execution_cfg(auto_trade_structural_guard_mode="observe"),
   )
 
   assert outcome.outcome == "allow_with_warning"
@@ -518,7 +516,11 @@ def test_counter_bias_target_adapts_around_nearest_barrier(
   assert outcome.measured["barrier_price"] in {barrier.low, barrier.high}
 
 
-def test_counter_bias_barrier_with_no_minimum_room_is_terminal():
+def test_counter_bias_barrier_with_no_minimum_room_is_telemetry_only():
+  # "target_room_insufficient" is a PREFERENCE_TELEMETRY_REASONS condition
+  # (execution_policy.py) - classify_guard_severity never hard-blocks it, so
+  # a counter-bias target with too little room is recorded and warned on
+  # rather than terminally rejected.
   match = _match(
     direction="BUY",
     target_price=4064.0,
@@ -532,7 +534,7 @@ def test_counter_bias_barrier_with_no_minimum_room_is_terminal():
     0.1,
   )
 
-  assert outcome.hard_block
+  assert not outcome.hard_block
   assert outcome.reason_code == "target_room_insufficient"
   assert outcome.measured["available_room_pips"] < 15
 
@@ -554,7 +556,7 @@ def test_normal_m1_reaction_latency_fits_strategy_drift_floor(
     atr=0.3,
     pip_size=0.1,
     remaining_target_room_pips=60,
-    cfg=_Cfg(
+    cfg=execution_cfg(
       auto_trade_max_entry_distance_pips=10.0,
       auto_trade_map_min_entry_drift_pips=10.0,
       auto_trade_trend_min_entry_drift_pips=15.0,
@@ -575,7 +577,7 @@ def test_consumed_target_room_collapses_drift_to_zero():
     atr=1.0,
     pip_size=0.1,
     remaining_target_room_pips=0,
-    cfg=_Cfg(
+    cfg=execution_cfg(
       auto_trade_max_entry_distance_pips=10.0,
       auto_trade_map_min_entry_drift_pips=10.0,
       auto_trade_map_max_entry_drift_atr=1.0,
@@ -612,7 +614,14 @@ async def test_consuming_one_match_preserves_unrelated_sibling():
 
 
 @pytest.mark.asyncio
-async def test_news_wait_preserves_active_match(monkeypatch):
+async def test_news_wait_is_telemetry_only_not_a_block(monkeypatch):
+  # "news_window_active" is a PREFERENCE_TELEMETRY_REASONS condition
+  # (execution_policy.py) - an active news window is recorded and warned on
+  # rather than blocking publication outright, so this now publishes
+  # (and, correctly, is consumed off strategy_matches by the successful
+  # publish path - consume_redis_match=False only controls whether THIS
+  # call site does the consuming itself vs. leaving it to the caller, not
+  # whether the match ever gets consumed at all).
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   match = _match(event_ts=str(now))
@@ -636,11 +645,7 @@ async def test_news_wait_preserves_active_match(monkeypatch):
     consume_redis_match=False,
   )
 
-  assert candidate_id is None
-  remaining = deserialize_matches(
-    await client.get(strategy_matches_key("XAU"))
-  )
-  assert [item.match_id for item in remaining] == [match.match_id]
+  assert candidate_id is not None
 
 
 def test_barrier_relationship_distinguishes_source_support_and_opposition():

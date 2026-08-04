@@ -789,11 +789,14 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
   assert status["direction"] == "BUY"
   # This is the actual regression guard now that publish no longer happens
   # for either candidate: box must lose eligibility once regime has left
-  # chop, so trend is the one ranked first for arbitration.
+  # chop. Arbitration itself never ranks either candidate any more, box or
+  # trend - private M1 intents (no routed StrategyMatch) are unconditionally
+  # excluded from `arbitrable` (see worker.py's "Private intents ... kept
+  # out of arbitration; the V6 candidate path is retired" branch), so
+  # `arbitration.reason_code` is always "no_intent" here regardless of which
+  # candidate regime favors.
   assert status["box_eligibility"]["eligible"] is False
-  assert status["arbitration"]["ordered_intent_ids"][0] == (
-    "trend:pullback:BUY:4016.2"
-  )
+  assert status["arbitration"]["reason_code"] == "no_intent"
 
 
 @pytest.mark.asyncio
@@ -1174,9 +1177,15 @@ def test_nearest_directional_zone_picks_supply_for_sell_demand_for_buy():
 
 
 @pytest.mark.asyncio
-async def test_htf_veto_blocks_publish_when_enabled_and_passes_when_disabled(
+async def test_htf_veto_is_preference_telemetry_not_a_hard_block(
   monkeypatch,
 ):
+  # "htf_veto" is a PREFERENCE_TELEMETRY_REASONS condition
+  # (execution_policy.py) - classify_guard_severity checks that set before
+  # guard_mode, so it always returns ALLOW_WITH_WARNING/hard_block=False
+  # regardless of auto_trade_htf_veto_enabled or guard_mode="strict". This
+  # now matches every other soft structural signal (opposing_barrier,
+  # zone_cooldown, ...): warn, don't silently drop a confirmed setup.
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
@@ -1194,35 +1203,37 @@ async def test_htf_veto_blocks_publish_when_enabled_and_passes_when_disabled(
   untested_demand = [Zone(4010.0, 4014.0, "demand", touches=0)]
 
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_htf_veto_enabled": True})
-  vetoed = await worker._publish_candidate(
+  published_enabled = await worker._publish_candidate(
     client, "XAU", "1", spot, decision, _scale_context(now),
     htf_zones=untested_demand,
   )
-  assert vetoed is None
-  reject_count = await client.hget(
-    "auto_trade:gate_reject:XAU:htf_veto", "count",
-  )
-  assert reject_count is not None and int(reject_count) >= 1
+  assert published_enabled is not None
 
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_htf_veto_enabled": False})
-  passed = await worker._publish_candidate(
+  published_disabled = await worker._publish_candidate(
     client, "XAU", "2", spot, decision, _scale_context(now),
     htf_zones=untested_demand,
   )
-  assert passed is not None
+  assert published_disabled is not None
 
 
 # --- opposing-barrier veto (22 Jul incident: strategy_match BUY filled 20
 # pips below a published round-number supply level with no check at all) ---
 
 
-def test_opposing_barrier_reason_buy_vetoed_by_nearby_supply_zone():
+def test_opposing_barrier_reason_ahead_of_nearby_supply_zone_is_telemetry_only():
+  # "opposing_barrier" is a PREFERENCE_TELEMETRY_REASONS condition
+  # (execution_policy.py) - _opposing_barrier_reason's wrapper only
+  # surfaces a non-None reason for classify_guard_severity's hard_block
+  # path, which this "ahead, not inside" relationship never reaches. Only
+  # entry literally INSIDE an opposing barrier still hard-blocks via the
+  # hard_geometry=True path (see
+  # test_opposing_barrier_reason_vetoes_buy_inside_opposing_supply below).
   supply = [Zone(4017.5, 4018.0, "supply", touches=2)]
   reason = worker._opposing_barrier_reason(
     "BUY", 4017.2, 1.2, supply, [], 0.5,
   )
-  assert reason is not None
-  assert "supply" in reason
+  assert reason is None
 
 
 def test_opposing_barrier_reason_buy_ignores_supply_outside_buffer():
@@ -1241,9 +1252,10 @@ def test_opposing_barrier_reason_ignores_zone_behind_entry():
   ) is None
 
 
-def test_opposing_barrier_reason_round_number_level_blocks_either_direction():
+def test_opposing_barrier_reason_round_number_level_is_telemetry_either_direction():
   # A round-number level isn't sided like a Zone: it can cap a BUY from below
-  # or a SELL from above, unlike supply/demand.
+  # or a SELL from above, unlike supply/demand - but same as the Zone case,
+  # "ahead of, not inside" is preference telemetry, not a hard veto.
   round_level = [Level(price=4020.0, kind="round", touches=3, band=0.3)]
   buy_reason = worker._opposing_barrier_reason(
     "BUY", 4019.5, 1.2, [], round_level, 0.5,
@@ -1251,8 +1263,8 @@ def test_opposing_barrier_reason_round_number_level_blocks_either_direction():
   sell_reason = worker._opposing_barrier_reason(
     "SELL", 4020.5, 1.2, [], round_level, 0.5,
   )
-  assert buy_reason is not None and "round" in buy_reason
-  assert sell_reason is not None and "round" in sell_reason
+  assert buy_reason is None
+  assert sell_reason is None
 
 
 def test_opposing_barrier_reason_respects_disabled_atr_or_buffer():
@@ -1266,12 +1278,19 @@ def test_opposing_barrier_reason_respects_disabled_atr_or_buffer():
 
 
 @pytest.mark.asyncio
-async def test_opposing_barrier_blocks_strategy_match_into_round_number(
+async def test_opposing_barrier_ahead_of_strategy_match_round_number_still_publishes(
   monkeypatch,
 ):
-  """Reproduces the 22 Jul incident: a Box Breakout-style strategy_match BUY
-  filled straight into an untested round-number supply level. Before this
-  fix, _publish_strategy_match had no opposing-barrier check at all.
+  """Originally reproduced the 22 Jul incident (a Box Breakout-style
+  strategy_match BUY filled straight into an untested round-number supply
+  level with no check at all). The check now exists and runs
+  (_publish_strategy_match calls _opposing_barrier_reason either way), but
+  "opposing_barrier" is PREFERENCE_TELEMETRY_REASONS
+  (execution_policy.py) - an ahead-of-entry barrier is recorded and
+  warned on, not silently dropped as a hard veto, matching every other
+  soft structural signal. auto_trade_opposing_barrier_veto_enabled no
+  longer changes the outcome for this condition either way, so there is
+  nothing left to contrast a second publish attempt against.
   """
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
@@ -1286,20 +1305,10 @@ async def test_opposing_barrier_blocks_strategy_match_into_round_number(
   spot = worker.AutoTradeSpot(4017.2, now, True)
   round_level = [Level(price=4017.5, kind="round", touches=4, band=0.1)]
 
-  vetoed = await worker._publish_strategy_match(
+  published = await worker._publish_strategy_match(
     client, "XAU", spot, match, htf_levels=round_level,
   )
-  assert vetoed is None
-  reject_count = await client.hget(
-    "auto_trade:gate_reject:XAU:opposing_barrier", "count",
-  )
-  assert reject_count is not None and int(reject_count) >= 1
-
-  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_opposing_barrier_veto_enabled": False,})
-  passed = await worker._publish_strategy_match(
-    client, "XAU", spot, match, htf_levels=round_level,
-  )
-  assert passed is not None
+  assert published is not None
 
 
 # --- A5: rejection counters --------------------------------------------------
@@ -1491,21 +1500,36 @@ def test_opposing_barrier_reason_vetoes_sell_inside_opposing_demand():
   assert worker._opposing_barrier_condition(reason) == "entry_inside_opposing_zone"
 
 
-def test_opposing_barrier_reason_ahead_logic_unchanged_when_not_contained():
+def test_opposing_barrier_ahead_distance_math_unchanged_when_not_contained():
   # Regression guard: an entry genuinely ahead of (not inside) the barrier
-  # still uses the pre-existing ATR/buffer tolerance logic, unchanged.
+  # still uses the pre-existing ATR/buffer tolerance logic to DETECT the
+  # barrier - that math is unchanged. Only the severity changed
+  # ("opposing_barrier" moved to PREFERENCE_TELEMETRY_REASONS, so
+  # _opposing_barrier_reason's hard_block-only wrapper now returns None
+  # here - see test_opposing_barrier_reason_ahead_of_nearby_supply_zone_is_telemetry_only).
+  # Go one level down to _opposing_barrier_decision to prove the distance
+  # detection itself still fires exactly as before.
   # distance = 4116.0 - 4115.5 = 0.5, within buffer_atr(0.5) * atr(1.2) = 0.6.
   supply = [Zone(4116.0, 4127.0, "supply", touches=8)]
-  reason = worker._opposing_barrier_reason(
-    "BUY", 4115.5, 1.2, supply, [], 0.5,
+  source = worker._structural_source_identity(
+    strategy="legacy", family="", structural_source="legacy",
+    low=4115.5, high=4115.5, key_level=None,
   )
-  assert reason is not None
-  assert reason.startswith("Opposing barrier ahead:")
-  assert worker._opposing_barrier_condition(reason) == "opposing_barrier"
-  # And still respects the buffer: too far away, no veto at all.
-  assert worker._opposing_barrier_reason(
-    "BUY", 4110.0, 1.2, supply, [], 0.5,
-  ) is None
+  decision = worker._opposing_barrier_decision(
+    "BUY", 4115.5, None, 1.2, supply, [], 0.5,
+    source=source, guard_mode=worker.GUARD_MODE_STRICT,
+  )
+  assert decision.reason_code == "opposing_barrier"
+  assert decision.measured["relationship"] == "opposing_ahead"
+  assert decision.measured["distance"] == pytest.approx(0.5)
+  assert decision.hard_block is False
+
+  # And still respects the buffer: too far away, no barrier detected at all.
+  far = worker._opposing_barrier_decision(
+    "BUY", 4110.0, None, 1.2, supply, [], 0.5,
+    source=source, guard_mode=worker.GUARD_MODE_STRICT,
+  )
+  assert far.reason_code == "no_opposing_barrier"
 
 
 def test_opposing_barrier_reason_containment_is_boundary_inclusive():
@@ -1639,7 +1663,13 @@ async def test_zone_cooldown_reason_none_outside_atr_band():
 
 
 @pytest.mark.asyncio
-async def test_publish_candidate_is_vetoed_during_active_cooldown(monkeypatch):
+async def test_publish_candidate_during_active_cooldown_is_telemetry_only(monkeypatch):
+  # "zone_cooldown" is a PREFERENCE_TELEMETRY_REASONS condition
+  # (execution_policy.py) - classify_guard_severity never hard-blocks it
+  # regardless of guard_mode, so an active cooldown is recorded and warned
+  # on rather than silently dropping a confirmed setup. _record_gate_reject
+  # only fires on the hard_block branch, so the reject counter stays unset
+  # too.
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
@@ -1666,9 +1696,7 @@ async def test_publish_candidate_is_vetoed_during_active_cooldown(monkeypatch):
     client, "XAU", "1", spot, decision, _scale_context(now),
   )
 
-  assert result is None
-  reject_count = await client.hget("auto_trade:gate_reject:XAU:zone_cooldown", "count")
-  assert reject_count is not None and int(reject_count) >= 1
+  assert result is not None
 
 
 # --- Fix 4: overlapping opposing-zone veto ----------------------------------

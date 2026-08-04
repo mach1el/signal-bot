@@ -1,6 +1,11 @@
 import pandas as pd
 
-from app.analysis.engine import AnalysisSettings, Regime, regime
+from app.analysis.engine import (
+  AnalysisSettings,
+  Regime,
+  _nested_cfg_from_analysis_settings,
+  regime,
+)
 from app.analysis.types import DealingRange
 from app.analysis.regime import accepted_box_break
 
@@ -41,7 +46,7 @@ def test_displacement_close_accepts_box_break_immediately():
     df,
     1.0,
     Regime("chop", 110, 100, 3.0, [], True),
-    AnalysisSettings(),
+    _nested_cfg_from_analysis_settings(AnalysisSettings()),
   )
 
   assert result is not None
@@ -63,7 +68,9 @@ def test_two_weak_closes_accept_but_single_reentry_does_not():
     (110.2, 110.3, 109.8, 109.9),
   ])
   box = Regime("chop", 110, 100, 3.0, [], False)
-  cfg = AnalysisSettings(breakout_accept_bars=2)
+  cfg = _nested_cfg_from_analysis_settings(
+    AnalysisSettings(breakout_accept_bars=2),
+  )
 
   result = accepted_box_break(accepted, 1.0, box, cfg)
 

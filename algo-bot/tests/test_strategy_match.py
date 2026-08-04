@@ -194,7 +194,7 @@ def test_range_edge_selects_40_pip_target_from_40_to_49_pip_room(monkeypatch):
   assert match.full_take_profit_pips == 40
 
 
-def test_insufficient_target_room_is_rejected_with_a_reason_not_silently(
+def test_insufficient_target_room_falls_through_to_configured_targets(
   monkeypatch,
 ):
   lower = ScalpBarrier(
@@ -203,8 +203,8 @@ def test_insufficient_target_room_is_rejected_with_a_reason_not_silently(
   upper = ScalpBarrier(
     "resistance", 4116.0, 4115.8, 4116.2, 5, 4, 0, 17, ["micro ×5"], 10.0,
   )
-  # Only ~2.5 pips of room to the opposite edge -- no configured target
-  # (30/40/50 with a 5-pip buffer) can ever fit.
+  # Only ~2.5 pips of room to the opposite edge -- no target-room-selected
+  # take-profit can fit inside the range.
   narrow_range = ScalpRange(lower, upper, 4114.5, 3.0, 9.0)
   result = DetectionResult(
     "Range Edge Scalp",
@@ -223,11 +223,15 @@ def test_insufficient_target_room_is_rejected_with_a_reason_not_silently(
     now=NOW,
   )
 
-  # Room to opposing edge is tiny; EQ room is also below the smallest
-  # configured target + buffer (20+3), so the match stays analysis-only.
-  assert match is None
-  assert reason == "insufficient_target_room"
-  assert measured["room_pips"] < 23
+  # Target-room is preference telemetry, not a hard gate (see
+  # _build_strategy_match's own comment: "fall through to configured
+  # strategy targets instead of refusing the match") - insufficient room
+  # for the range's own scaled target must not silently drop a
+  # confirmed, wick-rejection-backed setup. It still publishes, just with
+  # the largest configured target standing in for the one that didn't fit.
+  assert match is not None
+  assert reason is None
+  assert match.full_take_profit_pips == max(match.targets_pips)
 
 
 @pytest.mark.asyncio

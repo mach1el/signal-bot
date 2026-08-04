@@ -3,7 +3,7 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
-from app.analysis.engine import AnalysisSettings
+from app.analysis.engine import AnalysisSettings, _nested_cfg_from_analysis_settings
 from app.analysis.types import Swing, Zone
 from app.analysis.trendlines import Trendline, _dedup, trendlines, value_at
 from app.analysis.zones import TRENDLINE_SCORE, score_zones
@@ -33,7 +33,7 @@ def test_three_ascending_lows_fit_one_support_line():
     _support_swings(),
     df,
     pd.Series([1.0] * len(df), index=df.index),
-    AnalysisSettings(),
+    _nested_cfg_from_analysis_settings(AnalysisSettings()),
   )
 
   assert len(lines) == 1
@@ -52,7 +52,7 @@ def test_mid_span_close_beyond_tolerance_rejects_candidate():
     _support_swings(),
     df,
     1.0,
-    AnalysisSettings(),
+    _nested_cfg_from_analysis_settings(AnalysisSettings()),
   )
 
   assert lines == []
@@ -67,7 +67,7 @@ def test_later_close_marks_support_broken_at_exact_bar():
     _support_swings(),
     df,
     1.0,
-    AnalysisSettings(),
+    _nested_cfg_from_analysis_settings(AnalysisSettings()),
   )[0]
 
   assert line.broken is True
@@ -85,7 +85,7 @@ def test_slope_beyond_atr_bound_is_rejected():
   df = _line_df()
   steep = [Swing(index, "low", 100 + 0.2 * index) for index in (1, 4, 7)]
 
-  assert trendlines(steep, df, 1.0, AnalysisSettings()) == []
+  assert trendlines(steep, df, 1.0, _nested_cfg_from_analysis_settings(AnalysisSettings())) == []
 
 
 def test_zone_score_rewards_unbroken_trendline_confluence():

@@ -9,6 +9,7 @@ from app.analysis.engine import (
   TimeframeAnalysis,
   _apply_mtf_zone_scores,
   _htf_bias,
+  _nested_cfg_from_analysis_settings,
   analyze,
   regime,
 )
@@ -696,7 +697,7 @@ def test_session_levels_bucket_sessions_sweeps_and_rollover():
     rows.append((100.0, high, low, 100.5))
   df = _df_with_index(index, rows)
 
-  levels = session_levels(df, AnalysisSettings())
+  levels = session_levels(df, _nested_cfg_from_analysis_settings(AnalysisSettings()))
   asia_high = next(
     level for level in levels
     if level.name == "ASIA_H" and level.price == 120.0

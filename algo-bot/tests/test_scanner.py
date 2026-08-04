@@ -480,7 +480,7 @@ async def test_scanner_increments_zone_reconciled_counter(monkeypatch):
     "M30",
   )
   monkeypatch.setattr(
-    scanner, "build_map", lambda analysis, price, settings: reconciled_map,
+    scanner, "build_map", lambda analysis, price, settings=None: reconciled_map,
   )
 
   await scanner._handle_event(
@@ -525,7 +525,7 @@ async def test_scanner_increments_zone_dropped_and_aborted_counters(monkeypatch)
     lambda symbol, tf, frames, settings, htf_order: ctx,
   )
   empty_map = MarketMap([], 4113, None, None, None, "down", "M30")
-  monkeypatch.setattr(scanner, "build_map", lambda analysis, price, settings: empty_map)
+  monkeypatch.setattr(scanner, "build_map", lambda analysis, price, settings=None: empty_map)
 
   await scanner._handle_event(
     "XAU:M5:reconciled",
