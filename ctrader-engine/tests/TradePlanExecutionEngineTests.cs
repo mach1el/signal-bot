@@ -100,7 +100,14 @@ public sealed class TradePlanExecutionEngineTests
 
     Assert.Equal(TradePlanEntryAction.Wait, decision.Action);
     Assert.False(decision.ShouldSubmit);
-    Assert.Null(decision.RejectReason);
+    // Live incident: a market_watch plan expired unfilled even though price
+    // logs showed it re-entering the zone later - Wait decisions used to
+    // carry no reason at all, so a poll's outcome was completely invisible
+    // in production logs, making that "did it ever actually see the zone
+    // again" question unanswerable after the fact. Naming this reason
+    // (distinct from spread_exceeds_declared_limit) lets a future expiry
+    // log line say which one actually happened.
+    Assert.Equal("outside_zone", decision.RejectReason);
   }
 
   [Fact]
