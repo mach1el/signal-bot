@@ -200,6 +200,91 @@ async def test_channel_and_dm_close_share_executor(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_trade_cancel_pending_algo_defer_does_not_double_post_to_channel(
+  monkeypatch,
+):
+  # Live incident: a broker-deferred algo /trade_cancel posted "cancel
+  # requested" to the channel via post_result, then manual_execution.py's
+  # _handle_manual_cancelled posted a second, separate "cancelled" message
+  # once C# confirmed it - the owner saw the same cancel show up twice.
+  # post_result is what fans out to the channel; for a pending result the
+  # DM handler must only acknowledge the owner directly and leave the one
+  # real channel post to the later confirmation handler.
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  monkeypatch.setattr(wiring, "_resolve_sid", AsyncMock(return_value=3))
+  execute = AsyncMock(return_value={
+    "action": "cancel", "ok": True, "pending": True, "row": {"daily_seq": 3},
+  })
+  post = AsyncMock()
+  monkeypatch.setattr(wiring, "do_cancel", execute)
+  monkeypatch.setattr(wiring, "post_result", post)
+  msg = _dm("/trade_cancel XAU #3")
+
+  await wiring.handle_trade_cancel(msg)
+
+  post.assert_not_awaited()
+  msg.answer.assert_awaited_once_with("⏳ #3 cancel requested")
+
+
+@pytest.mark.asyncio
+async def test_trade_cancel_final_result_still_posts_to_channel(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  monkeypatch.setattr(wiring, "_resolve_sid", AsyncMock(return_value=3))
+  execute = AsyncMock(return_value={
+    "action": "cancel", "ok": True, "row": {"daily_seq": 3},
+  })
+  post = AsyncMock(return_value="❌ #3 cancelled")
+  monkeypatch.setattr(wiring, "do_cancel", execute)
+  monkeypatch.setattr(wiring, "post_result", post)
+  msg = _dm("/trade_cancel XAU #3")
+
+  await wiring.handle_trade_cancel(msg)
+
+  post.assert_awaited_once_with(execute.return_value, "XAU")
+  msg.answer.assert_awaited_once_with("❌ #3 cancelled")
+
+
+@pytest.mark.asyncio
+async def test_trade_close_pending_algo_defer_does_not_double_post_to_channel(
+  monkeypatch,
+):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  monkeypatch.setattr(wiring, "_resolve_sid", AsyncMock(return_value=3))
+  execute = AsyncMock(return_value={
+    "action": "close", "ok": True, "pending": True, "row": {"daily_seq": 3},
+  })
+  post = AsyncMock()
+  monkeypatch.setattr(wiring, "do_close", execute)
+  monkeypatch.setattr(wiring, "post_result", post)
+  msg = _dm("/trade_close XAU #3 +50")
+
+  await wiring.handle_trade_close(msg)
+
+  post.assert_not_awaited()
+  msg.answer.assert_awaited_once_with("⏳ #3 close requested")
+
+
+@pytest.mark.asyncio
+async def test_trade_sl_pending_algo_defer_does_not_double_post_to_channel(
+  monkeypatch,
+):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  monkeypatch.setattr(wiring, "_resolve_sid", AsyncMock(return_value=3))
+  execute = AsyncMock(return_value={
+    "action": "sl", "ok": True, "pending": True, "row": {"daily_seq": 3},
+  })
+  post = AsyncMock()
+  monkeypatch.setattr(wiring, "do_sl", execute)
+  monkeypatch.setattr(wiring, "post_result", post)
+  msg = _dm("/trade_sl XAU #3 be")
+
+  await wiring.handle_trade_sl(msg)
+
+  post.assert_not_awaited()
+  msg.answer.assert_awaited_once_with("⏳ #3 stop-loss move requested")
+
+
+@pytest.mark.asyncio
 async def test_manual_tp_command_is_notify_only(monkeypatch):
   install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
   monkeypatch.setattr(
