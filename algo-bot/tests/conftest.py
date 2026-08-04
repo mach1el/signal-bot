@@ -22,8 +22,9 @@ os.environ.setdefault(
   "DATABASE_URL",
   "postgresql://apexvoid:apexvoid@localhost:55432/signals",
 )
+os.environ.setdefault("POSTGRES_PASSWORD", "apexvoid")
 
-from app.core.config import settings  # noqa: E402  (import after env is seeded)
+from app.core.config import runtime_config  # noqa: E402  (import after env is seeded)
 from app.persistence import store  # noqa: E402  (import after env is seeded)
 from app.persistence import redis_state  # noqa: E402
 from app.analysis import market_map_delivery  # noqa: E402
@@ -63,7 +64,7 @@ def _reset_db(event_loop, request):
     return
   async def _wipe():
     await store.close_pool()
-    conn = await asyncpg.connect(settings.database_url)
+    conn = await asyncpg.connect(runtime_config.bootstrap.postgres.url)
     try:
       await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
     finally:
