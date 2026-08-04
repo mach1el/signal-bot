@@ -1,3 +1,5 @@
+> Historical Phase 2A–2I-A artifact; superseded by Phase 2I-B structural completion. No observation evidence was fabricated.
+
 # Config refactor — Phase 2I-A: canonical cutover
 
 Phase 2I-A makes **canonical** the managed-deployment default authority and
