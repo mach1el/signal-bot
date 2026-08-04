@@ -11,10 +11,23 @@ from app.analysis.types import Break, DealingRange, Grab, Pool, SessionLevel
 from app.analysis.regime import BoxBreak
 from app.analysis.scalp_ranges import ScalpBarrier, ScalpRange
 from app.analysis.structural_reaction_support import (
+  CONFIRM_ENGULFING,
+  CONFIRM_REJECTION_CHOCH,
+  CONFIRM_STRONG_RECLAIM,
+  CONFIRM_SWEEP_RECLAIM,
+  CONFIRM_WICK_REJECTION,
   box_structural_id,
   key_level_structural_id,
   trendline_structural_id,
 )
+
+_RANGE_EDGE_CONFIRMATION_TYPES = frozenset({
+  CONFIRM_WICK_REJECTION,
+  CONFIRM_SWEEP_RECLAIM,
+  CONFIRM_REJECTION_CHOCH,
+  CONFIRM_STRONG_RECLAIM,
+  CONFIRM_ENGULFING,
+})
 from app.analysis.structure import Level, Swing, Zone
 from app.analysis.trendlines import Trendline
 
@@ -696,7 +709,9 @@ def test_range_edge_scalp_fires_both_directions_with_range_htf_bias(df, directio
   assert result.setup == "Range Edge Scalp"
   assert result.direction == direction
   assert result.mode == "range_scalp"
-  assert result.confirmation in detectors.RANGE_CONFIRMATION_LABELS
+  assert result.confirmation in _RANGE_EDGE_CONFIRMATION_TYPES
+  assert result.touch_bar_ts
+  assert result.confirmation_bar_ts
   assert any(reason.startswith("TP1 EQ") for reason in result.reasons)
   assert any(reason.startswith("TP2 edge") for reason in result.reasons)
 
