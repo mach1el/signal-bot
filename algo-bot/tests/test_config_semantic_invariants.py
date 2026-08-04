@@ -3,12 +3,16 @@
 from dataclasses import replace
 
 import pytest
+from pydantic import ValidationError
 
 from app.configuration import resolver
 from app.configuration.catalog import iter_catalog_entries
 from app.configuration.catalog_validation import catalog_semantic_errors
 from app.configuration.catalog_validation import profile_assignment_errors
 from app.configuration.catalog_validation import validate_active_catalog
+from app.configuration.models.actionability import (
+  ActionabilityZoneReconciliationConfig,
+)
 from app.configuration.models.python_runtime import PythonRuntimeConfig
 from app.configuration.profiles import ConfigProfile
 from app.configuration.profiles import ProfileAssignment
@@ -105,3 +109,30 @@ def test_profile_values_use_canonical_typed_parser(monkeypatch):
   assert resolved.conflicts == ()
   assert resolved.flat_values[path] == "strict"
   assert resolved.trace.by_path()[path].source_name == "typed"
+
+
+def test_zone_reconciliation_derivation_is_resolver_owned():
+  with pytest.raises(ValidationError, match="requires mode=off"):
+    ActionabilityZoneReconciliationConfig(
+      enabled=False,
+      mode="enforce",
+    )
+
+  enabled_path = "actionability.zone_reconciliation.enabled"
+  mode_path = "actionability.zone_reconciliation.mode"
+  resolved = resolver.resolve_configuration(
+    init_values={
+      enabled_path: False,
+      mode_path: "enforce",
+    },
+    process_environment={},
+    dotenv_values={},
+    file_secret_values={},
+    model=PythonRuntimeConfig,
+  )
+
+  assert resolved.conflicts == ()
+  assert resolved.flat_values[mode_path] == "off"
+  source = resolved.trace.by_path()[mode_path]
+  assert source.source_kind is SourceKind.DERIVED_COMPATIBILITY_RULE
+  assert source.compatibility_rule == "disabled_zone_reconciliation_forces_off"
