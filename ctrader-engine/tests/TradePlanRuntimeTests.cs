@@ -809,6 +809,99 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task OwnerCancellingBothLadderLegsOnBrokerIsRecognizedAsPlanCancelled()
+  {
+    // 04 Aug incident (card 2): owner cancelled a Flip Zone limit-ladder's
+    // pending legs directly on the broker platform. The plan stayed
+    // reported as "submitted" forever - Telegram was never told, and
+    // TrackedStates never released it. Quote well above both leg prices so
+    // neither fires as an immediate market order; both rest as pending
+    // limit orders, matching the real incident's zone-scale ladder.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var currentTime = 1_720_000_000L;
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime), logs.Add
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4095.00m, 4095.20m, 1), CancellationToken.None
+    );
+
+    var submitted = Assert.Single(runtime.TrackedStates);
+    Assert.All(submitted.Legs!, leg => Assert.Null(leg.BrokerPositionId));
+    Assert.All(submitted.Legs!, leg => Assert.NotNull(leg.BrokerOrderId));
+
+    // Owner cancels both legs directly on the broker - not through our own
+    // CancelPendingOrderAsync, which is exactly the point: the broker-side
+    // state changed out from under us.
+    client.PendingOrders.Clear();
+
+    // First poll after the cancel: the gap is only just noticed, not yet
+    // confirmed - must not jump straight to cancelled (a same-instant fill
+    // needs a full cycle for its position to land in ReconcilePositionsAsync).
+    currentTime += 1;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4095.00m, 4095.20m, 2), CancellationToken.None
+    );
+    Assert.Single(runtime.TrackedStates);
+    Assert.DoesNotContain(store.Events, e => e.Type == "plan_cancelled");
+
+    // Gap survives past the confirmation window - now it's a real cancel.
+    currentTime += 11;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4095.00m, 4095.20m, 3), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    Assert.Contains(
+      store.Events, e => e.Type == "plan_cancelled"
+        && e.Message.Contains("owner cancelled")
+    );
+    Assert.Contains(logs, line => line.Contains("v7 plan cancelled"));
+  }
+
+  [Fact]
+  public async Task OwnerCancellingOneUnfilledLadderLegLeavesTheFilledLegManaged()
+  {
+    // Guard against the cancelled-leg detection above being too broad: a
+    // partial fill (L1 real position) plus a cancelled L2 must still read
+    // as a live, managed trade - not get swept into "plan cancelled" just
+    // because one leg never filled.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient();
+    var currentTime = 1_720_000_000L;
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime), _ => { }
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.20m, 4089.40m, 1), CancellationToken.None
+    );
+    var partial = Assert.Single(runtime.TrackedStates);
+    var l2 = Assert.Single(partial.Legs!, leg => leg.LegId == "L2");
+    client.PendingOrders.RemoveAll(order => order.OrderId == l2.BrokerOrderId!.Value);
+
+    currentTime += 12;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.20m, 4089.40m, 2), CancellationToken.None
+    );
+    currentTime += 12;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.20m, 4089.40m, 3), CancellationToken.None
+    );
+
+    var state = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.FullyOpen, state.Stage);
+    Assert.NotEqual(TradePlanGroupStages.Cancelled, state.GroupStage);
+    Assert.Contains(state.Legs!, leg => leg.LegId == "L2"
+      && leg.Stage == TradePlanLegStages.Cancelled);
+  }
+
+  [Fact]
   public async Task V7CommentPositionIsAdoptedWithoutCannotReconstructLog()
   {
     var store = new FakeV7Store();
