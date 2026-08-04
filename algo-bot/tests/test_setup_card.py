@@ -254,7 +254,12 @@ async def test_position_activated_rewrites_the_stale_setup_forming_head():
   text = edited[0][2]
   lines = text.splitlines()
   assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
-  assert lines[1] == "✅ <b>POSITION ACTIVATED</b>"
+  # Live incident: line[1] used to repeat the identical "POSITION
+  # ACTIVATED" text the header now already says, reading as a duplicated
+  # line. The header alone is enough - the status slot collapses to the
+  # same invisible placeholder PLAN PUBLISHED already uses.
+  assert lines[1] == setup_card._PLAN_PUBLISHED_STATUS_SLOT
+  assert text.count("POSITION ACTIVATED") == 1
   assert "SETUP FORMING" not in text
 
 

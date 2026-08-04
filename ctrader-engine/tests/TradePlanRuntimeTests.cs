@@ -169,6 +169,73 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task ExpiredPlanLogsTheLastReasonItNeverFilled()
+  {
+    // Live incident: a market_watch plan expired unfilled even though price
+    // logs showed it re-entering the zone a few minutes before expiry -
+    // every poll that didn't submit was completely silent, so there was no
+    // way to tell from production logs whether the entry never actually saw
+    // the zone again, or saw it but got blocked by something else (spread).
+    // The expiry log line must now say which one happened.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(expiresAt: 1_720_000_100));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var currentTime = 1_720_000_000L;
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime),
+      logs.Add
+    );
+
+    // Outside the zone - Wait, reason recorded in-memory but nothing
+    // logged yet (a Wait on every poll would otherwise spam every setup
+    // still waiting for price, which is the normal/common case).
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.DoesNotContain(logs, line => line.Contains("plan expired"));
+
+    // Clock now past expires_at - this poll's quote is irrelevant, the
+    // plan expires using the reason recorded on the poll just above.
+    currentTime = 1_720_000_100L;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+
+    Assert.Contains(
+      logs, line => line.Contains("v7 plan expired")
+        && line.Contains("last_wait_reason=outside_zone")
+    );
+  }
+
+  [Fact]
+  public async Task ExpiredPlanThatWasNeverEvaluatedLogsNeverEvaluated()
+  {
+    // A plan can expire on its very first poll (e.g. expires_at already in
+    // the past by the time the stream is consumed) without EvaluateEntry
+    // ever reaching the market_watch branch at all - LastEntryWaitReason
+    // stays null, and the log must say so plainly rather than a misleading
+    // blank/default reason.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(expiresAt: 1_720_000_000));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_100),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    Assert.Contains(
+      logs, line => line.Contains("v7 plan expired")
+        && line.Contains("last_wait_reason=never_evaluated")
+    );
+  }
+
+  [Fact]
   public async Task FirstPollSubmitsExecutablePlanWithoutArmedStage()
   {
     var store = new FakeV7Store();
