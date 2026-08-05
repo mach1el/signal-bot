@@ -32,6 +32,11 @@ Trading consumers and the cTrader shared ENV handshake therefore stay
 unchanged. A second instrument may be declared (for example disabled `EUR`)
 without introducing new Python field names for that symbol.
 
+For the typed per-instrument composition boundary
+(`runtime_config.for_instrument(...)`, rollout stages, policy references, and
+XAU parity rules), see
+[effective-instrument-context.md](./effective-instrument-context.md).
+
 ## Alias policy
 
 Existing XAU ENV names remain as deprecated aliases in PR A. Conflicting YAML
