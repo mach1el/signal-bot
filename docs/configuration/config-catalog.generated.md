@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `eb2002bd01237007c3eacdba1a4b8a6cd07417d5fa44c354e31b511e9a423629`
-- Document fingerprint: `3f6103d0050adf11692fd86d203620cb3040f39395ebea46f12caff5fe632bf3`
+- Contract fingerprint: `2997a460475e33bc9e26902de93ee7a4e8d9715cbeb7acf23c4779ccff2b67f7`
+- Document fingerprint: `c267947aa66fbabc2314e3675533fe1f9d48e92e746a03072be2254ccb2430c3`
 - Items: `443`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -69,7 +69,7 @@
 | `analysis.market_map.major_score` | `MAP_MAJOR_SCORE` | `float` | `score` | `configurable` | `12.0` |
 | `analysis.market_map.max_distance_atr` | `MAP_MAX_DISTANCE_ATR` | `float` | `atr` | `configurable` | `15.0` |
 | `analysis.market_map.max_per_side` | `MAP_MAX_PER_SIDE` | `int` | `count` | `configurable` | `4` |
-| `analysis.market_map.max_touches` | `MAP_MAX_TOUCHES` | `int` | `count` | `configurable` | `2` |
+| `analysis.market_map.max_touches` | `MAP_MAX_TOUCHES` | `int` | `count` | `configurable` | `4` |
 | `analysis.market_map.min_level_touches` | `MAP_MIN_LEVEL_TOUCHES` | `int` | `count` | `configurable` | `4` |
 | `analysis.market_map.min_per_side` | `MAP_MIN_PER_SIDE` | `int` | `count` | `configurable` | `2` |
 | `analysis.market_map.min_zone_score` | `MAP_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `6.0` |

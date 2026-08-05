@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `eb2002bd01237007c3eacdba1a4b8a6cd07417d5fa44c354e31b511e9a423629`
+- Contract fingerprint: `2997a460475e33bc9e26902de93ee7a4e8d9715cbeb7acf23c4779ccff2b67f7`
 - Environment-bound fields: `376`
 - Deprecated aliases: `21`
 
@@ -272,7 +272,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `MAP_MAJOR_SCORE` | `analysis.market_map.major_score` | `float` | no | no | — | `12.0` |
 | `MAP_MAX_DISTANCE_ATR` | `analysis.market_map.max_distance_atr` | `float` | no | no | — | `15.0` |
 | `MAP_MAX_PER_SIDE` | `analysis.market_map.max_per_side` | `int` | no | no | — | `4` |
-| `MAP_MAX_TOUCHES` | `analysis.market_map.max_touches` | `int` | no | no | — | `2` |
+| `MAP_MAX_TOUCHES` | `analysis.market_map.max_touches` | `int` | no | no | — | `4` |
 | `MAP_MIN_LEVEL_TOUCHES` | `analysis.market_map.min_level_touches` | `int` | no | no | — | `4` |
 | `MAP_MIN_PER_SIDE` | `analysis.market_map.min_per_side` | `int` | no | no | — | `2` |
 | `MAP_MIN_ZONE_SCORE` | `analysis.market_map.min_zone_score` | `float` | no | no | — | `6.0` |

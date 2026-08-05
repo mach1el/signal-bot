@@ -262,7 +262,7 @@ def market_map_cfg(**overrides: Any) -> PythonRuntimeConfig:
   defaults = {
     "map_max_per_side": 4,
     "map_major_score": 12.0,
-    "map_max_touches": 2,
+    "map_max_touches": 4,
     "map_min_zone_score": 6.0,
     "map_min_level_touches": 4,
     "map_max_distance_atr": 15.0,
