@@ -1492,6 +1492,103 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task RestartGrantsGraceWindowToMarketWatchPlanExpiredDuringDowntime()
+  {
+    // Live incident: price traded inside a market_watch plan's zone while a
+    // deploy restart was in flight. A market_watch plan is only ever
+    // evaluated against the live quote on a poll - nothing is watching
+    // while the process is down - and by the time the engine came back up
+    // and finished recovery, the plan's own declared Entry.ExpiresAt had
+    // already lapsed during that dead time. It would have expired on the
+    // very next poll having never once seen a live quote.
+    var store = new FakeV7Store();
+    var planExpiresAt = 1_720_000_100L;
+    store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+    // Outside the zone - plan stays Received, not yet expired.
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Equal(
+      TradePlanRuntimeStage.Received, first.TrackedStates.Single().Stage
+    );
+
+    // Simulate the restart: a brand new runtime instance recovers this
+    // plan well after its original Entry.ExpiresAt already passed.
+    var recoveryTime = planExpiresAt + 30;
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime),
+      logs.Add
+    );
+    // Price is back in the zone on the very first poll after recovery.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 2), CancellationToken.None
+    );
+
+    Assert.DoesNotContain(logs, line => line.Contains("v7 plan expired"));
+    Assert.Contains(
+      logs, line => line.Contains("v7 restore: granted")
+        && line.Contains("recovery grace")
+    );
+    Assert.Single(client.MarketOrders);
+  }
+
+  [Fact]
+  public async Task RecoveryGraceDoesNotResurrectAPlanStillOutsideTheZone()
+  {
+    // The grace window buys the plan a real look, not an unconditional
+    // reprieve - if price still isn't in the zone after recovery, it must
+    // keep waiting exactly like any other live market_watch plan, and
+    // still expire once the (now-extended) window genuinely runs out.
+    var store = new FakeV7Store();
+    var planExpiresAt = 1_720_000_100L;
+    store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    var recoveryTime = planExpiresAt + 30;
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime),
+      logs.Add
+    );
+    // Still outside the zone right after recovery.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+    Assert.Empty(client.MarketOrders);
+    Assert.Equal(
+      TradePlanRuntimeStage.Received, second.TrackedStates.Single().Stage
+    );
+
+    // The granted grace window (RestoreExpiryGraceSeconds=90) has now
+    // genuinely elapsed with price never returning - must expire for real.
+    var afterGrace = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime + 91),
+      logs.Add
+    );
+    await afterGrace.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 3), CancellationToken.None
+    );
+
+    Assert.Contains(logs, line => line.Contains("v7 plan expired"));
+    Assert.Empty(client.MarketOrders);
+  }
+
+  [Fact]
   public async Task DuplicatePlanIsClaimedOnceAndNeverDoubleSubmitted()
   {
     var store = new FakeV7Store();
