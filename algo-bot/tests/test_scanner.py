@@ -235,6 +235,76 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_match_build_failure_is_logged_not_just_an_overwritable_snapshot(
+  monkeypatch, caplog,
+):
+  """Live incident: a "Zone Reaction" setup passed actionability/room/
+  target checks and still vanished as "no executable StrategyMatch" with
+  nothing in auto_trade:gate_reject:* to explain it. Root cause:
+  _build_one_strategy_match failed to construct a match for it, and the
+  only record was a dimensioned metric bump plus
+  auto_trade:last_match_build:{symbol} - a single snapshot key the very
+  next scan cycle (even an unrelated "nothing detected" one) silently
+  overwrites, so by the time anyone looked, the evidence was gone. Must
+  be logged so it survives past the next scan cycle.
+  """
+  caplog.set_level(logging.INFO, logger="app.analysis.scanner")
+  client = redis_state.get_client()
+  notify = AsyncMock()
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_symbols": "XAU"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_exec_tf": "M5"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_htf": "M30,M15"})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"scanner_window": 500})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+
+  class Source:
+    async def window(self, symbol, tf, n):
+      return _frame()
+
+  # No "indicators" attribute at all - _build_one_strategy_match's very
+  # first check (`isinstance(indicators, dict)`) fails, exactly like a
+  # real match-build failure would, without needing to fabricate a more
+  # elaborate rejection scenario.
+  ctx = SimpleNamespace(
+    tf="M5",
+    htf_bias="up",
+    structures={"M30": SimpleNamespace(bias="up")},
+  )
+  monkeypatch.setattr(
+    scanner,
+    "build_context",
+    lambda symbol, tf, frames, settings, htf_order: ctx,
+  )
+  result = scanner.DetectionResult(
+    setup="Zone Reaction",
+    direction="BUY",
+    key_level=4130.0,
+    entry_zone=Zone(4127.56, 4130.3, "demand"),
+    current_price=4130.3,
+    confluence=2,
+    reasons=["HTF bias up"],
+  )
+
+  def detector(received_ctx):
+    return result
+
+  sent = await scanner._handle_event(
+    "XAU:M5:1",
+    source=Source(),
+    client=client,
+    detectors=(detector,),
+    notify=notify,
+  )
+
+  assert sent == []
+  notify.assert_not_awaited()
+  assert "scanner match build blocked" in caplog.text
+  assert "setup=Zone Reaction" in caplog.text
+  assert "direction=BUY" in caplog.text
+  assert "reason=missing_indicators" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
   client = redis_state.get_client()
   dedicated_notify = AsyncMock()
