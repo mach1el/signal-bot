@@ -104,6 +104,8 @@ async def test_publish_hfs_live_calls_worker(monkeypatch):
     "_advance_setup_to_confirmed",
     AsyncMock(return_value=("setup-1", "thesis-1")),
   )
+  persist = AsyncMock(side_effect=lambda _client, stamped: stamped)
+  monkeypatch.setattr(pub, "_persist_hfs_match", persist)
   publish = AsyncMock(return_value=worker.PublishResult(
     status=worker.PUBLISH_STATUS_PUBLISHED,
     plan_id="v7:setup-1",
@@ -127,6 +129,31 @@ async def test_publish_hfs_live_calls_worker(monkeypatch):
   )
   assert result is not None
   assert result.status == worker.PUBLISH_STATUS_PUBLISHED
+  persist.assert_awaited_once()
   publish.assert_awaited_once()
   stamped = publish.await_args.args[1]
   assert stamped.thesis_id == "thesis-1"
+
+
+@pytest.mark.asyncio
+async def test_persist_hfs_match_writes_worker_keys():
+  from app.scalping.publish import _persist_hfs_match
+
+  match = build_hfs_strategy_match(
+    _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  stored: dict[str, str] = {}
+
+  class FakeRedis:
+    async def get(self, key):
+      return stored.get(key)
+
+    async def set(self, key, value, ex=None):
+      stored[key] = value
+
+  out = await _persist_hfs_match(FakeRedis(), match)
+  assert out.match_id == match.match_id
+  assert "auto_trade:strategy_match:XAU" in stored or any(
+    "strategy_match" in k for k in stored
+  )
+  assert any("strategy_matches" in k for k in stored)

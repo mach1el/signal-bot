@@ -103,6 +103,42 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert non_reaction.reason_code == "momentum_continuation"
 
 
+def test_hfs_confirmation_allows_same_cycle_publish():
+  hfs = confirmation_policy_for(
+    replace(
+      _match(),
+      strategy="HFS Impulse Pullback",
+      family="hfs",
+      strategy_mode="hfs_scalp",
+      structural_source="hfs",
+      structural_zone_id="hfs-ep-1",
+      reaction_type="impulse_pullback",
+      touch_bar_ts="1785942720",
+      confirmation_bar_ts="1785942720",
+    ),
+  )
+  assert hfs.reaction_family is False
+  assert hfs.metadata_valid is True
+  assert hfs.allow_same_cycle_publish is True
+  assert hfs.require_quote_inside_zone is True
+  assert hfs.reason_code == "hfs_authoritative"
+
+  # Without HFS policy, family=hfs used to fall through to
+  # non_reaction_m1_required and never publish same-cycle.
+  legacyish = confirmation_policy_for(
+    replace(
+      _match(),
+      strategy="Trend Pullback",
+      family="unknown_family",
+      reaction_type=None,
+      touch_bar_ts=None,
+      confirmation_bar_ts=None,
+    ),
+  )
+  assert legacyish.allow_same_cycle_publish is False
+  assert legacyish.reason_code == "non_reaction_m1_required"
+
+
 def test_supply_demand_is_zone_confirmation_not_reaction_family_set():
   assert not hasattr(ec, "_REACTION_FAMILIES")
   assert "supply_demand" in ec._ZONE_CONFIRMATION_FAMILIES
