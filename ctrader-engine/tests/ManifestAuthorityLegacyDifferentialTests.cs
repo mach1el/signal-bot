@@ -105,7 +105,7 @@ public sealed class ManifestAuthorityLegacyDifferentialTests
         "FeedOptions" => runtime.Feed,
         "AutoTradeOptions" => runtime.AutoTrade,
         _ => throw new InvalidOperationException(
-          $"unknown migration options_type {optionsType!r}"
+          $"unknown migration options_type '{optionsType}'"
         ),
       };
       var property = source.GetType().GetProperty(
