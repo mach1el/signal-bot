@@ -577,7 +577,7 @@ def test_sell_group_stop_clears_zone_high_and_uses_weighted_reference():
 def test_group_structural_stop_beyond_max_rejects_without_inward_clamp():
   from app.autotrade.protective_stop import plan_group_protective_stop
 
-  with pytest.raises(ProtectiveStopError, match="stop_exceeds_max_envelope"):
+  with pytest.raises(ProtectiveStopError, match="stop_exceeds_max_envelope") as exc:
     plan_group_protective_stop(
       direction="SELL",
       entry_zone_low="4097.07",
@@ -594,3 +594,16 @@ def test_group_structural_stop_beyond_max_rejects_without_inward_clamp():
       pip_size="0.1",
       digits=2,
     )
+
+  # Regression: this rejection used to reach worker.py's "v7 plan build
+  # rejected" log line with every diagnostic field (stop_detail, base_stop,
+  # max_pips, over_envelope_pips) blank, making production incidents
+  # undiagnosable. It must now carry the same rich `measured` contract as
+  # the opposing-zone reject path.
+  measured = exc.value.measured
+  assert measured["stop_reject_detail"] == "raw_distance_exceeds_max"
+  assert measured["stop_max_envelope_pips"] == 60
+  assert Decimal(measured["raw_stop_pips"]) > Decimal("60")
+  assert Decimal(measured["pushed_over_envelope_pips"]) > 0
+  assert measured["planned_base_stop_price"] is not None
+  assert measured["structure_swing"] == "4110.00"
