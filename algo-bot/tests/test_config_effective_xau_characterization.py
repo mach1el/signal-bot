@@ -36,20 +36,20 @@ def _load_production_example():
 def _snapshot(config) -> dict:
   xau = config.instruments.root["XAU"]
   return {
-    "instrument": xau.model_dump(mode="python"),
-    "contract_instrument": config.contract.instrument.model_dump(mode="python"),
-    "lookbacks": config.market_data.lookbacks.model_dump(mode="python"),
+    "instrument": xau.model_dump(mode="json"),
+    "contract_instrument": config.contract.instrument.model_dump(mode="json"),
+    "lookbacks": config.market_data.lookbacks.model_dump(mode="json"),
     "symbol_contract": config.analysis.zones.symbol_contract.model_dump(
-      mode="python",
+      mode="json",
     ),
-    "execution": config.execution.model_dump(mode="python"),
-    "risk": config.risk.model_dump(mode="python"),
-    "lifecycle": config.lifecycle.model_dump(mode="python"),
-    "strategies": config.strategies.model_dump(mode="python"),
-    "actionability": config.actionability.model_dump(mode="python"),
-    "market_data_scanner": config.market_data.scanner.model_dump(mode="python"),
+    "execution": config.execution.model_dump(mode="json"),
+    "risk": config.risk.model_dump(mode="json"),
+    "lifecycle": config.lifecycle.model_dump(mode="json"),
+    "strategies": config.strategies.model_dump(mode="json"),
+    "actionability": config.actionability.model_dump(mode="json"),
+    "market_data_scanner": config.market_data.scanner.model_dump(mode="json"),
     "market_data_ctrader_feed": config.market_data.ctrader_feed.model_dump(
-      mode="python",
+      mode="json",
     ),
   }
 
@@ -92,4 +92,41 @@ def test_characterized_xau_matches_instrument_projection_leaves():
   assert (
     xau.analysis.zones.model_dump()
     == cfg.analysis.zones.symbol_contract.model_dump()
+  )
+
+
+def test_characterized_xau_effective_context_matches_global_leaves():
+  """Compatibility adapter: for_instrument('XAU') mirrors projected globals."""
+  loaded = _load_production_example()
+  cfg = loaded.config
+  effective = cfg.for_instrument("XAU")
+  assert effective.units.pip_size == cfg.contract.instrument.pip_size
+  assert effective.units.price_digits == cfg.contract.instrument.price_digits
+  assert (
+    effective.units.contract_units_per_lot
+    == cfg.contract.instrument.contract_units_per_lot
+  )
+  assert effective.identity.canonical_symbol == (
+    cfg.contract.instrument.canonical_symbol
+  )
+  assert (
+    effective.market_data.lookbacks.model_dump(mode="python")
+    == cfg.market_data.lookbacks.model_dump(mode="python")
+  )
+  assert (
+    effective.analysis.zones.model_dump(mode="python")
+    == cfg.analysis.zones.symbol_contract.model_dump(mode="python")
+  )
+  assert effective.execution.model_dump(mode="python") == (
+    cfg.execution.model_dump(mode="python")
+  )
+  assert effective.risk.model_dump(mode="python") == cfg.risk.model_dump(mode="python")
+  assert effective.lifecycle.model_dump(mode="python") == (
+    cfg.lifecycle.model_dump(mode="python")
+  )
+  assert effective.strategies.model_dump(mode="python") == (
+    cfg.strategies.model_dump(mode="python")
+  )
+  assert effective.actionability.model_dump(mode="python") == (
+    cfg.actionability.model_dump(mode="python")
   )
