@@ -594,11 +594,21 @@ async def test_enforce_location_blocks_buy_after_premium_rally(
     structural_zone_id="zone-buy",
     structural_zone_low=4078.0,
     structural_zone_high=4082.0,
-    range_low=4000.0,
-    range_high=4100.0,
+    range_low=None,
+    range_high=None,
   )
+  dealing = SimpleNamespace(low=4000.0, high=4100.0)
   ctx = SimpleNamespace(
     indicators={"M5": SimpleNamespace(atr=pd.Series([4.0]))},
+    analysis=SimpleNamespace(
+      per_tf={
+        "M15": SimpleNamespace(dealing_range=dealing, regime=None),
+        "H1": SimpleNamespace(dealing_range=None, regime=None),
+        "M5": SimpleNamespace(dealing_range=None, regime=None),
+      },
+      dealing_range=dealing,
+      regime=None,
+    ),
   )
   monkeypatch.setattr(scanner, "_result_rank", lambda _result: (0,))
   monkeypatch.setattr(scanner, "_pip_size", lambda _symbol: 0.01)
@@ -648,6 +658,311 @@ async def test_enforce_location_blocks_buy_after_premium_rally(
   last = await client.get("auto_trade:last_entry_location:XAU")
   assert last is not None
   assert "buy_in_premium" in last or "buy_at_range_extreme" in last
+
+
+@pytest.mark.asyncio
+async def test_prod_replay_null_match_range_no_longer_context_missing(
+  client, monkeypatch,
+):
+  """Prod 2026-08-05 16:07 UTC: Zone Reaction SELL in-zone blocked under enforce.
+
+  Evidence:
+  - Redis candidate range_low/high = null (Zone Reaction never sets scalp box)
+  - Scanner discovery had M15 dealing 4183.27-4265.13 → entry_location_allowed
+  - Cutover wired match.range_* as M15 → entry_location_context_missing
+
+  Replay must use discovery dealing ranges and allow location (then wait M1).
+  """
+  from app.analysis import scanner
+  from app.analysis.m1_trigger import M1TriggerResult
+
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "enforce",
+    },
+  )
+  zone_low = 4229.88
+  zone_high = 4234.017794180076
+  m15_low = 4183.27
+  m15_high = 4265.13
+  result = SimpleNamespace(
+    setup="Zone Reaction",
+    direction="SELL",
+    entry_zone=SimpleNamespace(low=zone_low, high=zone_high),
+    structural_low=zone_low,
+    structural_high=zone_high,
+    structural_timeframe="M5",
+    structural_source="supply",
+    structural_id="zone-prod-sell",
+    confluence_zone_id="zone-prod-sell",
+    confluence_tags=("supply",),
+    confluence=3,
+    source_score=12.0,
+    confirmation_type="strong_reclaim",
+    confirmation="strong_reclaim",
+    execution_eligibility=SimpleNamespace(allowed=True, market_map_id="map-prod"),
+  )
+  match = StrategyMatch(
+    version=1,
+    match_id="583c6151086405b8aa1551140f7a4d63",
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="2026-08-05T16:05:07+00:00",
+    issued_at=1_785_946_000,
+    expires_at=1_785_946_420,
+    strategy="Zone Reaction",
+    strategy_mode="counter_bias",
+    direction="SELL",
+    key_level=4232.0,
+    entry_low=zone_low,
+    entry_high=zone_high,
+    current_price=4225.95,
+    confluence=3,
+    reasons=("premium", "strong_reclaim"),
+    atr=8.275588360151538,
+    structure_swing=zone_high,
+    targets_pips=(300,),
+    family="supply_demand",
+    structural_source="supply",
+    confluence_zone_id="zone-prod-sell",
+    structural_zone_id="zone-prod-sell",
+    structural_zone_low=zone_low,
+    structural_zone_high=zone_high,
+    range_low=None,
+    range_high=None,
+  )
+  dealing = SimpleNamespace(low=m15_low, high=m15_high)
+  ctx = SimpleNamespace(
+    indicators={"M5": SimpleNamespace(atr=pd.Series([8.27]))},
+    analysis=SimpleNamespace(
+      per_tf={
+        "M15": SimpleNamespace(dealing_range=dealing, regime=None),
+        "H1": SimpleNamespace(dealing_range=None, regime=None),
+        "M5": SimpleNamespace(
+          dealing_range=SimpleNamespace(low=4224.74, high=4265.13),
+          regime=None,
+        ),
+      },
+      dealing_range=dealing,
+      regime=None,
+    ),
+  )
+  monkeypatch.setattr(scanner, "_result_rank", lambda _result: (0,))
+  monkeypatch.setattr(scanner, "_pip_size", lambda _symbol: 0.1)
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda *_args, **_kwargs: (match, None, {}),
+  )
+  now_ts = 1_785_946_222
+  # Bid inside zone (prod executable_quote=4231.01).
+  monkeypatch.setattr(
+    cutover,
+    "_load_quote",
+    AsyncMock(return_value=(4231.01, 4231.10, now_ts)),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_quote_evidence",
+    lambda record, quote: SimpleNamespace(
+      inside=True,
+      executable_quote=quote[0],
+      side="bid",
+    ),
+  )
+  # No M1 yet — location must still evaluate with dealing ranges (not missing).
+  monkeypatch.setattr(
+    cutover,
+    "_m1_trigger_for_zone",
+    AsyncMock(return_value=None),
+  )
+  direct_publish = AsyncMock()
+  monkeypatch.setattr(cutover, "_ORIGINAL_DIRECT_PUBLISH", direct_publish)
+
+  published = await cutover._sync_strategy_match_cutover(
+    client,
+    "XAU",
+    "M5",
+    "2026-08-05T16:07:02+00:00",
+    ctx,
+    [result],
+    require_static_eligibility=True,
+  )
+  assert published is None
+  direct_publish.assert_not_awaited()
+
+  last_loc = await client.get("auto_trade:last_entry_location:XAU")
+  assert last_loc is not None
+  assert "entry_location_context_missing" not in last_loc
+  assert "entry_location_allowed" in last_loc
+  assert "4183.27" in last_loc
+  assert "4265.13" in last_loc
+
+  snap = await client.get("analysis:zone_watch_location_ranges:zone-prod-sell")
+  assert snap is not None
+  assert "4183.27" in snap
+
+  last_act = await client.get("auto_trade:last_entry_activation:XAU")
+  assert last_act is not None
+  assert "reaction_trigger_missing" in last_act
+
+
+@pytest.mark.asyncio
+async def test_m1_path_uses_persisted_location_range_snapshot(
+  client, monkeypatch,
+):
+  """M1 cutover must reuse discovery range snapshot when match.range_* is null."""
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "enforce",
+    },
+  )
+  zone_id = "zone-m1-snap"
+  await cutover._save_location_ranges(
+    client,
+    zone_id,
+    {
+      "m15_range_low": 4183.27,
+      "m15_range_high": 4265.13,
+      "h1_range_low": None,
+      "h1_range_high": None,
+      "m5_range_low": 4224.74,
+      "m5_range_high": 4265.13,
+    },
+  )
+
+  async def _fake_reload(*_a, **_k):
+    raise AssertionError("must not reload market context when snapshot exists")
+
+  monkeypatch.setattr(
+    "app.analysis.scanner._load_market_context_for_symbol",
+    _fake_reload,
+  )
+  monkeypatch.setattr(
+    "app.analysis.market_map_delivery.get_cached_analysis",
+    lambda _symbol: None,
+  )
+
+  ranges = await cutover._resolve_location_range_bounds(
+    client,
+    symbol="XAU",
+    zone_id=zone_id,
+    analysis_context=None,
+  )
+  assert cutover._ranges_usable(ranges)
+  assert ranges["m15_range_low"] == pytest.approx(4183.27)
+  assert ranges["m15_range_high"] == pytest.approx(4265.13)
+
+  match = StrategyMatch(
+    version=1,
+    match_id="m1-snap",
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="2026-08-05T16:05:07+00:00",
+    issued_at=1_785_946_000,
+    expires_at=1_785_946_420,
+    strategy="Zone Reaction",
+    strategy_mode="counter_bias",
+    direction="SELL",
+    key_level=4232.0,
+    entry_low=4229.88,
+    entry_high=4234.02,
+    current_price=4231.01,
+    confluence=3,
+    reasons=("premium",),
+    atr=8.0,
+    structure_swing=4234.02,
+    targets_pips=(300,),
+    family="supply_demand",
+    range_low=None,
+    range_high=None,
+  )
+  record = SimpleNamespace(
+    symbol="XAU",
+    direction="SELL",
+    low=4229.88,
+    high=4234.02,
+    zone_entered_at=1_785_946_100,
+    grade="A",
+    zone_id=zone_id,
+  )
+  quote = (4231.01, 4231.10, 1_785_946_222)
+  evidence = SimpleNamespace(inside=True, executable_quote=4231.01, side="bid")
+  location, _activation, context = cutover._location_and_activation_for_record(
+    match=match,
+    record=record,
+    quote=quote,
+    evidence=evidence,
+    trigger=None,
+    now=quote[2],
+    range_bounds=ranges,
+  )
+  assert context.effective_range_source == "M15"
+  assert location.reason_code == "entry_location_allowed"
+  assert location.allowed is True
+
+
+
+def test_match_range_fields_are_not_used_as_dealing_bounds():
+  """Scalp box on StrategyMatch must never become M15 dealing range."""
+  match = StrategyMatch(
+    version=1,
+    match_id="box-misuse",
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="2026-08-05T16:05:07+00:00",
+    issued_at=1_785_946_000,
+    expires_at=1_785_946_420,
+    strategy="Zone Reaction",
+    strategy_mode="counter_bias",
+    direction="SELL",
+    key_level=4232.0,
+    entry_low=4229.88,
+    entry_high=4234.02,
+    current_price=4231.01,
+    confluence=3,
+    reasons=("premium",),
+    atr=8.0,
+    structure_swing=4234.02,
+    targets_pips=(300,),
+    family="supply_demand",
+    range_low=4229.88,  # zone edges — wrong if used as dealing range
+    range_high=4234.02,
+  )
+  record = SimpleNamespace(
+    symbol="XAU",
+    direction="SELL",
+    low=4229.88,
+    high=4234.02,
+    zone_entered_at=1_785_946_200,
+    grade="A",
+  )
+  quote = (4231.01, 4231.10, 1_785_946_222)
+  evidence = SimpleNamespace(inside=True, executable_quote=4231.01, side="bid")
+  location, _activation, context = cutover._location_and_activation_for_record(
+    match=match,
+    record=record,
+    quote=quote,
+    evidence=evidence,
+    trigger=None,
+    now=quote[2],
+    range_bounds={
+      "m15_range_low": 4183.27,
+      "m15_range_high": 4265.13,
+      "h1_range_low": None,
+      "h1_range_high": None,
+      "m5_range_low": None,
+      "m5_range_high": None,
+    },
+  )
+  assert context.effective_range_low == pytest.approx(4183.27)
+  assert context.effective_range_high == pytest.approx(4265.13)
+  assert location.reason_code == "entry_location_allowed"
+  # If match.range_* had been used, position would be nonsense near 0.5 of a 4pt box.
 
 
 @pytest.mark.asyncio
