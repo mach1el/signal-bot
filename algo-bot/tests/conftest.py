@@ -75,11 +75,13 @@ def _bridge_legacy_symbol_map_tests(monkeypatch, request):
 
   from app.configuration.effective_instrument import EffectiveInstrumentError
   from app.configuration.models.instruments import (
+    InstrumentAnalysisConfig,
     InstrumentConfig,
     InstrumentContractConfig,
     InstrumentLookbacksConfig,
     InstrumentMarketDataConfig,
     InstrumentRollout,
+    InstrumentZoneWidthConfig,
     InstrumentsConfig,
   )
   from app.core import symbols as symbol_module
@@ -116,6 +118,14 @@ def _bridge_legacy_symbol_map_tests(monkeypatch, request):
               m15_bars=50,
               m5_bars=50,
               m1_bars=50,
+            ),
+          ),
+          analysis=InstrumentAnalysisConfig(
+            zones=InstrumentZoneWidthConfig(
+              minimum_width_price=1.0,
+              preferred_minimum_width_price=1.0,
+              preferred_maximum_width_price=2.0,
+              major_maximum_width_price=3.0,
             ),
           ),
         )
