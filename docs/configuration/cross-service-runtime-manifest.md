@@ -47,6 +47,18 @@ CTRADER_CONFIGURATION_SOURCE=environment
 CTRADER_MANIFEST_PARITY_MODE=enforce
 ```
 
+## Manifest authority (PR4)
+
+Production Compose now uses:
+
+```text
+CTRADER_CONFIGURATION_SOURCE=manifest
+CTRADER_MANIFEST_PARITY_MODE=off
+```
+
+`off` applies only to ENV-versus-manifest parity. Manifest validation remains
+enforced. See [manifest-authority-cutover.md](manifest-authority-cutover.md).
+
 ## Manifest V2 (PR3)
 
 `manifest_version = 2` adds `instrument_runtimes` while retaining top-level
