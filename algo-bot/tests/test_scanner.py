@@ -2187,6 +2187,51 @@ async def test_confluence_zone_id_mismatch_falls_back_to_strategy_match(
   notify.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_sync_strategy_match_logs_the_real_build_rejection(
+  monkeypatch, caplog,
+):
+  """Live incident: two SELL setups (Zone Reaction, Session Level Reaction)
+  both passed actionability/room checks and still vanished as "no
+  executable StrategyMatch" with nothing left to explain it -
+  auto_trade:gate_reject:*/last_match_build had no fresh hit for either.
+  _build_one_strategy_match is called TWICE per result: once inside
+  _reward_risk_pre_gate purely for telemetry (that call's own failures are
+  logged separately, "scanner match build blocked"), and again here inside
+  _sync_strategy_match's _build_strategy_match - the one that actually
+  feeds execution_match/strategy_matches_key. Nothing guarantees identical
+  input/state between the two calls, so the telemetry call can succeed
+  while this, the real one, fails - and until now, silently.
+  """
+  caplog.set_level(logging.INFO, logger="app.analysis.scanner")
+  client = redis_state.get_client()
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda symbol, tf, event_ts, ctx, result, now=None: (
+      None, "unknown_strategy_policy", {"strategy": result.setup},
+    ),
+  )
+  result = scanner.DetectionResult(
+    "Session Level Reaction",
+    "SELL",
+    4175.71,
+    Zone(4175.71, 4181.23, "supply"),
+    4175.71,
+    2,
+    ["session level"],
+  )
+
+  match = await scanner._sync_strategy_match(
+    client, "XAU", "M5", "2026-08-05T07:10:07Z", SimpleNamespace(), [result],
+  )
+
+  assert match is None
+  assert "scanner match build rejected" in caplog.text
+  assert "reason=unknown_strategy_policy" in caplog.text
+  assert "Session Level Reaction:SELL" in caplog.text
+
+
 def test_build_strategy_match_logs_dedupe_merge_events(monkeypatch, caplog):
   """dedupe_matches computes which match_id got merged into which, but the
   return value used to be discarded (deduped, _events = dedupe_matches(...),
