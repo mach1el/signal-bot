@@ -1,0 +1,137 @@
+using System.Text.Json;
+using Xunit;
+
+namespace CTraderFeed.Tests;
+
+public sealed class ResolvedRuntimeManifestTests
+{
+  private static string FixturePath()
+  {
+    var root = Path.GetFullPath(
+      Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..")
+    );
+    return Path.Combine(
+      root,
+      "contracts",
+      "configuration",
+      "runtime-manifest-example.generated.json"
+    );
+  }
+
+  [Fact]
+  public void LoadsPythonGeneratedFixture()
+  {
+    var path = FixturePath();
+    Assert.True(File.Exists(path), $"missing fixture {path}");
+    var manifest = ResolvedRuntimeManifestLoader.Load(path);
+    Assert.Equal(1, manifest.ManifestVersion);
+    Assert.Contains("XAU", manifest.LiveInstruments);
+    Assert.Equal("XAUUSD", manifest.Feed.CTraderSymbol);
+    Assert.Equal("XAU", manifest.Feed.RedisSymbol);
+    Assert.Equal(5, manifest.AutoTrade.TargetsPips.Count);
+    Assert.Equal(0.1m, ManifestDecimal.Parse(manifest.AutoTrade.PipSize, "pip"));
+  }
+
+  [Fact]
+  public void MissingFileFailsClosed()
+  {
+    Assert.Throws<InvalidOperationException>(() =>
+      ResolvedRuntimeManifestLoader.Load("/tmp/does-not-exist-apexvoid-manifest.json")
+    );
+  }
+
+  [Fact]
+  public void UnsupportedVersionFailsClosed()
+  {
+    var path = Path.GetTempFileName();
+    try
+    {
+      var json = File.ReadAllText(FixturePath());
+      using var doc = JsonDocument.Parse(json);
+      using var stream = new MemoryStream();
+      using (var writer = new Utf8JsonWriter(stream))
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("manifest_version", 99);
+        writer.WriteString(
+          "contract_fingerprint",
+          doc.RootElement.GetProperty("contract_fingerprint").GetString()
+        );
+        writer.WriteString(
+          "effective_configuration_fingerprint",
+          doc.RootElement.GetProperty("effective_configuration_fingerprint").GetString()
+        );
+        writer.WriteString("profile", "conservative");
+        writer.WritePropertyName("global");
+        doc.RootElement.GetProperty("global").WriteTo(writer);
+        writer.WritePropertyName("instruments");
+        doc.RootElement.GetProperty("instruments").WriteTo(writer);
+        writer.WritePropertyName("feed");
+        doc.RootElement.GetProperty("feed").WriteTo(writer);
+        writer.WritePropertyName("auto_trade");
+        doc.RootElement.GetProperty("auto_trade").WriteTo(writer);
+        writer.WritePropertyName("live_instruments");
+        doc.RootElement.GetProperty("live_instruments").WriteTo(writer);
+        writer.WriteEndObject();
+      }
+      File.WriteAllBytes(path, stream.ToArray());
+      Assert.Throws<InvalidOperationException>(() =>
+        ResolvedRuntimeManifestLoader.Load(path)
+      );
+    }
+    finally
+    {
+      File.Delete(path);
+    }
+  }
+
+  [Fact]
+  public void ManifestDerivedOptionsMatchEnvironmentWhenEnvAligned()
+  {
+    var path = FixturePath();
+    Assert.True(File.Exists(path), $"missing fixture {path}");
+    var manifest = ResolvedRuntimeManifestLoader.Load(path);
+    Environment.SetEnvironmentVariable("CTRADER_CLIENT_ID", "id");
+    Environment.SetEnvironmentVariable("CTRADER_CLIENT_SECRET", "secret");
+    Environment.SetEnvironmentVariable("CTRADER_ACCESS_TOKEN", "access");
+    Environment.SetEnvironmentVariable("CTRADER_REFRESH_TOKEN", "refresh");
+    Environment.SetEnvironmentVariable("CTRADER_ACCOUNT_ID", "1");
+    Environment.SetEnvironmentVariable("CTRADER_SYMBOL", manifest.Feed.CTraderSymbol);
+    Environment.SetEnvironmentVariable(
+      "CTRADER_TIMEFRAMES",
+      string.Join(",", manifest.Feed.Timeframes)
+    );
+    Environment.SetEnvironmentVariable(
+      "AUTO_TRADE_MAX_SPREAD_PIPS",
+      manifest.AutoTrade.MaxSpreadPips.ToString()
+    );
+    Environment.SetEnvironmentVariable(
+      "AUTO_TRADE_XAU_PIP_SIZE",
+      manifest.AutoTrade.PipSize
+    );
+    Environment.SetEnvironmentVariable(
+      "AUTO_TRADE_XAU_CONTRACT_SIZE",
+      manifest.AutoTrade.ContractSize
+    );
+    Environment.SetEnvironmentVariable(
+      "AUTO_TRADE_TARGET_PLANS_PIPS",
+      string.Join(",", manifest.AutoTrade.TargetsPips)
+    );
+    Environment.SetEnvironmentVariable(
+      "AUTO_TRADE_TP_WEIGHTS",
+      string.Join(",", manifest.AutoTrade.TargetWeights)
+    );
+    Environment.SetEnvironmentVariable("AUTO_TRADE_PROFILE", manifest.Profile);
+    var envFeed = FeedOptions.FromEnvironment();
+    var envTrade = AutoTradeOptions.FromEnvironment();
+    var manFeed = FeedOptions.FromRuntimeManifest(manifest, envFeed);
+    var manTrade = AutoTradeOptions.FromRuntimeManifest(manifest, envTrade);
+    Assert.Equal(envFeed.CTraderSymbol, manFeed.CTraderSymbol);
+    Assert.Equal(envFeed.RedisSymbol, manFeed.RedisSymbol);
+    Assert.Equal(envTrade.PipSize, manTrade.PipSize);
+    Assert.Equal(envTrade.ContractSize, manTrade.ContractSize);
+    Assert.Equal(envTrade.TargetsPips, manTrade.TargetsPips);
+    Assert.Equal(envTrade.TargetWeights, manTrade.TargetWeights);
+    Assert.Equal(envTrade.MaxSpreadPips, manTrade.MaxSpreadPips);
+  }
+}

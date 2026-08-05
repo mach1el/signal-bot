@@ -161,6 +161,14 @@ without changing `broker_symbol` or feed configuration values.
 context rather than hard-coding unit literals. Channel routing remains
 XAU-parity for this PR.
 
+## Cross-service runtime manifest
+
+PR2 compiles effective instrument contexts into a secret-safe
+`ResolvedRuntimeManifest` shared with cTrader. See
+[cross-service-runtime-manifest.md](./cross-service-runtime-manifest.md).
+
+ENV remains live-authoritative in PR2; the manifest is a shadow parity source.
+
 ## What remains for future multi-symbol runtime work
 
 - Shared runtime manifest for Python and cTrader

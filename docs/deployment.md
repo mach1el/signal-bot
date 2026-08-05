@@ -5,6 +5,11 @@ connections, so there is **no DNS, no TLS certificate, no reverse proxy, and no
 inbound firewall port** to configure. Any small Linux host with Docker works —
 a $5 VPS, a home server, or a Raspberry Pi.
 
+Compose startup order is: postgres + redis → **config-compiler** →
+ctrader-engine → bot. The compiler writes the secret-safe
+`ResolvedRuntimeManifest` for shadow ENV/manifest parity. Live cTrader
+authority remains ENV in this generation of the stack.
+
 ## Prerequisites
 
 - A host with Docker Engine + Compose v2.
