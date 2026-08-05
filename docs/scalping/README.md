@@ -21,10 +21,12 @@ shadow/paper ScalpSignal (never auto_trade:candidates)
 
 | Mode | Behaviour |
 |------|-----------|
-| off | Loop exits immediately |
-| shadow | Discover/evaluate/record only (default) |
-| paper | Paper TradePlan-like records, no broker |
-| live | Reserved — not enabled in this PR |
+| `off` | Loop exits immediately |
+| `shadow` | Discover/evaluate/record only |
+| `paper` | Paper TradePlan-like records, no broker |
+| **live** (default) | Publishes TradePlan V7 via `worker.try_publish_executable_signal` when gates pass |
+
+Requires `runtime.auto_trade.enabled=true` and a live cTrader consumer on `execution:trade_plans`.
 
 ## Archetypes
 

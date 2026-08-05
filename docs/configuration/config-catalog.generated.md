@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `e8af1f2a8e68acb975e27d3c854aa2bd9989a42bd0151f873289c56a53ba7088`
-- Document fingerprint: `a32650d5adb4d52384d2d1c72881306ab6ffa209cb1097b44c5e20dd04d29897`
+- Contract fingerprint: `b0a3ca16a1778122fb54947fce11ac5d2507a8da0fef8ebbffa2c76ffec1999d`
+- Document fingerprint: `f2b265919978b8cdad8ba3e559897f9d9187aee401212258991042a2dc544c58`
 - Items: `490`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -483,7 +483,7 @@
 | `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `HFS_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.25` |
 | `strategies.high_frequency_scalp.location.range_buy_maximum_position` | `HFS_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
 | `strategies.high_frequency_scalp.location.range_sell_minimum_position` | `HFS_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.65` |
-| `strategies.high_frequency_scalp.mode` | `HFS_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `strategies.high_frequency_scalp.mode` | `HFS_MODE` | `str` | `enum` | `configurable` | `"live"` |
 | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `int` | `count` | `configurable` | `10` |
 | `strategies.high_frequency_scalp.policy.maximum_opportunities_per_cycle` | `HFS_MAXIMUM_OPPORTUNITIES_PER_CYCLE` | `int` | `count` | `configurable` | `3` |
 | `strategies.high_frequency_scalp.policy.maximum_spread_pips` | `HFS_MAXIMUM_SPREAD_PIPS` | `float` | `pips` | `configurable` | `5.0` |
@@ -494,7 +494,7 @@
 | `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `int` | `count` | `configurable` | `3` |
 | `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `HFS_MAXIMUM_DAILY_TRADES` | `int` | `count` | `configurable` | `30` |
 | `strategies.high_frequency_scalp.risk.maximum_session_trades` | `HFS_MAXIMUM_SESSION_TRADES` | `int` | `count` | `configurable` | `12` |
-| `strategies.high_frequency_scalp.risk.mode` | `HFS_RISK_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `strategies.high_frequency_scalp.risk.mode` | `HFS_RISK_MODE` | `str` | `enum` | `configurable` | `"live"` |
 | `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `HFS_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
 | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `HFS_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
 | `strategies.high_frequency_scalp.stop.buffer_atr` | `HFS_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
