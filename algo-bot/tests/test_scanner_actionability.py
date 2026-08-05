@@ -282,6 +282,51 @@ def test_raw_room_zero_major_hard_gates():
   assert decision.measured["raw_room_price"] < 0
 
 
+def test_trimmed_zone_touching_opposing_edge_is_not_misreported_as_contained():
+  """05 Aug incident: a Zone Reaction BUY's planned_entry_price ended up
+  EXACTLY equal to the opposing supply zone's low edge (4197.75 both
+  sides) and got hard-blocked as opposing_entry_contained - "entry
+  contained inside the opposing zone" - when the entry was never inside
+  anything. _trim_zone_against_overlapping_barrier (the 2026-07-31
+  recovery-mission fix) correctly trims the candidate zone down to its
+  clean, non-overlapping portion when it overlaps an opposing barrier,
+  but then clamps planned_entry_price into [low, high] using the newly
+  TRIMMED high - which equals the opposing zone's own low exactly. Since
+  evaluate_structural_target_room's containment check is inclusive
+  (opposing_low <= planned <= opposing_high), a planned price sitting
+  exactly on that trimmed edge reads as "contained", re-triggering the
+  exact rejection the trim exists to avoid.
+
+  This does not change the hard_block outcome here - raw room this tight
+  still can't clear the execution-cost floor, correctly - but it fixes
+  the operator-facing lie: the reason must say "not enough room", not
+  "entry is inside the opposing zone", since it demonstrably isn't.
+  """
+  market_map = _map(
+    _entry("sell", 4197.75, 4211.73, tier="zone"),
+    price=4197.75,
+  )
+  buy = _result(
+    "BUY", 4196.52, 4198.50, setup="Zone Reaction", current_price=4197.75,
+  )
+
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[buy],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="up"),
+    atr=2.0,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+
+  assert resolution.actionable == ()
+  decision = resolution.gated[0][1]
+  assert decision.reason_code != "opposing_entry_contained"
+  assert decision.measured["planned_entry_contained"] is False
+  assert decision.measured["planned_entry_price"] < 4197.75
+
+
 def test_target_room_is_observation_when_actionability_gate_is_off():
   buy = _result(
     "BUY",
@@ -1405,9 +1450,17 @@ def test_no_displacement_still_blocks_as_before():
   assert resolution.actionable == ()
   assert len(resolution.gated) == 1
   decision = resolution.gated[0][1]
+  # A deep (not edge-sliver) overlap still hard-gates either way - which
+  # exact reason depends on whether _trim_zone_against_overlapping_barrier's
+  # clamp lands planned_entry_price exactly on the trimmed edge
+  # (execution_cost_insufficient_room, now that touching isn't misreported
+  # as "contained" - see
+  # test_trimmed_zone_touching_opposing_edge_is_not_misreported_as_contained)
+  # or genuinely inside the opposing zone.
   assert decision.reason_code in {
     "opposing_entry_contained",
     "opposing_entry_overlap",
+    "execution_cost_insufficient_room",
   }
   assert decision.hard_block is True
   assert decision.allowed is False
@@ -1447,9 +1500,12 @@ def test_displacement_override_disabled_by_default_lookback_zero():
   assert resolution.actionable == ()
   assert len(resolution.gated) == 1
   decision = resolution.gated[0][1]
+  # See test_no_displacement_still_blocks_as_before above for why
+  # execution_cost_insufficient_room is now also an acceptable outcome.
   assert decision.reason_code in {
     "opposing_entry_contained",
     "opposing_entry_overlap",
+    "execution_cost_insufficient_room",
   }
   assert decision.hard_block is True
 
