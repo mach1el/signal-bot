@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `e8af1f2a8e68acb975e27d3c854aa2bd9989a42bd0151f873289c56a53ba7088`
+- Contract fingerprint: `b0a3ca16a1778122fb54947fce11ac5d2507a8da0fef8ebbffa2c76ffec1999d`
 - Environment-bound fields: `423`
 - Deprecated aliases: `21`
 
@@ -277,7 +277,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_MAXIMUM_SPREAD_PIPS` | `strategies.high_frequency_scalp.policy.maximum_spread_pips` | `float` | no | no | — | `5.0` |
 | `HFS_MINIMUM_NET_TARGET_PIPS` | `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `float` | no | no | — | `15.0` |
 | `HFS_MINIMUM_REWARD_RISK` | `strategies.high_frequency_scalp.policy.minimum_reward_risk` | `float` | no | no | — | `1.1` |
-| `HFS_MODE` | `strategies.high_frequency_scalp.mode` | `str` | no | no | — | `shadow` |
+| `HFS_MODE` | `strategies.high_frequency_scalp.mode` | `str` | no | no | — | `live` |
 | `HFS_PREFERRED_LADDER_PIPS` | `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `str` | no | no | — | `20,25,30` |
 | `HFS_PULLBACK_BUY_MAX_POSITION` | `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.75` |
 | `HFS_PULLBACK_SELL_MIN_POSITION` | `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `float` | no | no | — | `0.25` |
@@ -286,7 +286,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_RANGE_SWEEP_ENABLED` | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `bool` | no | no | — | `True` |
 | `HFS_REARM_DISTANCE_ATR` | `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `float` | no | no | — | `0.25` |
 | `HFS_RISK_FRACTION_PER_TRADE` | `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `float` | no | no | — | `0.1` |
-| `HFS_RISK_MODE` | `strategies.high_frequency_scalp.risk.mode` | `str` | no | no | — | `shadow` |
+| `HFS_RISK_MODE` | `strategies.high_frequency_scalp.risk.mode` | `str` | no | no | — | `live` |
 | `HFS_SESSION_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
 | `HFS_STOP_BUFFER_ATR` | `strategies.high_frequency_scalp.stop.buffer_atr` | `float` | no | no | — | `0.1` |
 | `HFS_STOP_MAXIMUM_PIPS` | `strategies.high_frequency_scalp.stop.maximum_pips` | `float` | no | no | — | `30.0` |
