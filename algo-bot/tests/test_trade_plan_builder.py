@@ -20,6 +20,7 @@ from app.autotrade.strategy_match import STRATEGY_MATCH_VERSION, StrategyMatch
 from app.autotrade.trade_plan_builder import (
   TradePlanBuildRejected,
   build_trade_plan_from_strategy_match,
+  resolve_max_spread_ticks,
 )
 
 
@@ -87,6 +88,19 @@ def _build(match: StrategyMatch, **overrides):
   }
   kwargs.update(overrides)
   return build_trade_plan_from_strategy_match(match, **kwargs)
+
+
+def test_resolve_max_spread_ticks_from_pips_matches_xau_contract():
+  # 5 pips × 0.1 pip size / 0.01 tick = 50 ticks. The old hardcoded 8
+  # ticks rejected a normal ~0.09 XAU spread while price was already in zone.
+  assert resolve_max_spread_ticks(
+    max_spread_pips=5, pip_size=0.1, price_digits=2,
+  ) == 50
+
+
+def test_build_uses_explicit_max_spread_ticks_when_provided():
+  plan = _build(_match(), max_spread_ticks=50)
+  assert plan.entry.max_spread_ticks == 50
 
 
 def test_builds_valid_plan_with_real_bias_kind_and_regime():
@@ -187,6 +201,9 @@ def test_market_route_produces_market_watch_entry():
   assert plan.entry.zone_low == Decimal("4088.1")
   assert plan.entry.zone_high == Decimal("4090.0")
   assert plan.entry.price_side == "ask"
+  # Derived from max_spread_pips×pip/tick (not the old hardcoded 8 that
+  # rejected a normal ~9-tick XAU spread while quote was already in zone).
+  assert plan.entry.max_spread_ticks == 50
   assert plan.execution_policy.allow_market is True
   assert plan.execution_policy.allow_limit is False
 

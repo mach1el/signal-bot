@@ -214,7 +214,70 @@ public sealed class TradePlanRuntimeTests
     Assert.Contains(
       store.Events, e => e.Type == "plan_expired"
         && e.Message.Contains("outside_zone")
+        && e.Message.Contains("never entered the entry zone")
     );
+  }
+
+  [Fact]
+  public async Task ExpiredPlanThatTouchedZoneSaysLeftWithoutFill()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      zoneLow: 4088.10m, zoneHigh: 4090.00m, expiresAt: 1_720_000_100
+    ));
+    var client = new FakeV7TradingClient();
+    var currentTime = 1_720_000_000L;
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime),
+      _ => { }
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    // M1 evidence: price traded through the zone after arm (the card
+    // already showed "Price now" inside), but live quote is now outside.
+    store.Bars.Add(new OhlcBar(1_720_000_030, 4087.50m, 4089.60m, 4087.20m, 4089.10m, 100));
+
+    currentTime = 1_720_000_100L;
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4095.0m, 4095.2m, 2), CancellationToken.None
+    );
+
+    Assert.Contains(
+      store.Events, e => e.Type == "plan_expired"
+        && e.Message.Contains("outside_zone")
+        && e.Message.Contains("left the entry zone without a fill")
+    );
+  }
+
+  [Fact]
+  public async Task LiveCatchUpSubmitsWithoutRecoveryGraceWhenM1TouchedAndQuoteStillClose()
+  {
+    // Same missed-tick incident as recovery catch-up, but without a
+    // restart: process stayed up, poll simply never sampled the overlap.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Equal(TradePlanRuntimeStage.Received, runtime.TrackedStates.Single().Stage);
+    Assert.Empty(client.MarketOrders);
+
+    store.Bars.Add(new OhlcBar(1_720_000_060, 4087.50m, 4089.60m, 4087.20m, 4089.10m, 100));
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
+    );
+
+    Assert.Contains(logs, line => line.Contains("v7 zone catch-up"));
+    Assert.Single(client.MarketOrders);
   }
 
   [Fact]
@@ -245,6 +308,7 @@ public sealed class TradePlanRuntimeTests
     Assert.Contains(
       store.Events, e => e.Type == "plan_expired"
         && e.Message.Contains("never_evaluated")
+        && e.Message.Contains("never evaluated a live quote")
     );
   }
 
@@ -1629,7 +1693,7 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
     );
 
-    Assert.Contains(logs, line => line.Contains("v7 recovery catch-up"));
+    Assert.Contains(logs, line => line.Contains("v7 zone catch-up"));
     var order = Assert.Single(client.MarketOrders);
     // Executed at the CURRENT quote (ask, since this is a BUY), never at
     // the stale historical bar price - the one real tradeoff this feature

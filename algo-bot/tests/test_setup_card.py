@@ -867,8 +867,10 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert message_id == 4242
   assert len(sent) == 1
   text = sent[0]
-  assert "SETUP FORMING" in text
+  assert "IN ZONE · WAITING FILL" in text
+  assert "SETUP FORMING" not in text
   assert "PLAN PUBLISHED" not in text
+  assert "waiting market fill" in text
   assert "Trade area" in text
   assert "Price now" in text
   assert "Entry zone" in text

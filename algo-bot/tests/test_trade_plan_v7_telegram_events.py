@@ -333,10 +333,24 @@ def test_plan_expired_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "plan_expired",
     "message": (
-      "TradePlan V7 expired SELL · price never returned to the entry "
-      "zone (outside_zone)"
+      "TradePlan V7 expired SELL · price left the entry zone without a "
+      "fill (outside_zone)"
     ),
   })
 
   assert text is not None
   assert "PLAN EXPIRED" in text
+
+
+def test_plan_expired_spread_limit_event_renders_without_crashing():
+  text = delivery.render_auto_trade_event({
+    "type": "plan_expired",
+    "message": (
+      "TradePlan V7 expired BUY · spread stayed above the plan limit "
+      "while waiting (spread_exceeds_declared_limit)"
+    ),
+  })
+
+  assert text is not None
+  assert "PLAN EXPIRED" in text
+  assert "spread" in text.lower()
