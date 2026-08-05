@@ -44,13 +44,13 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 457,
-  "configurable": 390,
+  "entries": 490,
+  "configurable": 423,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 312, "shared": 95, "ctrader": 50},
-  "projection": 407,
-  "env": 390,
+  "owners": {"python": 345, "shared": 95, "ctrader": 50},
+  "projection": 440,
+  "env": 423,
   "deprecated_aliases": 21,
 }
 
