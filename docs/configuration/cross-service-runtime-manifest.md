@@ -47,6 +47,17 @@ CTRADER_CONFIGURATION_SOURCE=environment
 CTRADER_MANIFEST_PARITY_MODE=enforce
 ```
 
+## Manifest V2 (PR3)
+
+`manifest_version = 2` adds `instrument_runtimes` while retaining top-level
+`feed` / `auto_trade` as **deprecated XAU compatibility projections**.
+
+PR3 introduces symbol-routed runtime support but keeps XAU as the only
+production live instrument and keeps cTrader ENV-authoritative. See
+[multi-symbol routing](../runtime/multi-symbol-routing.md).
+
+Manifest V1 files upgrade to an XAU-only V2-equivalent shape and are never
+silently interpreted as multi-symbol.
 ## Bootstrap ENV
 
 - `APEXVOID_RUNTIME_MANIFEST_FILE`

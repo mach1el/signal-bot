@@ -24,12 +24,14 @@ public sealed class ResolvedRuntimeManifestTests
     var path = FixturePath();
     Assert.True(File.Exists(path), $"missing fixture {path}");
     var manifest = ResolvedRuntimeManifestLoader.Load(path);
-    Assert.Equal(1, manifest.ManifestVersion);
+    Assert.Equal(2, manifest.ManifestVersion);
     Assert.Contains("XAU", manifest.LiveInstruments);
     Assert.Equal("XAUUSD", manifest.Feed.CTraderSymbol);
     Assert.Equal("XAU", manifest.Feed.RedisSymbol);
     Assert.Equal(5, manifest.AutoTrade.TargetsPips.Count);
     Assert.Equal(0.1m, ManifestDecimal.Parse(manifest.AutoTrade.PipSize, "pip"));
+    Assert.NotNull(manifest.InstrumentRuntimes);
+    Assert.True(manifest.InstrumentRuntimes!.ContainsKey("XAU"));
   }
 
   [Fact]

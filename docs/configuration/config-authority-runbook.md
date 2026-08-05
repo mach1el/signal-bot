@@ -26,12 +26,16 @@ See also: `adr-canonical-only-python-configuration.md`.
 
 Canonical selection is unconditional. Invalid configuration fails closed.
 
-## Resolved runtime manifest (PR2)
+## Resolved runtime manifest (PR2 / PR3)
 
 Compose compiles `/runtime/resolved-runtime.json` before cTrader and the bot
 start. cTrader remains ENV-authoritative with
 `CTRADER_MANIFEST_PARITY_MODE=enforce`. See
 `docs/configuration/cross-service-runtime-manifest.md`.
+
+PR3 bumps the manifest to version 2 (`instrument_runtimes`) and adds
+symbol-routed runtime support, still with **XAU as the only production live
+instrument**. See `docs/runtime/multi-symbol-routing.md`.
 
 ## Leftover `APEXVOID_CONFIG_AUTHORITY`
 

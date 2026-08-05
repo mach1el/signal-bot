@@ -83,6 +83,13 @@ def test_unsupported_version_rejected(tmp_path):
     load_manifest_file(path)
 
 
+def test_manifest_v2_instrument_runtimes_present():
+  payload = build_resolved_runtime_manifest(config_file=str(_CONFIG))
+  assert payload["manifest_version"] == 2
+  assert "instrument_runtimes" in payload
+  assert payload["instrument_runtimes"]["XAU"]["rollout"] == "live"
+
+
 def test_xau_units_and_targets_parity_shape():
   payload = build_resolved_runtime_manifest(config_file=str(_CONFIG))
   units = payload["instruments"]["XAU"]["units"]
