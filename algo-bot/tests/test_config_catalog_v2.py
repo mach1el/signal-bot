@@ -291,6 +291,19 @@ def test_contract_and_document_fingerprints_differ():
   assert contract != document
 
 
+# Defaults deliberately changed after the v1 snapshot was frozen - each one
+# is a documented, evidenced behavior fix, not a silent v1->v2 migration
+# drift. The frozen historical file is never edited to match; this table is
+# the record of intentional post-v1 divergence.
+_INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
+  # 04 Aug 2026 incident: a major breaker/flip demand zone still being
+  # actively retested lost its opposing-barrier status after its 2nd
+  # touch (max_touches=2), letting a SELL through with no real room-check
+  # against it - see analysis.py's max_touches config_field description.
+  "analysis.market_map.max_touches",
+}
+
+
 def test_entry_behavior_types_match_v1_parity():
   hist = {
     e["path"]: e
@@ -309,5 +322,6 @@ def test_entry_behavior_types_match_v1_parity():
     assert entry.type == prior["type"], entry.path
     assert entry.canonical_env == prior["canonical_env"], entry.path
     assert list(entry.deprecated_aliases) == prior["deprecated_aliases"]
-    assert entry.default == prior["default"]
+    if entry.path not in _INTENTIONAL_POST_V1_DEFAULT_CHANGES:
+      assert entry.default == prior["default"]
     assert infer_ctrader_type(entry) == prior["ctrader_type"]

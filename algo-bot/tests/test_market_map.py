@@ -96,7 +96,8 @@ def test_map_is_both_sided_major_tags_ob_and_drops_spent_zone():
     ),
     Zone(4063.2, 4065.8, "supply", source="supply_demand", score=8),
     Zone(4049.2, 4052.1, "supply", source="flip_zone", score=10),
-    Zone(4008, 4010, "demand", source="supply_demand", score=14, touches=2),
+    # touches == max_touches (4) - a genuinely spent zone still drops out.
+    Zone(4008, 4010, "demand", source="supply_demand", score=14, touches=4),
   ]
 
   market_map = build_map(_ctx({"M5": _item(zones)}), 4041, _cfg())
@@ -107,6 +108,40 @@ def test_map_is_both_sided_major_tags_ob_and_drops_spent_zone():
   assert any("OB" in entry.tags for entry in market_map.buys)
   assert any("breakout-retest" in entry.tags for entry in market_map.sells)
   assert all(entry.lo != 4008 for entry in market_map.entries)
+
+
+def test_actively_retested_major_zone_survives_more_than_two_touches():
+  """04 Aug 23:31 incident: a major breaker/flip demand zone (4066-4072)
+  correctly blocked SELL attempts through 23:20, then vanished from the
+  actionable opposing-barrier pool right as it crossed its 2nd touch -
+  under the old max_touches=2 default, price actively retesting a zone is
+  exactly what strips it of protection. A zone this strong (order block +
+  breaker confluence, still well inside score/HTF-major territory) must
+  still be there after a couple of genuine touches, not only on its first.
+
+  Two weaker, farther, untouched demand zones already satisfy
+  min_per_side=2 on their own - unlike a single-candidate setup, the
+  target zone here is not needed to hit the fallback floor, so a real
+  "does the actively-retested zone still make the cut" comparison
+  actually exercises the same drop this incident hit (the real trade's
+  opposing barrier fell back to a demand zone 14 points farther away).
+  """
+  zones = [
+    Zone(
+      4066.0, 4072.0, "demand",
+      source="order_block", sources=["order_block", "breaker"],
+      score=14, touches=2, break_kind="breaker",
+    ),
+    Zone(4055.0, 4057.0, "demand", source="supply_demand", score=8),
+    Zone(4058.0, 4060.0, "demand", source="supply_demand", score=8),
+    Zone(4049.2, 4052.1, "supply", source="flip_zone", score=10),
+  ]
+
+  market_map = build_map(_ctx({"M5": _item(zones)}), 4075, _cfg())
+
+  assert any(
+    "OB" in entry.tags and "breaker" in entry.tags for entry in market_map.buys
+  )
 
 
 def test_human_rounding_and_thin_level_integer_pair():
@@ -641,7 +676,7 @@ def test_screenshot_replay_fills_empty_buy_side_from_fallback_ladder():
         "demand",
         source="supply_demand",
         score=8,
-        touches=2,
+        touches=4,
       ),
     ],
     sessions=[SessionLevel("ASIA_L", 3985, ts, True, ts)],
