@@ -16,6 +16,10 @@ runtime.
 
 XAU remains the only operational trading instrument.
 
+PR3 adds `InstrumentRuntimeRegistry` and rollout-aware scanner routing on top of
+this context — still with **XAU live only** in production. See
+[multi-symbol routing](../runtime/multi-symbol-routing.md).
+
 Existing consumers continue to use:
 
 ```python
