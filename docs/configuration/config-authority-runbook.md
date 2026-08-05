@@ -26,6 +26,13 @@ See also: `adr-canonical-only-python-configuration.md`.
 
 Canonical selection is unconditional. Invalid configuration fails closed.
 
+## Resolved runtime manifest (PR2)
+
+Compose compiles `/runtime/resolved-runtime.json` before cTrader and the bot
+start. cTrader remains ENV-authoritative with
+`CTRADER_MANIFEST_PARITY_MODE=enforce`. See
+`docs/configuration/cross-service-runtime-manifest.md`.
+
 ## Leftover `APEXVOID_CONFIG_AUTHORITY`
 
 If present in a host environment, it is an unmanaged unknown variable. It is
