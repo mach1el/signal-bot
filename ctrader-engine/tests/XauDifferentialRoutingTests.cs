@@ -65,11 +65,10 @@ public sealed class XauDifferentialRoutingTests
     Assert.Equal(0.1m, routed.Execution.PipSize);
     Assert.Equal(100m, routed.Execution.ContractSize);
 
-    var account = CTraderAccountOptions.FromFeedAndTrade(feed, trade);
+    var account = CTraderAccountOptions.FromFeedOptions(feed);
     Assert.Equal(feed.AccountId, account.AccountId);
     Assert.Equal(feed.Host, account.Host);
-    Assert.Equal(trade.CandidateStream, account.CandidateStream);
-    Assert.Equal("auto_trade:events", account.EventStream);
+    Assert.Equal(feed.RedisUrl, account.RedisUrl);
   }
 
   [Fact]
