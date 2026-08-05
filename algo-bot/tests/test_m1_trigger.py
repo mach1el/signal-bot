@@ -129,7 +129,7 @@ def test_body_close_fires_and_non_qualifying_bar_does_not():
 
 def test_strong_close_fires_and_non_qualifying_bar_does_not():
   qualifying = _bars([{
-    "open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.85, "volume": 100.0,
+    "open": 4088.5, "high": 4090.2, "low": 4087.0, "close": 4089.6, "volume": 100.0,
   }])
   result = evaluate_m1_trigger(
     qualifying, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
@@ -275,7 +275,7 @@ def test_no_bars_or_empty_frame_returns_none():
     (
       "strong_close",
       None,
-      {"open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.85},
+      {"open": 4088.5, "high": 4090.2, "low": 4087.0, "close": 4089.6},
     ),
     (
       "pin_bar",
@@ -443,4 +443,111 @@ def test_windowed_engulfing_does_not_use_prior_bar_across_episode_boundary():
     earliest_bar_ts=episode_start,
     after_bar_ts=None,
     cfg=_cfg("engulfing"),
+  ) is None
+
+
+def test_strong_close_buy_near_high_but_below_zone_mid_does_not_qualify():
+  """Near own high is insufficient when close stays below zone midpoint."""
+  bars = _bars([{
+    "open": 4088.0, "high": 4089.0, "low": 4087.0, "close": 4088.85, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("strong_close"),
+  ) is None
+
+
+def test_strong_close_sell_near_low_but_above_zone_mid_does_not_qualify():
+  bars = _bars([{
+    "open": 4089.5, "high": 4090.5, "low": 4089.0, "close": 4089.2, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("strong_close"),
+  ) is None
+
+
+def test_strong_close_buy_reclaim_at_or_above_zone_mid_qualifies():
+  bars = _bars([{
+    "open": 4088.5, "high": 4090.2, "low": 4087.0, "close": 4089.6, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("strong_close"),
+  )
+  assert result is not None
+  assert result.pattern == "strong_close"
+
+
+def test_strong_close_sell_reclaim_at_or_below_zone_mid_qualifies():
+  bars = _bars([{
+    "open": 4089.0, "high": 4090.0, "low": 4088.0, "close": 4088.3, "volume": 100.0,
+  }])
+  result = evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("strong_close"),
+  )
+  assert result is not None
+  assert result.pattern == "strong_close"
+
+
+def test_wick_rejection_closes_away_from_zone():
+  buy_bar = _bars([{
+    "open": 4089.5, "high": 4090.5, "low": 4087.0, "close": 4090.3, "volume": 100.0,
+  }])
+  buy = evaluate_m1_trigger(
+    buy_bar, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("wick_rejection"),
+  )
+  assert buy is not None
+  assert float(buy_bar.iloc[-1]["close"]) > ZONE_HIGH
+
+  sell_bar = _bars([{
+    "open": 4088.5, "high": 4091.0, "low": 4087.5, "close": 4087.7, "volume": 100.0,
+  }])
+  sell = evaluate_m1_trigger(
+    sell_bar, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("wick_rejection"),
+  )
+  assert sell is not None
+  assert float(sell_bar.iloc[-1]["close"]) < ZONE_LOW
+
+
+def test_strong_close_buy_through_zone_low_does_not_qualify():
+  """Bar intersects zone wick but closes below invalidating edge."""
+  bars = _bars([{
+    "open": 4088.5, "high": 4089.0, "low": 4087.0, "close": 4087.5, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="BUY", cfg=_cfg("strong_close"),
+  ) is None
+
+
+def test_strong_close_sell_through_zone_high_does_not_qualify():
+  bars = _bars([{
+    "open": 4089.0, "high": 4091.0, "low": 4088.5, "close": 4090.5, "volume": 100.0,
+  }])
+  assert evaluate_m1_trigger(
+    bars, zone_low=ZONE_LOW, zone_high=ZONE_HIGH, key_level=KEY_LEVEL,
+    direction="SELL", cfg=_cfg("strong_close"),
+  ) is None
+
+
+def test_evaluate_m1_trigger_ignores_open_bar():
+  bars = _bars([{
+    "open": 4089.5,
+    "high": 4090.5,
+    "low": 4087.0,
+    "close": 4090.3,
+    "volume": 100.0,
+    "closed": False,
+  }])
+  assert evaluate_m1_trigger(
+    bars,
+    zone_low=ZONE_LOW,
+    zone_high=ZONE_HIGH,
+    key_level=KEY_LEVEL,
+    direction="BUY",
+    cfg=_cfg("wick_rejection"),
   ) is None

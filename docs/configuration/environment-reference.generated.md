@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `2997a460475e33bc9e26902de93ee7a4e8d9715cbeb7acf23c4779ccff2b67f7`
-- Environment-bound fields: `376`
+- Contract fingerprint: `ff62a2f0601876ff335a4b1e76cf6048fe3342327f8377dae9d81abf0e1209f2`
+- Environment-bound fields: `390`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -240,6 +240,20 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `DELIVERY_DELETE_ON_TERMINAL` | `delivery.lifecycle.delete_on_terminal` | `bool` | no | no | — | `True` |
 | `DELIVERY_THREAD_LIFECYCLE` | `delivery.lifecycle.thread_lifecycle` | `bool` | no | no | — | `True` |
 | `DISPLACEMENT_ATR_MULT` | `analysis.displacement.atr_mult` | `float` | no | no | — | `1.5` |
+| `ENTRY_ACTIVATION_MODE` | `execution.activation.mode` | `str` | no | no | — | `shadow` |
+| `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `execution.activation.reaction_trigger_maximum_age_bars` | `int` | no | no | — | `2` |
+| `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `bool` | no | no | — | `True` |
+| `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `actionability.entry_location.missing_context_policy` | `str` | no | no | — | `block` |
+| `ENTRY_LOCATION_MODE` | `actionability.entry_location.mode` | `str` | no | no | — | `shadow` |
+| `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `actionability.entry_location.range_reversion.buy_maximum_position` | `float` | no | no | — | `0.4` |
+| `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `float` | no | no | — | `0.2` |
+| `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `actionability.entry_location.range_reversion.sell_minimum_position` | `float` | no | no | — | `0.6` |
+| `ENTRY_LOCATION_REVERSAL_BUY_MAX_POSITION` | `actionability.entry_location.reversal.buy_maximum_position` | `float` | no | no | — | `0.5` |
+| `ENTRY_LOCATION_REVERSAL_EXTREME_BUY_BLOCK` | `actionability.entry_location.reversal.extreme_buy_block_position` | `float` | no | no | — | `0.65` |
+| `ENTRY_LOCATION_REVERSAL_EXTREME_SELL_BLOCK` | `actionability.entry_location.reversal.extreme_sell_block_position` | `float` | no | no | — | `0.35` |
+| `ENTRY_LOCATION_REVERSAL_SELL_MIN_POSITION` | `actionability.entry_location.reversal.sell_minimum_position` | `float` | no | no | — | `0.5` |
+| `ENTRY_LOCATION_TREND_BUY_MAX_POSITION` | `actionability.entry_location.trend_pullback.buy_maximum_position` | `float` | no | no | — | `0.7` |
+| `ENTRY_LOCATION_TREND_SELL_MIN_POSITION` | `actionability.entry_location.trend_pullback.sell_minimum_position` | `float` | no | no | — | `0.3` |
 | `EQUAL_TOL_ATR` | `analysis.levels.equal_tol_atr` | `float` | no | no | — | `0.15` |
 | `EQ_BAND` | `analysis.measurements.eq_band` | `float` | no | no | — | `0.1` |
 | `EVENT_GUARD_HOURS` | `market_data.calendar.event_guard_hours` | `float` | no | no | — | `4.0` |

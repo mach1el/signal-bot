@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `2997a460475e33bc9e26902de93ee7a4e8d9715cbeb7acf23c4779ccff2b67f7`
-- Document fingerprint: `c267947aa66fbabc2314e3675533fe1f9d48e92e746a03072be2254ccb2430c3`
-- Items: `443`
+- Contract fingerprint: `ff62a2f0601876ff335a4b1e76cf6048fe3342327f8377dae9d81abf0e1209f2`
+- Document fingerprint: `f694ef6452c7f8f4b5468c20641826454066075609a3788da058518f9831ae49`
+- Items: `457`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -17,6 +17,18 @@
 | `actionability.counter_bias.map_counter_bias_min_confluence` | `AUTO_TRADE_MAP_COUNTER_BIAS_MIN_CONFLUENCE` | `int` | `count` | `configurable` | `2` |
 | `actionability.counter_bias.minimum_confluence` | `SCANNER_GATE_COUNTER_BIAS_MIN_CONFLUENCE` | `int` | `count` | `configurable` | `3` |
 | `actionability.counter_bias.suppress_in_range` | `SCANNER_GATE_SUPPRESS_COUNTER_BIAS_IN_RANGE` | `bool` | `boolean` | `configurable` | `false` |
+| `actionability.entry_location.breakout_retest.allow_directional_expansion` | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `bool` | `boolean` | `configurable` | `true` |
+| `actionability.entry_location.missing_context_policy` | `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `str` | `enum` | `configurable` | `"block"` |
+| `actionability.entry_location.mode` | `ENTRY_LOCATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `actionability.entry_location.range_reversion.buy_maximum_position` | `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
+| `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `float` | `fraction` | `configurable` | `0.2` |
+| `actionability.entry_location.range_reversion.sell_minimum_position` | `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
+| `actionability.entry_location.reversal.buy_maximum_position` | `ENTRY_LOCATION_REVERSAL_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.5` |
+| `actionability.entry_location.reversal.extreme_buy_block_position` | `ENTRY_LOCATION_REVERSAL_EXTREME_BUY_BLOCK` | `float` | `fraction` | `configurable` | `0.65` |
+| `actionability.entry_location.reversal.extreme_sell_block_position` | `ENTRY_LOCATION_REVERSAL_EXTREME_SELL_BLOCK` | `float` | `fraction` | `configurable` | `0.35` |
+| `actionability.entry_location.reversal.sell_minimum_position` | `ENTRY_LOCATION_REVERSAL_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.5` |
+| `actionability.entry_location.trend_pullback.buy_maximum_position` | `ENTRY_LOCATION_TREND_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.7` |
+| `actionability.entry_location.trend_pullback.sell_minimum_position` | `ENTRY_LOCATION_TREND_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.3` |
 | `actionability.gates.edge_proximity_atr` | `AUTO_TRADE_EDGE_PROXIMITY_ATR` | `float` | `atr` | `configurable` | `0.5` |
 | `actionability.gates.eq_exclusion_fraction` | `AUTO_TRADE_EQ_EXCLUSION_FRACTION` | `float` | `fraction` | `configurable` | `0.15` |
 | `actionability.gates.htf_veto_enabled` | `AUTO_TRADE_HTF_VETO_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
@@ -221,6 +233,8 @@
 
 | Path | ENV | Type | Unit | Kind | Default |
 |---|---|---|---|---|---|
+| `execution.activation.mode` | `ENTRY_ACTIVATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `execution.activation.reaction_trigger_maximum_age_bars` | `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `execution.broker_recovery.absence_confirmations` | `AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` | `int` | `price` | `configurable` | `2` |
 | `execution.entry.contract_tolerance_pips` | `AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS` | `float` | `pips` | `configurable` | `3.0` |
 | `execution.entry.inside_zone_market_entry_enabled` | `AUTO_TRADE_INSIDE_ZONE_MARKET_ENTRY_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

@@ -336,10 +336,10 @@ async def test_waiting_zone_creates_no_setup_or_ready_event(client, monkeypatch)
 async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   client, monkeypatch,
 ):
-  """M1 refines entry timing/anchor - it must never gate whether an
-  already-executable (quote inside zone) grade B setup gets to publish at
-  all. A B-grade zone with no M1 pattern printed yet still activates on the
-  same pass, using the base match unmodified.
+  """Shadow/default activation mode preserves legacy zone-touch publish.
+
+  Enforce mode (separate tests) requires a fresh episode-scoped M1 reaction
+  before StrategyMatch persistence / direct publication.
   """
   from app.analysis import scanner
 
@@ -388,6 +388,266 @@ async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   assert watched is not None
   assert watched.state == zw.PUBLISHED_LOCKED
   assert watched.last_plan_id == "v7:setup-1"
+
+
+@pytest.mark.asyncio
+async def test_enforce_reaction_waits_for_m1_without_persisting(
+  client, monkeypatch,
+):
+  """Quote-inside-zone alone must not activate reaction setups in enforce."""
+  from app.analysis import scanner
+  from app.analysis.m1_trigger import M1TriggerResult
+
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "shadow",
+    },
+  )
+  result = _result(setup="Key Level Reaction")
+  ctx = SimpleNamespace(
+    indicators={"M5": SimpleNamespace(atr=pd.Series([4.0]))},
+  )
+  monkeypatch.setattr(scanner, "_result_rank", lambda _result: (0,))
+  monkeypatch.setattr(scanner, "_pip_size", lambda _symbol: 0.01)
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda *_args, **_kwargs: (_match(), None, {}),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_load_quote",
+    AsyncMock(return_value=(4114.4, 4114.6, 1_785_390_100)),
+  )
+  monkeypatch.setattr(
+    cutover, "_m1_trigger_for_zone", AsyncMock(return_value=None),
+  )
+  direct_publish = AsyncMock()
+  monkeypatch.setattr(cutover, "_ORIGINAL_DIRECT_PUBLISH", direct_publish)
+  persist = AsyncMock(side_effect=AssertionError("must not persist"))
+  monkeypatch.setattr(cutover, "_persist_match", persist)
+
+  published = await cutover._sync_strategy_match_cutover(
+    client,
+    "XAU",
+    "M5",
+    "2026-07-30T06:00:00+00:00",
+    ctx,
+    [result],
+    require_static_eligibility=True,
+  )
+  assert published is None
+  direct_publish.assert_not_awaited()
+  persist.assert_not_awaited()
+  assert await client.get("analysis:setup:setup-1") is None
+  watched = await zw.load_zone_watch(client, "zone-1")
+  assert watched is not None
+  assert watched.state not in zw.TERMINAL_ZONE_WATCH_STATES | zw.LOCKED_ZONE_WATCH_STATES
+  last = await client.get("auto_trade:last_entry_activation:XAU")
+  assert last is not None
+  assert "reaction_trigger_missing" in last
+
+
+@pytest.mark.asyncio
+async def test_enforce_reaction_activates_with_fresh_m1_once(
+  client, monkeypatch,
+):
+  from dataclasses import replace
+  from app.analysis import scanner
+  from app.analysis.m1_trigger import M1TriggerResult
+
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "shadow",
+    },
+  )
+  result = _result(setup="Key Level Reaction")
+  ctx = SimpleNamespace(
+    indicators={"M5": SimpleNamespace(atr=pd.Series([4.0]))},
+  )
+  match = replace(
+    _match(),
+    range_low=4100.0,
+    range_high=4200.0,
+    confirmation_bar_ts=None,
+    reaction_type=None,
+  )
+  monkeypatch.setattr(scanner, "_result_rank", lambda _result: (0,))
+  monkeypatch.setattr(scanner, "_pip_size", lambda _symbol: 0.01)
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda *_args, **_kwargs: (match, None, {}),
+  )
+  entered_at = 1_785_390_050
+  now_ts = 1_785_390_200
+  await zw.discover_zone_watch(
+    client,
+    zone_id="zone-1",
+    symbol="XAU",
+    direction="SELL",
+    low=4113.0,
+    high=4116.0,
+    source_timeframe="M15",
+    structural_sources=("key_level",),
+    confluence_tags=("key_level",),
+    grade=zw.GRADE_A,
+    now=entered_at - 10,
+  )
+  await zw.record_zone_presence(
+    client, "zone-1", inside=True, now=entered_at, htf_evidence=True,
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_load_quote",
+    AsyncMock(return_value=(4114.4, 4114.6, now_ts)),
+  )
+  trigger = M1TriggerResult(
+    "wick_rejection", "SELL", 4116.0, entered_at + 30, "sell rejection",
+  )
+  monkeypatch.setattr(
+    cutover, "_m1_trigger_for_zone", AsyncMock(return_value=trigger),
+  )
+  direct_publish = AsyncMock(return_value=worker.PublishResult(
+    status=worker.PUBLISH_STATUS_PUBLISHED,
+    plan_id="v7:setup-1",
+    reason_code="candidate_published",
+    zone_id="zone-1",
+    setup_id="setup-1",
+  ))
+  monkeypatch.setattr(cutover, "_ORIGINAL_DIRECT_PUBLISH", direct_publish)
+
+  published = await cutover._sync_strategy_match_cutover(
+    client,
+    "XAU",
+    "M5",
+    "2026-07-30T06:02:00+00:00",
+    ctx,
+    [result],
+    require_static_eligibility=True,
+  )
+  assert published is not None
+  direct_publish.assert_awaited_once()
+  watched = await zw.load_zone_watch(client, "zone-1")
+  assert watched is not None
+  assert watched.state == zw.PUBLISHED_LOCKED
+
+
+@pytest.mark.asyncio
+async def test_enforce_location_blocks_buy_after_premium_rally(
+  client, monkeypatch,
+):
+  from app.analysis import scanner
+  from app.analysis.m1_trigger import M1TriggerResult
+
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "enforce",
+    },
+  )
+  buy_result = SimpleNamespace(
+    setup="Zone Reaction",
+    direction="BUY",
+    entry_zone=SimpleNamespace(low=4078.0, high=4082.0),
+    structural_low=4078.0,
+    structural_high=4082.0,
+    structural_timeframe="M15",
+    structural_source="key_level",
+    structural_id="zone-buy",
+    confluence_zone_id="zone-buy",
+    confluence_tags=("key_level", "demand"),
+    confluence=3,
+    source_score=12.0,
+    confirmation_type="wick_rejection",
+    confirmation="wick_rejection",
+    execution_eligibility=SimpleNamespace(allowed=True, market_map_id="map-1"),
+  )
+  buy_match = StrategyMatch(
+    version=1,
+    match_id="setup-buy",
+    symbol="XAU",
+    source_tf="M5",
+    event_ts="2026-07-30T06:00:00+00:00",
+    issued_at=1_785_390_000,
+    expires_at=1_785_390_420,
+    strategy="Zone Reaction",
+    strategy_mode="with_bias",
+    direction="BUY",
+    key_level=4080.0,
+    entry_low=4078.0,
+    entry_high=4082.0,
+    current_price=4080.0,
+    confluence=3,
+    reasons=("demand",),
+    atr=4.0,
+    structure_swing=4078.0,
+    targets_pips=(300,),
+    family="key_level",
+    structural_source="key_level",
+    confluence_zone_id="zone-buy",
+    structural_zone_id="zone-buy",
+    structural_zone_low=4078.0,
+    structural_zone_high=4082.0,
+    range_low=4000.0,
+    range_high=4100.0,
+  )
+  ctx = SimpleNamespace(
+    indicators={"M5": SimpleNamespace(atr=pd.Series([4.0]))},
+  )
+  monkeypatch.setattr(scanner, "_result_rank", lambda _result: (0,))
+  monkeypatch.setattr(scanner, "_pip_size", lambda _symbol: 0.01)
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda *_args, **_kwargs: (buy_match, None, {}),
+  )
+  now_ts = 1_785_390_200
+  # Ask in premium (~0.80) inside the zone band for geometry test.
+  monkeypatch.setattr(
+    cutover,
+    "_load_quote",
+    AsyncMock(return_value=(4079.5, 4080.5, now_ts)),
+  )
+  # Force zone presence "inside" even though dealing range says premium.
+  monkeypatch.setattr(
+    cutover,
+    "_quote_evidence",
+    lambda record, quote: SimpleNamespace(
+      inside=True,
+      executable_quote=quote[1],
+      side="ask",
+    ),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_m1_trigger_for_zone",
+    AsyncMock(return_value=M1TriggerResult(
+      "wick_rejection", "BUY", 4078.0, now_ts - 30, "buy rejection",
+    )),
+  )
+  direct_publish = AsyncMock()
+  monkeypatch.setattr(cutover, "_ORIGINAL_DIRECT_PUBLISH", direct_publish)
+
+  published = await cutover._sync_strategy_match_cutover(
+    client,
+    "XAU",
+    "M5",
+    "2026-07-30T06:00:00+00:00",
+    ctx,
+    [buy_result],
+    require_static_eligibility=True,
+  )
+  assert published is None
+  direct_publish.assert_not_awaited()
+  last = await client.get("auto_trade:last_entry_location:XAU")
+  assert last is not None
+  assert "buy_in_premium" in last or "buy_at_range_extreme" in last
 
 
 @pytest.mark.asyncio
