@@ -155,6 +155,7 @@
     }
   },
   "instrument": {
+    "aliases": [],
     "analysis": {
       "zones": {
         "major_maximum_width_price": 10.0,
@@ -179,6 +180,9 @@
         "m5_bars": 150
       }
     },
+    "overrides": {},
+    "policy": null,
+    "rollout": null,
     "timeframes": [
       "H1",
       "M15",
@@ -239,7 +243,6 @@
     "symbols": "XAU",
     "window": 500
   },
-  "profile": "conservative",
   "risk": {
     "exposure": {
       "allow_concurrent_strategies": true,
