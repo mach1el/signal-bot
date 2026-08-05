@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `ff62a2f0601876ff335a4b1e76cf6048fe3342327f8377dae9d81abf0e1209f2`
-- Document fingerprint: `f694ef6452c7f8f4b5468c20641826454066075609a3788da058518f9831ae49`
-- Items: `457`
+- Contract fingerprint: `e8af1f2a8e68acb975e27d3c854aa2bd9989a42bd0151f873289c56a53ba7088`
+- Document fingerprint: `a32650d5adb4d52384d2d1c72881306ab6ffa209cb1097b44c5e20dd04d29897`
+- Items: `490`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -469,6 +469,39 @@
 | `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
 | `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
 | `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
+| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `5.0` |
+| `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
+| `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
+| `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `3600` |
+| `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
+| `strategies.high_frequency_scalp.context.m1_lookback_bars` | `HFS_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |
+| `strategies.high_frequency_scalp.context.maximum_m5_age_seconds` | `HFS_MAXIMUM_M5_AGE_SECONDS` | `int` | `seconds` | `configurable` | `420` |
+| `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `HFS_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.75` |
+| `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `HFS_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.25` |
+| `strategies.high_frequency_scalp.location.range_buy_maximum_position` | `HFS_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
+| `strategies.high_frequency_scalp.location.range_sell_minimum_position` | `HFS_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.65` |
+| `strategies.high_frequency_scalp.mode` | `HFS_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `int` | `count` | `configurable` | `10` |
+| `strategies.high_frequency_scalp.policy.maximum_opportunities_per_cycle` | `HFS_MAXIMUM_OPPORTUNITIES_PER_CYCLE` | `int` | `count` | `configurable` | `3` |
+| `strategies.high_frequency_scalp.policy.maximum_spread_pips` | `HFS_MAXIMUM_SPREAD_PIPS` | `float` | `pips` | `configurable` | `5.0` |
+| `strategies.high_frequency_scalp.policy.minimum_reward_risk` | `HFS_MINIMUM_REWARD_RISK` | `float` | `multiplier` | `configurable` | `1.1` |
+| `strategies.high_frequency_scalp.risk.cooldown_after_loss_minutes` | `HFS_COOLDOWN_AFTER_LOSS_MINUTES` | `int` | `minutes` | `configurable` | `5` |
+| `strategies.high_frequency_scalp.risk.daily_loss_limit_r` | `HFS_DAILY_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `3.0` |
+| `strategies.high_frequency_scalp.risk.maximum_concurrent_positions` | `HFS_MAXIMUM_CONCURRENT_POSITIONS` | `int` | `count` | `configurable` | `1` |
+| `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `int` | `count` | `configurable` | `3` |
+| `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `HFS_MAXIMUM_DAILY_TRADES` | `int` | `count` | `configurable` | `30` |
+| `strategies.high_frequency_scalp.risk.maximum_session_trades` | `HFS_MAXIMUM_SESSION_TRADES` | `int` | `count` | `configurable` | `12` |
+| `strategies.high_frequency_scalp.risk.mode` | `HFS_RISK_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `HFS_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
+| `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `HFS_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
+| `strategies.high_frequency_scalp.stop.buffer_atr` | `HFS_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
+| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
+| `strategies.high_frequency_scalp.stop.minimum_pips` | `HFS_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
+| `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `HFS_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
+| `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `HFS_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |
 | `strategies.mapped_zone.counter_bias_enabled` | `AUTO_TRADE_MAP_COUNTER_BIAS_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.mapped_zone.enabled` | `AUTO_TRADE_MAPPED_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.matching.multiple_matches_enabled` | `AUTO_TRADE_MULTI_MATCH_ENABLED` | `bool` | `boolean` | `configurable` | `false` |

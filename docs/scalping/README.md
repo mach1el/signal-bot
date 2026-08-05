@@ -1,0 +1,48 @@
+"""
+# High-Frequency M1 Scalping Engine
+
+Shadow/paper event-driven XAU scalping on closed M1 bars with immutable M5 context.
+
+## Architecture
+
+```
+H1/M15 refresh on closed bars
+        ↓
+M5 ScalpContextSnapshot (immutable, Redis-pinned)
+        ↓
+M1 microstructure + archetypes
+        ↓
+EntryLocation (enforce inside HFS) + activation + cost + risk
+        ↓
+shadow/paper ScalpSignal (never auto_trade:candidates)
+```
+
+## Modes
+
+| Mode | Behaviour |
+|------|-----------|
+| off | Loop exits immediately |
+| shadow | Discover/evaluate/record only (default) |
+| paper | Paper TradePlan-like records, no broker |
+| live | Reserved — not enabled in this PR |
+
+## Archetypes
+
+1. `range_sweep` — micro range edge false-break sweep/reclaim
+2. `impulse_pullback` — join displacement after pullback
+3. `breakout_retest` — accepted break + retest (evidence required for location bypass)
+
+## Promotion criteria (shadow → paper)
+
+- Stable opportunity density (~15–30/day observation, not a quota)
+- Buy-top / sell-bottom block rates reviewed
+- Net expectancy and drawdown acceptable on holdout replay
+- Spread/cost blocks behaving as expected
+- No publication into live candidate streams while still shadow
+
+## Replay
+
+```bash
+python -m app.scalping.replay --fixture path.jsonl --output artifacts/scalp-replay.json
+```
+"""
