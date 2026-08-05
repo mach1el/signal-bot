@@ -2063,6 +2063,120 @@ async def test_non_executable_observation_does_not_burn_future_forming_card(
 
 
 @pytest.mark.asyncio
+async def test_confluence_zone_id_mismatch_falls_back_to_strategy_match(
+  monkeypatch,
+):
+  """Live incident: "Zone Reaction BUY" passed actionability/room/target
+  checks, then vanished with no logged reason one line later. Root cause:
+  dedupe_matches (_build_strategy_match) can merge this exact result's
+  StrategyMatch into a different match_id (Zone Reaction is a named
+  alias-prone strategy in multi_match.py's same_thesis()) - the surviving
+  match's confluence_zone_id then no longer equals the DetectionResult's
+  own confluence_zone_id. A result WITHOUT a confluence_zone_id already
+  fell back to matching by strategy/structural_id; a result WITH one did
+  not, so the mismatch was fatal instead of just falling back like normal.
+  """
+  client = redis_state.get_client()
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 4242})
+  notify = AsyncMock(return_value=SimpleNamespace(message_id=9200))
+  result = scanner.DetectionResult(
+    "Zone Reaction",
+    "BUY",
+    4100.0,
+    Zone(4099.5, 4100.5, "demand"),
+    4101.0,
+    3,
+    ["zone reaction"],
+    structural_source="supply_demand",
+    structural_id="zone-x",
+    structural_kind="demand",
+    confluence_zone_id="pre-merge-zone-id",
+  )
+  # The survivor a same-thesis merge left behind - a different match_id and
+  # confluence_zone_id, but the same strategy/structural identity.
+  survivor = SimpleNamespace(
+    strategy="Zone Reaction",
+    match_id="survivor-after-merge",
+    structural_zone_id="zone-x",
+    confluence_zone_id="post-merge-zone-id",
+    direction="BUY",
+  )
+
+  sent = await scanner._notify_digest_once(
+    client,
+    "XAU",
+    "M5",
+    _card_ctx(),
+    [result],
+    notify,
+    ["H1"],
+    execution_match=survivor,
+  )
+
+  assert sent == [result]
+  notify.assert_awaited_once()
+
+
+def test_build_strategy_match_logs_dedupe_merge_events(monkeypatch, caplog):
+  """dedupe_matches computes which match_id got merged into which, but the
+  return value used to be discarded (deduped, _events = dedupe_matches(...),
+  _events never read again anywhere in this file) - a merge left zero
+  trace anywhere, so a detection that just passed actionability/room/
+  target checks looked like it vanished for no reason at all. Must now be
+  logged so an operator can actually see what happened.
+  """
+  caplog.set_level(logging.INFO, logger="app.analysis.scanner")
+  loser = SimpleNamespace(
+    match_id="loser-id", strategy="Zone Reaction", direction="BUY",
+    tier="B", confluence=2, atr=2.0,
+  )
+  survivor = SimpleNamespace(
+    match_id="survivor-id", strategy="Flip Zone", direction="BUY",
+    tier="B", confluence=3, atr=2.0,
+  )
+  first = scanner.DetectionResult(
+    "Zone Reaction", "BUY", 4100.0, Zone(4099.5, 4100.5, "demand"),
+    4101.0, 2, ["zone reaction"],
+  )
+  second = scanner.DetectionResult(
+    "Flip Zone", "BUY", 4100.0, Zone(4099.5, 4100.5, "demand"),
+    4101.0, 3, ["flip zone"],
+  )
+  built_by_id = {id(first): loser, id(second): survivor}
+  monkeypatch.setattr(
+    scanner,
+    "_build_one_strategy_match",
+    lambda symbol, tf, event_ts, ctx, result, now=None: (
+      built_by_id[id(result)], None, {},
+    ),
+  )
+  monkeypatch.setattr(
+    scanner,
+    "dedupe_matches",
+    lambda matches, atr, cfg=None: (
+      [survivor],
+      [
+        {"match_id": "loser-id", "event": "merged_confluence", "into": "survivor-id"},
+        {"match_id": "survivor-id", "event": "tracked", "strategy": "Flip Zone"},
+      ],
+    ),
+  )
+
+  match, reason, measured = scanner._build_strategy_match(
+    "XAU", "M5", "2026-07-10T00:00:00Z", SimpleNamespace(), [first, second],
+  )
+
+  assert match is survivor
+  assert reason is None
+  assert "strategy match merged" in caplog.text
+  assert "match_id=loser-id" in caplog.text
+  assert "into=survivor-id" in caplog.text
+  # "tracked" is the normal no-merge outcome for every result on every
+  # scan - logging it too would be pure noise, so it must stay silent.
+  assert caplog.text.count("strategy match merged") == 1
+
+
+@pytest.mark.asyncio
 async def test_one_forming_card_per_setup_identical_redetection_is_noop(
   monkeypatch,
 ):
