@@ -77,6 +77,8 @@ def _bridge_legacy_symbol_map_tests(monkeypatch, request):
   from app.configuration.models.instruments import (
     InstrumentConfig,
     InstrumentContractConfig,
+    InstrumentLookbacksConfig,
+    InstrumentMarketDataConfig,
     InstrumentRollout,
     InstrumentsConfig,
   )
@@ -107,6 +109,14 @@ def _bridge_legacy_symbol_map_tests(monkeypatch, request):
             pip_size=float(metadata["pip"]),
             contract_units_per_lot=1.0,
             price_digits=int(metadata["digits"]),
+          ),
+          market_data=InstrumentMarketDataConfig(
+            lookbacks=InstrumentLookbacksConfig(
+              h1_bars=50,
+              m15_bars=50,
+              m5_bars=50,
+              m1_bars=50,
+            ),
           ),
         )
         augmented = base.model_copy(
