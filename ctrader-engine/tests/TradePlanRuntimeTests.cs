@@ -1492,6 +1492,222 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task RestartGrantsGraceWindowToMarketWatchPlanExpiredDuringDowntime()
+  {
+    // Live incident: price traded inside a market_watch plan's zone while a
+    // deploy restart was in flight. A market_watch plan is only ever
+    // evaluated against the live quote on a poll - nothing is watching
+    // while the process is down - and by the time the engine came back up
+    // and finished recovery, the plan's own declared Entry.ExpiresAt had
+    // already lapsed during that dead time. It would have expired on the
+    // very next poll having never once seen a live quote.
+    var store = new FakeV7Store();
+    var planExpiresAt = 1_720_000_100L;
+    store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+    // Outside the zone - plan stays Received, not yet expired.
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Equal(
+      TradePlanRuntimeStage.Received, first.TrackedStates.Single().Stage
+    );
+
+    // Simulate the restart: a brand new runtime instance recovers this
+    // plan well after its original Entry.ExpiresAt already passed.
+    var recoveryTime = planExpiresAt + 30;
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime),
+      logs.Add
+    );
+    // Price is back in the zone on the very first poll after recovery.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 2), CancellationToken.None
+    );
+
+    Assert.DoesNotContain(logs, line => line.Contains("v7 plan expired"));
+    Assert.Contains(
+      logs, line => line.Contains("v7 restore: granted")
+        && line.Contains("recovery grace")
+    );
+    Assert.Single(client.MarketOrders);
+  }
+
+  [Fact]
+  public async Task RecoveryGraceDoesNotResurrectAPlanStillOutsideTheZone()
+  {
+    // The grace window buys the plan a real look, not an unconditional
+    // reprieve - if price still isn't in the zone after recovery, it must
+    // keep waiting exactly like any other live market_watch plan, and
+    // still expire once the (now-extended) window genuinely runs out.
+    var store = new FakeV7Store();
+    var planExpiresAt = 1_720_000_100L;
+    store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      logs.Add
+    );
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    var recoveryTime = planExpiresAt + 30;
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime),
+      logs.Add
+    );
+    // Still outside the zone right after recovery.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+    Assert.Empty(client.MarketOrders);
+    Assert.Equal(
+      TradePlanRuntimeStage.Received, second.TrackedStates.Single().Stage
+    );
+
+    // The granted grace window (RestoreExpiryGraceSeconds=90) has now
+    // genuinely elapsed with price never returning - must expire for real.
+    var afterGrace = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(recoveryTime + 91),
+      logs.Add
+    );
+    await afterGrace.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 3), CancellationToken.None
+    );
+
+    Assert.Contains(logs, line => line.Contains("v7 plan expired"));
+    Assert.Empty(client.MarketOrders);
+  }
+
+  [Fact]
+  public async Task RecoveryCatchUpSubmitsWhenZoneWasTouchedDuringDowntimeAndPriceIsStillClose()
+  {
+    // The user-requested fix for the incident this whole feature exists
+    // for: price traded INSIDE the zone entirely while a restart was in
+    // flight and left again before recovery finished. A plain live-tick
+    // check can never recover that on its own - it has no memory of price
+    // it never polled. On recovery, backfilled M1 bars showing the zone
+    // was genuinely touched, combined with the CURRENT live quote still
+    // being close, is now enough to submit - at the current quote, never
+    // at the stale historical touch price.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
+    var client = new FakeV7TradingClient();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      _ => { }
+    );
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Equal(TradePlanRuntimeStage.Received, first.TrackedStates.Single().Stage);
+
+    // A bar during the "downtime" shows price genuinely traded inside the
+    // zone (4088.10-4090.00).
+    store.Bars.Add(new OhlcBar(1_720_000_060, 4087.50m, 4089.60m, 4087.20m, 4089.10m, 100));
+
+    var logs = new List<string>();
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_120),
+      logs.Add
+    );
+    // Live quote has drifted just outside the zone by the time recovery
+    // finishes, but is still within tolerance (half the 1.90-wide zone) -
+    // spread kept inside max_spread_ticks=8 (0.05 = 5 ticks at 0.01) so
+    // that check isn't what's actually being exercised here.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
+    );
+
+    Assert.Contains(logs, line => line.Contains("v7 recovery catch-up"));
+    var order = Assert.Single(client.MarketOrders);
+    // Executed at the CURRENT quote (ask, since this is a BUY), never at
+    // the stale historical bar price - the one real tradeoff this feature
+    // accepts, made explicit here.
+    Assert.Equal(TradeDirection.Buy, order.Direction);
+    Assert.Equal(TradePlanRuntimeStage.FullyOpen, second.TrackedStates.Single().Stage);
+  }
+
+  [Fact]
+  public async Task RecoveryCatchUpDoesNotFireWithoutEvidenceOfAnActualTouch()
+  {
+    // No bar overlaps the zone during the gap - the live quote being
+    // merely close is never enough on its own; the whole point is
+    // recovering a touch that genuinely happened, not loosening the zone.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
+    var client = new FakeV7TradingClient();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      _ => { }
+    );
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    // No bars recorded at all - nothing to prove a touch happened. Spread
+    // kept inside max_spread_ticks=8 so lack-of-touch is the only thing
+    // actually being exercised here.
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_120),
+      _ => { }
+    );
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(client.MarketOrders);
+    Assert.Equal(TradePlanRuntimeStage.Received, second.TrackedStates.Single().Stage);
+  }
+
+  [Fact]
+  public async Task RecoveryCatchUpDoesNotFireWhenCurrentPriceRanTooFarAway()
+  {
+    // A touch genuinely happened, but price has since moved well past the
+    // tolerance band - firing here would mean a fill at a price far from
+    // the original thesis, exactly the slippage risk this stays bounded
+    // against. Must keep waiting like a normal live-tick evaluation.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
+    var client = new FakeV7TradingClient();
+
+    var first = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
+      _ => { }
+    );
+    await first.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    store.Bars.Add(new OhlcBar(1_720_000_060, 4087.50m, 4089.60m, 4087.20m, 4089.10m, 100));
+
+    var second = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_120),
+      _ => { }
+    );
+    // Far beyond the zone + tolerance (zone width 1.90, tolerance 0.95) -
+    // spread still kept inside max_spread_ticks=8 so distance is the only
+    // thing this test actually exercises.
+    await second.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4098.00m, 4098.05m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(client.MarketOrders);
+    Assert.Equal(TradePlanRuntimeStage.Received, second.TrackedStates.Single().Stage);
+  }
+
+  [Fact]
   public async Task DuplicatePlanIsClaimedOnceAndNeverDoubleSubmitted()
   {
     var store = new FakeV7Store();
@@ -1945,9 +2161,14 @@ public sealed class TradePlanRuntimeTests
     private int _nextStreamId = 1;
 
     public List<AutoTradeEvent> Events { get; } = [];
+    public List<OhlcBar> Bars { get; } = [];
 
     public void EnqueuePlan(string json) =>
       _stream.Add(new TradeStreamEntry($"{_nextStreamId++}-0", json));
+
+    public Task<IReadOnlyList<OhlcBar>> ReadRecentBarsAsync(
+      string symbol, string timeframe, int count, CancellationToken ct
+    ) => Task.FromResult<IReadOnlyList<OhlcBar>>(Bars);
 
     public string TradePlanCursor => _tradePlanCursor;
     public string? Value(string key) =>
