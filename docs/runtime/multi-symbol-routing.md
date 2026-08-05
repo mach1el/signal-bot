@@ -79,10 +79,11 @@ not adopted into XAU.
 
 | Mode | Behaviour |
 |---|---|
-| `environment` | XAU-only compatibility registry; legacy FeedRunner path |
-| `manifest` | Required for multi-symbol feed subscriptions via `instrument_runtimes` |
+| `environment` | XAU-only compatibility; legacy trading ENV loaders (rollback inventory required) |
+| `manifest` | Authoritative ResolvedRuntimeManifest V2; secrets + bootstrap ENV only |
 
-Manifest cutover is a **separate** PR.
+PR4 flips production to `manifest` with `CTRADER_MANIFEST_PARITY_MODE=off`.
+See [manifest authority cutover](../configuration/manifest-authority-cutover.md).
 
 ## Future activation procedure
 

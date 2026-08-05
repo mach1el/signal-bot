@@ -26,16 +26,24 @@ See also: `adr-canonical-only-python-configuration.md`.
 
 Canonical selection is unconditional. Invalid configuration fails closed.
 
-## Resolved runtime manifest (PR2 / PR3)
+## Resolved runtime manifest (PR2 / PR3 / PR4)
 
 Compose compiles `/runtime/resolved-runtime.json` before cTrader and the bot
-start. cTrader remains ENV-authoritative with
-`CTRADER_MANIFEST_PARITY_MODE=enforce`. See
+start.
+
+**PR4 production authority:**
+
+```text
+CTRADER_CONFIGURATION_SOURCE=manifest
+CTRADER_MANIFEST_PARITY_MODE=off
+```
+
+See `docs/configuration/manifest-authority-cutover.md` and
 `docs/configuration/cross-service-runtime-manifest.md`.
 
-PR3 bumps the manifest to version 2 (`instrument_runtimes`) and adds
-symbol-routed runtime support, still with **XAU as the only production live
-instrument**. See `docs/runtime/multi-symbol-routing.md`.
+Environment source remains available as an application rollback mode, but
+operational rollback after inventory cleanup requires redeploying the previous
+Ansible inventory revision that still contains legacy trading ENV.
 
 ## Leftover `APEXVOID_CONFIG_AUTHORITY`
 

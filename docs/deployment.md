@@ -11,9 +11,17 @@ ctrader-engine → bot. The compiler writes the secret-safe
 authority remains ENV in this generation of the stack.
 
 PR3 introduces symbol-routed multi-instrument runtime support while keeping
-**XAU as the only production live instrument** and
-`CTRADER_CONFIGURATION_SOURCE=environment`. See
-`docs/runtime/multi-symbol-routing.md`.
+**XAU as the only production live instrument**.
+
+**PR4** flips cTrader authority to the resolved runtime manifest:
+
+```text
+CTRADER_CONFIGURATION_SOURCE=manifest
+CTRADER_MANIFEST_PARITY_MODE=off
+```
+
+ENV retains secrets and bootstrap only. See
+`docs/configuration/manifest-authority-cutover.md`.
 
 ## Prerequisites
 
