@@ -1249,7 +1249,10 @@ async def test_range_edge_without_target_room_still_hits_opposing():
 
 
 @pytest.mark.asyncio
-async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
+async def test_final_v7_gate_keeps_configured_ladder_with_opposing_structure():
+  """Owner 2026-08-06: opposing geometry is not a reason to shrink the
+  configured partial ladder into a solo TP before publish.
+  """
   client = redis_state.get_client()
   match = _match(
     match_id="match-v7-target-cap",
@@ -1288,8 +1291,7 @@ async def test_final_v7_gate_caps_target_ladder_before_opposing_structure():
   assert plan_id is not None
   plan = await read_trade_plan(client, plan_id)
   assert plan is not None
-  assert len(plan.targets) == 1
-
+  assert len(plan.targets) == len(match.targets_pips)
 
 @pytest.mark.asyncio
 async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):

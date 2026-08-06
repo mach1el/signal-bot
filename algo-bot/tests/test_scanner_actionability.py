@@ -152,13 +152,15 @@ def _cfg(
 
 @pytest.mark.parametrize("profile", ["conservative", "demo_eval"])
 @pytest.mark.parametrize("guard_mode", ["observe", "balanced", "strict"])
-def test_buy_under_overlapping_sell_major_keeps_full_ladder(
+def test_buy_under_overlapping_sell_major_hard_blocks_below_cost_room(
   profile,
   guard_mode,
 ):
-  """Raw room is tiny after buffer — still publish configured partial ladder.
+  """Buffered usable room below execution-cost floor hard-kills publication.
 
-  Owner 2026-08-06: never invent a solo ~9 pip TP / hard-gate on TP room.
+  Owner 2026-08-06 (revised): never invent a solo ~9 pip TP, and never
+  publish the full partial ladder into ~0 pip of barrier room either
+  (live fe023 Trendline SELL into demand).
   """
   buy = _result(
     "BUY",
@@ -185,19 +187,17 @@ def test_buy_under_overlapping_sell_major_keeps_full_ladder(
   )
 
   assert resolution.observed == (buy,)
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  kept = resolution.actionable[0]
-  assert kept.target_cap_pips == pytest.approx(70.0)
-  assert any(
-    decision.reason_code == "opposing_barrier_room_below_cost_ignored"
-    for _item, decision in resolution.decisions
-  )
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  _item, decision = resolution.gated[0]
+  assert decision.reason_code == "opposing_barrier_room_below_cost"
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
-def test_scalp_and_swing_both_keep_ladder_when_room_is_tight():
-  """Owner 2026-08-06: tight buffered room is telemetry — both families keep
-  the configured partial ladder instead of hard-gating on TP room.
+def test_scalp_keeps_ladder_when_room_fits_swing_hard_blocks_when_below_cost():
+  """Scalp ignores HTF opposing discovery geometry once detector min room
+  already cleared. Swing with ATR buffer collapses to below cost and hard-kills.
   """
   market_map = _map(
     _entry("sell", 4045.60, 4050.0, tier="major"),
@@ -227,6 +227,10 @@ def test_scalp_and_swing_both_keep_ladder_when_room_is_tight():
   assert len(scalp_resolution.actionable) == 1
   assert scalp_resolution.actionable[0].setup == "Range Edge Scalp"
   assert scalp_resolution.gated == ()
+  assert not any(
+    decision.reason_code == "opposing_barrier_room_below_cost"
+    for _item, decision in scalp_resolution.decisions
+  )
 
   swing = _result(
     "BUY",
@@ -244,9 +248,42 @@ def test_scalp_and_swing_both_keep_ladder_when_room_is_tight():
     pip_size=0.1,
     cfg=cfg,
   )
-  assert len(swing_resolution.actionable) == 1
-  assert swing_resolution.gated == ()
-  assert swing_resolution.actionable[0].target_cap_pips == pytest.approx(70.0)
+  assert swing_resolution.actionable == ()
+  assert swing_resolution.gated[0][1].reason_code == (
+    "opposing_barrier_room_below_cost"
+  )
+
+
+def test_scalp_not_hard_killed_by_zero_usable_htf_opposing_room():
+  """Range Edge near HTF demand/supply with usable HTF room=0 still goes —
+  native range min room is the gate, not HTF opposing distance.
+  """
+  scalp = _result(
+    "SELL",
+    4267.8,
+    4270.4,
+    setup="Range Edge Scalp",
+    current_price=4268.24,
+  )
+  market_map = _map(
+    _entry("buy", 4263.76, 4267.8, tier="major"),
+    price=4268.24,
+  )
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[scalp],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="up"),
+    atr=4.53,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
+  assert not any(
+    decision.reason_code == "opposing_barrier_room_below_cost"
+    for _item, decision in resolution.decisions
+  )
 
 
 def test_raw_room_zero_major_hard_gates():
@@ -296,8 +333,8 @@ def test_trimmed_zone_touching_opposing_edge_is_not_misreported_as_contained():
   exactly on that trimmed edge reads as "contained", re-triggering the
   exact rejection the trim exists to avoid.
 
-  This does not invent a "contained" reason for an edge touch — and
-  tiny usable room no longer hard-rejects; the configured ladder stays.
+  This does not invent a "contained" reason for an edge touch. Tiny
+  usable room below the cost floor hard-rejects for TP room instead.
   """
   market_map = _map(
     _entry("sell", 4197.75, 4211.73, tier="zone"),
@@ -317,18 +354,15 @@ def test_trimmed_zone_touching_opposing_edge_is_not_misreported_as_contained():
     cfg=_cfg(),
   )
 
-  assert len(resolution.actionable) == 1
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code.startswith("opposing_barrier_room")
-    or decision.reason_code == "opposing_barrier_full_ladder_fits"
-  )
+  assert resolution.actionable == ()
+  decision = resolution.gated[0][1]
+  assert decision.reason_code == "opposing_barrier_room_below_cost"
   assert decision.reason_code != "opposing_entry_contained"
   assert decision.measured["planned_entry_contained"] is False
   assert decision.measured["planned_entry_price"] < 4197.75
 
 
-def test_target_room_is_observation_when_actionability_gate_is_off():
+def test_target_room_below_cost_is_soft_when_actionability_gate_is_off():
   buy = _result(
     "BUY",
     4041.67,
@@ -355,13 +389,14 @@ def test_target_room_is_observation_when_actionability_gate_is_off():
   assert resolution.gated == ()
   decision = next(
     decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_barrier_room_below_cost_ignored"
+    if decision.reason_code == "opposing_barrier_room_below_cost"
   )
+  # Gate off demotes non-universal hard reasons to preference/allow.
   assert decision.hard_block is False
   assert decision.allowed is True
 
 
-def test_target_room_keeps_ladder_when_actionability_gate_is_on():
+def test_target_room_hard_blocks_below_cost_when_actionability_gate_is_on():
   buy = _result(
     "BUY",
     4041.67,
@@ -384,15 +419,12 @@ def test_target_room_keeps_ladder_when_actionability_gate_is_on():
     cfg=_cfg(actionability_gate=True),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  decision = next(
-    decision for _item, decision in resolution.decisions
-    if decision.reason_code == "opposing_barrier_room_below_cost_ignored"
-  )
-  assert decision.hard_block is False
-  assert decision.allowed is True
-  assert resolution.actionable[0].target_cap_pips == pytest.approx(70.0)
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
+  decision = resolution.gated[0][1]
+  assert decision.reason_code == "opposing_barrier_room_below_cost"
+  assert decision.hard_block is True
+  assert decision.allowed is False
 
 
 def test_partial_overlap_trims_the_zone_instead_of_killing_the_whole_setup():
@@ -541,7 +573,6 @@ def test_room_below_the_floor_still_keeps_configured_ladder():
     decision for _item, decision in resolution.decisions
     if decision.reason_code in {
       "opposing_barrier_room_ignored_full_ladder",
-      "opposing_barrier_room_below_cost_ignored",
       "opposing_barrier_full_ladder_fits",
     }
   )
@@ -551,7 +582,7 @@ def test_room_below_the_floor_still_keeps_configured_ladder():
   assert resolution.actionable[0].provisional_targets_pips == (30, 50, 70)
 
 
-def test_near_barrier_keeps_full_ladder_instead_of_tiny_cap():
+def test_near_barrier_below_cost_hard_blocks_instead_of_tiny_or_full_ladder():
   decision = evaluate_structural_target_room(
     direction="BUY",
     planned_entry_price=4100.0,
@@ -566,13 +597,46 @@ def test_near_barrier_keeps_full_ladder_instead_of_tiny_cap():
     barrier_buffer_atr=0.0,
     execution_cost_pips=1.0,
   )
-  # raw = 0.05 → 0.5 pips. Old path hard-blocked or invented a 1-pip TP.
-  # Owner ladder stays intact; barrier is telemetry only.
-  assert decision.allowed
-  assert decision.hard_block is False
-  assert decision.fitted_targets_pips == (30, 50, 70)
-  assert decision.effective_target_pips == pytest.approx(70)
-  assert decision.reason_code == "opposing_barrier_room_below_cost_ignored"
+  # raw = 0.05 → 0.5 pips < cost floor. Neither invent a 1-pip TP nor
+  # publish the full ladder into untradeable room.
+  assert decision.allowed is False
+  assert decision.hard_block is True
+  assert decision.fitted_targets_pips is None or decision.fitted_targets_pips == ()
+  assert decision.effective_target_pips is None
+  assert decision.reason_code == "opposing_barrier_room_below_cost"
+
+
+def test_fe023_trendline_sell_into_demand_hard_blocks_below_cost_room():
+  """Live 2026-08-06 08:30 UTC: Trendline Reaction SELL fe023dd8 published
+  with opposing demand high 4267.8, planned entry 4268.24, usable_room=0,
+  effective_target=200 via opposing_barrier_room_below_cost_ignored.
+  Below-cost room must hard-kill.
+  """
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=4268.24,
+    candidate_entry_low=4267.44782,
+    candidate_entry_high=4270.39503,
+    configured_target_pips=(30, 60, 90, 120, 200),
+    actionable_entries=(
+      _entry(
+        "buy",
+        4263.765714285714,
+        4267.8,
+        tier="major",
+        tags=("flip", "demand", "FVG", "breakout-retest"),
+      ),
+    ),
+    atr=4.53,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+  )
+  assert decision.allowed is False
+  assert decision.hard_block is True
+  assert decision.reason_code == "opposing_barrier_room_below_cost"
+  assert decision.measured["usable_room_pips"] == pytest.approx(0.0)
+  assert decision.measured["barrier_usable_room_below_cost"] is True
 
 
 def test_counter_bias_reaction_is_observed_when_disabled():
@@ -774,8 +838,8 @@ def test_equal_opposing_observations_remain_raw_but_both_are_not_actionable():
 
 
 def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
-  """Executable overlap keeps contested telemetry; both sides can remain
-  actionable now that tiny buffered room no longer invents a hard TP gate.
+  """Executable overlap keeps contested telemetry. BUY into a near major
+  supply with below-cost room hard-gates; SELL can still remain actionable.
   """
   buy = _result("BUY", 4100.0, 4101.0, quality=4)
   sell = _result("SELL", 4100.0, 4101.0, quality=2)
@@ -799,14 +863,12 @@ def test_confluence_margin_never_picks_a_side_out_of_a_contested_corridor():
   }
   assert "contested_corridor" in reasons
   assert resolution.conflicts[0]["outcome"] == "contested_corridor"
+  assert "opposing_barrier_room_below_cost" in reasons
+  assert {item.direction for item in resolution.actionable} == {"SELL"}
   assert any(
-    decision.reason_code in {
-      "opposing_barrier_room_below_cost_ignored",
-      "opposing_barrier_room_ignored_full_ladder",
-    }
-    for _item, decision in resolution.decisions
+    item.direction == "BUY" and decision.reason_code == "opposing_barrier_room_below_cost"
+    for item, decision in resolution.gated
   )
-  assert {item.direction for item in resolution.actionable} >= {"BUY", "SELL"}
 
 
 def test_distant_map_room_does_not_rescue_an_overlapping_pair():
@@ -1158,7 +1220,6 @@ def test_structural_band_overlap_without_planned_entry_keeps_full_ladder():
   assert decision.reason_code in {
     "opposing_barrier_full_ladder_fits",
     "opposing_barrier_room_ignored_full_ladder",
-    "opposing_barrier_room_below_cost_ignored",
   }
 
 
@@ -1461,15 +1522,13 @@ def test_no_displacement_still_blocks_as_before():
     cfg=_cfg(displacement_lookback_bars=3),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
+  assert resolution.actionable == ()
+  assert len(resolution.gated) == 1
   reasons = {decision.reason_code for _item, decision in resolution.decisions}
-  # Deep overlap used to hard-gate on execution_cost after trim; owner
-  # ladder is kept. True containment still hard-blocks in other cases.
+  # Deep overlap / tiny buffered room hard-gates below the cost floor.
+  # True containment / overlap still hard-blocks in other cases.
   assert reasons & {
-    "opposing_barrier_room_below_cost_ignored",
-    "opposing_barrier_room_ignored_full_ladder",
-    "opposing_barrier_full_ladder_fits",
+    "opposing_barrier_room_below_cost",
     "opposing_entry_contained",
     "opposing_entry_overlap",
   }
@@ -1506,11 +1565,14 @@ def test_displacement_override_disabled_by_default_lookback_zero():
     cfg=_cfg(),
   )
 
-  assert len(resolution.actionable) == 1
-  assert resolution.gated == ()
-  # Lookback 0 disables displacement; trim may still leave an actionable
-  # edge with the full owner ladder rather than inventing a tiny TP gate.
-  assert resolution.actionable[0].target_cap_pips == pytest.approx(70.0)
+  assert resolution.actionable == ()
+  assert resolution.gated
+  # Lookback 0 disables displacement; below-cost barrier room still hard-kills.
+  assert resolution.gated[0][1].reason_code in {
+    "opposing_barrier_room_below_cost",
+    "opposing_entry_contained",
+    "opposing_entry_overlap",
+  }
 
 
 def test_empty_market_map_is_valid_and_unavailable_map_retains_candidate():
