@@ -36,7 +36,9 @@ public sealed class RedisBarSinkTests
     var sink = new RedisBarSink(redis, windowMax: 2, channel: "bars:new");
 
     await sink.WriteSpotAsync(new SpotPrice("XAU", 4082.10m, 4082.30m, 100), CancellationToken.None);
+    // Same wall-clock window — dropped by 250ms throttle.
     await sink.WriteSpotAsync(new SpotPrice("XAU", 4082.20m, 4082.40m, 100), CancellationToken.None);
+    await Task.Delay(260);
     await sink.WriteSpotAsync(new SpotPrice("XAU", 4082.50m, 4082.70m, 101), CancellationToken.None);
 
     Assert.Equal(2, redis.StringWrites.Count);
@@ -44,6 +46,8 @@ public sealed class RedisBarSinkTests
       """{"bid":4082.50,"ask":4082.70,"ts":101}""",
       redis.Strings[RedisBarSink.SpotKey("XAU")]
     );
+    Assert.Equal(2, redis.Published.Count(item => item.Channel == "spots:new"));
+    Assert.Equal(("spots:new", "XAU:101"), redis.Published[^1]);
   }
 
   [Fact]
