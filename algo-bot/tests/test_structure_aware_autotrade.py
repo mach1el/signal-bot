@@ -240,7 +240,8 @@ def test_quality_tiers_and_risk_multipliers():
   assert risk_multiplier_for_tier("B") == 0.5
   assert risk_multiplier_for_tier("A", post_impulse=True) == 0.5
   assert risk_multiplier_for_tier("A", range_scalp=True) == 2.0
-  assert risk_multiplier_for_tier("B", range_scalp=True) == 0.5
+  assert risk_multiplier_for_tier("B", range_scalp=True) == 2.0
+  assert risk_multiplier_for_tier("C", range_scalp=True) == 2.0
 
 
 def _match(

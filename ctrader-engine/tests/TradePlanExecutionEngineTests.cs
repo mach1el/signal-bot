@@ -211,7 +211,7 @@ public sealed class TradePlanExecutionEngineTests
   public void CalculateVolumeUsesEquityTableIgnoringRiskPercent()
   {
     // RiskPercent=1 on a ~63-pip stop at equity 1300 would yield ~0.02 lots
-    // under the old risk path; equity_table must produce 0.11 lots instead.
+    // under the old risk path; equity_table must produce table lots instead.
     var plan = MarketWatchPlan() with
     {
       Risk = new TradePlanRisk(1.0m, 1.0m, 100_000, 2.0m),
@@ -221,9 +221,28 @@ public sealed class TradePlanExecutionEngineTests
       plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    Assert.Equal(1_100, result.TotalVolume);
+    Assert.Equal(1_200, result.TotalVolume); // LotsForEquity(1300)=0.12
     Assert.Empty(result.Slices);
     Assert.NotEqual(300, result.TotalVolume);
+  }
+
+  [Fact]
+  public void CalculateVolumeScalesEquityTableByRiskMultiplier()
+  {
+    // Owner: scalp stamps risk_multiplier=2 → 2× equity-table lots.
+    // Stop geometry is unchanged; volume only.
+    var plan = MarketWatchPlan() with
+    {
+      Risk = new TradePlanRisk(1.0m, 2.0m, 100_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(800m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    // LotsForEquity(800)=0.10 → ×2 = 0.20 lots → 2000 volume units.
+    Assert.Equal(2_000, result.TotalVolume);
+    Assert.Empty(result.Slices);
   }
 
   [Fact]
