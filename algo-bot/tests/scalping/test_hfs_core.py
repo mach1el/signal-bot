@@ -18,6 +18,7 @@ from app.scalping.lifecycle import transition
 from app.scalping.microstructure import (
   detect_breakout_retest,
   detect_impulse_pullback,
+  detect_momentum_ignition,
   detect_sweep_reclaim,
   build_micro_structure,
 )
@@ -145,12 +146,14 @@ def test_asia_permits_full_archetype_set():
   from app.scalping.models import (
     ARCHETYPE_BREAKOUT_RETEST,
     ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_MOMENTUM_CHASE,
     ARCHETYPE_RANGE_SWEEP,
   )
   assert permitted_archetypes_for_session("asia") == (
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_MOMENTUM_CHASE,
   )
   assert permitted_archetypes_for_session("rollover") == ()
 
@@ -607,3 +610,120 @@ def test_scalp_target_always_matches_stop_1to1():
     direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=None,
     min_net=15.0, pip_size=0.1,
   ) is None
+
+
+def _thrust_bars(*, direction: str, bars: int = 5, step: float = 2.0, start: float = 4110.0):
+  """A straight, uninterrupted run -- no pullback, no basing, still fresh
+  extremes on the last bar. Mirrors the live production chart (XAU 06 Aug
+  2026 ~12:25-13:15 UTC) that impulse_pullback correctly reported as
+  not_matched because there was no retracement yet to measure.
+  """
+  rows = []
+  index = []
+  price = start
+  for i in range(bars):
+    if direction == "SELL":
+      o, c = price, price - step
+      h, low = o + 0.2, c - 0.2
+    else:
+      o, c = price, price + step
+      h, low = c + 0.2, o - 0.2
+    rows.append({"open": o, "high": h, "low": low, "close": c, "volume": 1.0})
+    index.append(pd.Timestamp(1_780_000_000 + i * 60, unit="s", tz="UTC"))
+    price = c
+  return pd.DataFrame(rows, index=index)
+
+
+def test_momentum_ignition_detects_live_sell_thrust():
+  # 5 straight bearish bars, 10 price units of displacement against a 1.0
+  # ATR (10x the 1.2x floor) -- exactly the "not_matched" scenario from
+  # production, now caught instead of waited out.
+  df = _thrust_bars(direction="SELL")
+  ev = detect_momentum_ignition(df, direction="SELL", atr=1.0)
+  assert ev is not None
+  assert ev["pattern"] == "momentum_ignition"
+  assert ev["direction"] == "SELL"
+  assert ev["directional_bars"] == 5
+  assert ev["displacement_atr"] == pytest.approx(10.0)
+  assert ev["extreme"] == pytest.approx(4110.2)  # highest high, for the stop
+  assert ev["close"] == pytest.approx(4100.0)
+
+
+def test_momentum_ignition_detects_live_buy_thrust():
+  df = _thrust_bars(direction="BUY", start=4090.0)
+  ev = detect_momentum_ignition(df, direction="BUY", atr=1.0)
+  assert ev is not None
+  assert ev["direction"] == "BUY"
+  assert ev["extreme"] == pytest.approx(4089.8)  # lowest low, for the stop
+
+
+def test_momentum_ignition_rejects_insufficient_displacement():
+  # Same shape, but a much larger ATR means 10 units of displacement no
+  # longer clears the 1.2x floor.
+  df = _thrust_bars(direction="SELL")
+  assert detect_momentum_ignition(df, direction="SELL", atr=50.0) is None
+
+
+def test_momentum_ignition_rejects_mixed_direction():
+  df = _thrust_bars(direction="SELL")
+  # Flip two of five bars bullish -- only 3 directional bars, under the
+  # 4-of-5 floor.
+  close_col = df.columns.get_loc("close")
+  df.iloc[1, close_col] = df.iloc[1]["open"] + 0.5
+  df.iloc[2, close_col] = df.iloc[2]["open"] + 0.5
+  assert detect_momentum_ignition(df, direction="SELL", atr=1.0) is None
+
+
+def test_momentum_ignition_rejects_when_stalling():
+  # Last bar no longer makes a fresh low -- momentum has paused, which is
+  # exactly the retracement impulse_pullback is waiting for, not this one.
+  df = _thrust_bars(direction="SELL")
+  last = df.index[-1]
+  df.loc[last, "low"] = df["low"].iloc[:-1].min() + 0.5
+  ev = detect_momentum_ignition(df, direction="SELL", atr=1.0)
+  assert ev is not None
+  assert ev.get("rejected") is True
+  assert ev["reason"] == "momentum_stalling"
+
+
+def test_discover_momentum_chase_builds_1to1_opportunity():
+  from app.scalping.strategies import discover_momentum_chase
+
+  df = _thrust_bars(direction="SELL")
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-momentum",
+    symbol="XAU",
+    created_at=1_780_000_300,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_000_300,
+    htf_bias="down",
+    m5_structure="bearish",
+    regime="trend",
+    dealing_range_low=4000.0,
+    dealing_range_high=4200.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=None,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=("momentum_chase",),
+    atr=1.0,
+  )
+  opps = discover_momentum_chase(
+    ctx, None, df, _cfg(), pip_size=0.1, now=1_780_000_300,
+  )
+  assert len(opps) == 1
+  opp = opps[0]
+  assert opp.archetype == "momentum_chase"
+  assert opp.direction == "SELL"
+  # 1:1 -- same rule as every other archetype after the owner's directive.
+  assert opp.expected_target_pips == opp.expected_stop_pips
+  assert opp.expected_reward_risk == pytest.approx(1.0)
