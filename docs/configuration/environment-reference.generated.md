@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `b0a3ca16a1778122fb54947fce11ac5d2507a8da0fef8ebbffa2c76ffec1999d`
+- Contract fingerprint: `c0fd91bd1019c6f00c3a9ad5e5aecb5ba5a7d913f7f7e3eaf99bf6c9eec9e5a2`
 - Environment-bound fields: `423`
 - Deprecated aliases: `21`
 
@@ -129,11 +129,11 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_RANGE_TP_BUFFER_PIPS` | `execution.range.tp_buffer_pips` | `float` | no | yes | — | `3.0` |
 | `AUTO_TRADE_RANGE_TWO_SIDED_ENABLED` | `strategies.range_reversion.two_sided_enabled` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_REACTION_ENABLED` | `strategies.reaction.enabled` | `bool` | no | yes | — | `True` |
-| `AUTO_TRADE_REACTION_MARKET_FRACTION` | `execution.reaction.market_fraction` | `float` | no | yes | — | `0.7` |
-| `AUTO_TRADE_REACTION_ROOM_STOP_FLOOR_PIPS` | `execution.stops.reaction.room_floor_pips` | `int` | no | no | — | `20` |
+| `AUTO_TRADE_REACTION_MARKET_FRACTION` | `execution.reaction.market_fraction` | `float` | no | yes | — | `0.8` |
+| `AUTO_TRADE_REACTION_ROOM_STOP_FLOOR_PIPS` | `execution.stops.reaction.room_floor_pips` | `int` | no | no | — | `40` |
 | `AUTO_TRADE_REACTION_ROOM_STOP_MIN_RR` | `execution.reaction.room_stop_min_rr` | `float` | no | no | — | `1.0` |
 | `AUTO_TRADE_REACTION_SCALE_ENABLED` | `strategies.reaction.scale_enabled` | `bool` | no | yes | — | `False` |
-| `AUTO_TRADE_REACTION_SCALE_FRACTION` | `execution.reaction.scale_fraction` | `float` | no | yes | — | `0.3` |
+| `AUTO_TRADE_REACTION_SCALE_FRACTION` | `execution.reaction.scale_fraction` | `float` | no | yes | — | `0.2` |
 | `AUTO_TRADE_REACTION_SCALE_INVALID_POLICY` | `execution.reaction.scale_invalid_policy` | `str` | no | yes | — | `single_market` |
 | `AUTO_TRADE_REACTION_SCALE_STEP_ATR` | `execution.reaction.scale_step_atr` | `float` | no | yes | — | `0.5` |
 | `AUTO_TRADE_REACTION_STOP_MAX_PIPS` | `execution.reaction.stop_max_pips` | `int` | no | no | — | `60` |
@@ -197,7 +197,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_ZONE_FILL_TTL_BARS` | `lifecycle.zone.fill_ttl_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_ZONE_RECONCILE_ENABLED` | `actionability.zone_reconciliation.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_ZONE_RECONCILE_MODE` | `actionability.zone_reconciliation.mode` | `str` | no | yes | — | `enforce` |
-| `AUTO_TRADE_ZONE_SCALE_FIRST_LEG_FRACTION` | `execution.zone_scaling.first_leg_fraction` | `float` | no | no | — | `0.7` |
+| `AUTO_TRADE_ZONE_SCALE_FIRST_LEG_FRACTION` | `execution.zone_scaling.first_leg_fraction` | `float` | no | no | — | `0.8` |
 | `AUTO_TRADE_ZONE_SCALE_STEP_ATR` | `execution.zone_scaling.scale_step_atr` | `float` | no | no | — | `0.5` |
 | `AUTO_TRADE_ZONE_SCALE_UNDERSIZED_POLICY` | `execution.zone_scaling.scale_undersized_policy` | `str` | no | yes | — | `single_entry` |
 | `BARS_CHANNEL` | `market_data.ctrader_feed.bars_channel` | `string` | no | yes | — | `bars:new` |
@@ -267,7 +267,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
-| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `5.0` |
+| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `15.0` |
 | `HFS_MAXIMUM_CONCURRENT_POSITIONS` | `strategies.high_frequency_scalp.risk.maximum_concurrent_positions` | `int` | no | no | — | `1` |
 | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `int` | no | no | — | `3` |
 | `HFS_MAXIMUM_DAILY_TRADES` | `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `int` | no | no | — | `30` |
