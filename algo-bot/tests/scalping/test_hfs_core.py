@@ -357,7 +357,7 @@ def test_activation_blocks_buy_in_premium():
   assert decision.hard_block is True
 
 
-def test_activation_chases_momentum_within_15_pips():
+def test_activation_chases_momentum_within_chase_budget():
   """Price past zone high must chase, not wait as quote_outside_zone."""
   ctx = ScalpContextSnapshot(
     version=CONTEXT_VERSION,
@@ -412,7 +412,7 @@ def test_activation_chases_momentum_within_15_pips():
     expires_at=200,
   )
   cfg = _cfg()
-  cfg.strategies.high_frequency_scalp.activation.maximum_chase_pips = 15.0
+  cfg.strategies.high_frequency_scalp.activation.maximum_chase_pips = 100.0
   # 10 pips above zone high — used to soft-wait forever; must chase.
   decision = evaluate_scalp_activation(
     opp,
@@ -431,8 +431,8 @@ def test_activation_chases_momentum_within_15_pips():
   missed = evaluate_scalp_activation(
     opp,
     ctx,
-    quote_bid=4014.4,
-    quote_ask=4014.5,  # 25 pips above zone → miss
+    quote_bid=4022.9,
+    quote_ask=4023.0,  # 110 pips above zone → miss past 100
     quote_ts=100,
     now=100,
     pip_size=0.1,

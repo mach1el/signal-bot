@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `c0fd91bd1019c6f00c3a9ad5e5aecb5ba5a7d913f7f7e3eaf99bf6c9eec9e5a2`
+- Contract fingerprint: `255a32b9588b6c661c8466fa29e1b1c2b3a249e9bb6a483337169cb03ed170ce`
 - Environment-bound fields: `423`
 - Deprecated aliases: `21`
 
@@ -267,7 +267,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
-| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `15.0` |
+| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `100.0` |
 | `HFS_MAXIMUM_CONCURRENT_POSITIONS` | `strategies.high_frequency_scalp.risk.maximum_concurrent_positions` | `int` | no | no | — | `1` |
 | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `int` | no | no | — | `3` |
 | `HFS_MAXIMUM_DAILY_TRADES` | `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `int` | no | no | — | `30` |

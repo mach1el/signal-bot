@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `c0fd91bd1019c6f00c3a9ad5e5aecb5ba5a7d913f7f7e3eaf99bf6c9eec9e5a2`
-- Document fingerprint: `2943c157bb6953029c918d6cbfa726dc79d3d5df456abfe6cb43059439d7f4ea`
+- Contract fingerprint: `255a32b9588b6c661c8466fa29e1b1c2b3a249e9bb6a483337169cb03ed170ce`
+- Document fingerprint: `eb1d4b52b8a137ea7bcd0a218e8da3c3d82c59332aba5e22b70ce43d5a376f79`
 - Items: `490`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -469,7 +469,7 @@
 | `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
 | `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
 | `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
-| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `15.0` |
+| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `100.0` |
 | `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
