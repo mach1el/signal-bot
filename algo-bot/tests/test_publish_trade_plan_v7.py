@@ -170,6 +170,7 @@ async def _publish_nonreaction_after_m1(
 
 def _m1_trigger_bar(
   *, entry_low: float = 4088.10, entry_high: float = 4090.00,
+  wick_depth: float = 2.0,
 ) -> pd.DataFrame:
   # A wick_rejection bar for a BUY setup: wicks below the zone then closes
   # back above it, lower-wick fraction well past the default 0.5 threshold.
@@ -184,7 +185,7 @@ def _m1_trigger_bar(
   return pd.DataFrame({
     "open": [entry_high - 1.0],
     "high": [entry_high + 0.5],
-    "low": [entry_low - 2.0],
+    "low": [entry_low - wick_depth],
     "close": [entry_high + 0.3],
     "volume": [500.0],
   }, index=index)
@@ -1190,7 +1191,11 @@ async def test_range_edge_scalp_publishes_inside_opposing_structure():
     "XAU",
     spot,
     match,
-    frames={"M1": _m1_trigger_bar()},
+    # Scalp tiers now halve the pip envelope to offset 2x volume sizing
+    # (owner 2026-08-06, same-dollar-risk fix); the default 2.0-price-unit
+    # wick would exceed the new smaller cap and fail on an unrelated wick
+    # check. This is still a real wick-rejection bar, just sized to fit.
+    frames={"M1": _m1_trigger_bar(wick_depth=1.2)},
     market_map=market_map,
   )
 
@@ -1249,10 +1254,12 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
     "XAU",
     spot,
     match,
-    frames={"M1": _m1_trigger_bar()},
+    # See test_range_edge_scalp_publishes_inside_opposing_structure: HFS's
+    # halved scalp envelope needs a shallower wick to avoid an unrelated
+    # stop_exceeds_envelope_after_wick rejection.
+    frames={"M1": _m1_trigger_bar(wick_depth=1.2)},
     market_map=market_map,
   )
-
   assert plan_id is not None
   plan = await read_trade_plan(client, plan_id)
   assert plan is not None
