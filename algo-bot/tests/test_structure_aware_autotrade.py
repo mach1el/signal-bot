@@ -237,7 +237,9 @@ def test_quality_tiers_and_risk_multipliers():
     confluence=2, strategy="Range Edge Scalp", one_sided=True,
   ) == "B"
   assert classify_tier(confluence=0, strategy="Fade Scalp") == "C"
-  assert risk_multiplier_for_tier("B") == 0.5
+  assert risk_multiplier_for_tier("B") == 1.0
+  assert risk_multiplier_for_tier("A") == 1.0
+  assert risk_multiplier_for_tier("C") == 1.0
   assert risk_multiplier_for_tier("A", post_impulse=True) == 0.5
   assert risk_multiplier_for_tier("A", range_scalp=True) == 2.0
   assert risk_multiplier_for_tier("B", range_scalp=True) == 2.0
