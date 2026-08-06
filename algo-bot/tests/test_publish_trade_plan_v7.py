@@ -323,6 +323,38 @@ async def test_nonreaction_setup_publishes_with_optional_m1_stop_anchor():
 
 
 @pytest.mark.asyncio
+async def test_publish_ensures_root_card_regardless_of_which_path_called_it(
+  monkeypatch,
+):
+  # Regression: HFS's own publish attempt logging status=remained_watching
+  # does not mean the plan stays unpublished -- this cycle's own
+  # arbitration independently re-discovers the same persisted match and
+  # can publish it moments later on a completely separate call path that
+  # never touches HFS's own wrapper. Live 2026-08-06: a real fill with no
+  # root card, confirmed via prod logs to have published on exactly that
+  # second path. ensure_plan_published_root_card() must run from inside
+  # _publish_trade_plan_v7 itself -- the one function every publish route
+  # funnels through -- not from any one caller's wrapper.
+  client = redis_state.get_client()
+  match = _match()
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1)
+  ensure_card = AsyncMock(return_value=999)
+  monkeypatch.setattr(
+    "app.autotrade.setup_card.ensure_plan_published_root_card", ensure_card,
+  )
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
+  )
+
+  assert plan_id is not None
+  ensure_card.assert_awaited_once()
+  called_match = ensure_card.await_args.args[1]
+  assert called_match.match_id == match.match_id
+
+
+@pytest.mark.asyncio
 async def test_nonreaction_setup_publishes_in_zone_without_m1():
   client = redis_state.get_client()
   match = _match(
