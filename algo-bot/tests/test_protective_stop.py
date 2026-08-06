@@ -455,13 +455,13 @@ def test_stop_bounds_for_reaction_room_pins_and_caps():
     primary_tp_pips=18,
     pip_size=0.1,
     cfg=cfg,
-  )[:2] == (40, 40)  # owner reaction floor, not legacy room_floor 20
+  )[:2] == (40, 60)  # owner floor 40, hard cap stays 60 (not collapsed)
   assert stop_bounds_for_reaction_room(
     strategy="Key Level Reaction",
     primary_tp_pips=30,
     pip_size=0.1,
     cfg=cfg,
-  )[:2] == (40, 40)  # TP-30 must not produce a 30-pip SL
+  )[:2] == (40, 60)  # TP-30 must not produce a 30-pip SL
   assert stop_bounds_for_reaction_room(
     strategy="Key Level Reaction",
     primary_tp_pips=90,
@@ -644,28 +644,54 @@ def test_group_stop_floors_every_planned_leg_not_just_weighted():
   assert plan.final_stop_pips == far / Decimal("0.1")
 
 
-def test_group_stop_rejects_when_leg_span_cannot_fit_envelope():
+def test_group_stop_prefers_near_leg_floor_over_far_leg_cap():
   from app.autotrade.protective_stop import plan_group_protective_stop
 
-  # Live Key Level geometry: ~46 pip L1–L2 span cannot put every leg inside
-  # a 40–60 shared stop without stranding the near leg under the floor.
-  with pytest.raises(
-    ProtectiveStopError, match="stop_leg_span_exceeds_envelope",
-  ) as exc:
-    plan_group_protective_stop(
-      direction="BUY",
-      entry_zone_low="4252.20",
-      entry_zone_high="4256.84",
-      planned_leg_prices=("4252.20", "4256.84"),
-      resolved_leg_volumes=("0.04", "0.02"),
-      structure_swing="4251.56",
-      atr="1",
-      structure_buffer_atr="0.0",
-      sweep_extreme=None,
-      wick_buffer_atr="0.15",
-      minimum_stop_pips=40,
-      maximum_stop_pips=60,
-      pip_size="0.1",
-      digits=2,
-    )
-  assert exc.value.measured["stop_reject_detail"] == "leg_span_exceeds_envelope"
+  # Live Trend Pullback 2026-08-06: stop sat 40p under zone-high / key and
+  # only ~23p under weighted fill. Prefer near-leg ≥40 even if far leg >60.
+  plan = plan_group_protective_stop(
+    direction="BUY",
+    entry_zone_low="4260.19",
+    entry_zone_high="4262.66",
+    planned_leg_prices=("4260.19", "4262.66"),
+    resolved_leg_volumes=("0.02", "0.04"),
+    structure_swing="4258.66",
+    atr="1",
+    structure_buffer_atr="0.0",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  near = (Decimal("4260.19") - plan.final_stop_price) / Decimal("0.1")
+  far = (Decimal("4262.66") - plan.final_stop_price) / Decimal("0.1")
+  assert near >= Decimal("40")
+  assert far > Decimal("60")  # soft cap — floor wins
+  assert plan.final_stop_price <= Decimal("4256.19")
+
+
+def test_group_stop_rejects_when_leg_span_cannot_fit_envelope():
+  # Kept name for history — wide spans no longer hard-reject; they expand.
+  from app.autotrade.protective_stop import plan_group_protective_stop
+
+  plan = plan_group_protective_stop(
+    direction="BUY",
+    entry_zone_low="4252.20",
+    entry_zone_high="4256.84",
+    planned_leg_prices=("4252.20", "4256.84"),
+    resolved_leg_volumes=("0.04", "0.02"),
+    structure_swing="4251.56",
+    atr="1",
+    structure_buffer_atr="0.0",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  near = (Decimal("4252.20") - plan.final_stop_price) / Decimal("0.1")
+  assert near >= Decimal("40")
+  assert (Decimal("4256.84") - plan.final_stop_price) / Decimal("0.1") > Decimal("60")
