@@ -635,6 +635,81 @@ async def test_inside_authoritative_reaction_admits_and_publishes(
   assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
 
 
+def _hfs_eligibility(match: StrategyMatch) -> ExecutionEligibility:
+  return ExecutionEligibility(
+    version=EXECUTION_ELIGIBILITY_VERSION,
+    allowed=True,
+    state=STATIC_ELIGIBLE,
+    reason_code="hfs_scalp_eligible",
+    message="HFS scalp opportunity is executable by construction",
+    hard_block=False,
+    direction=match.direction,
+    entry_low=match.entry_low,
+    entry_high=match.entry_high,
+    planned_entry_price=match.current_price,
+    calculated_at=int(time.time()),
+  )
+
+
+@pytest.mark.asyncio
+async def test_hfs_match_without_eligibility_is_admission_rejected(monkeypatch):
+  # Reproduces the production incident: every HFS opportunity (strategy_mode
+  # "hfs_scalp", routed through the generic source="scanner_strategy_match"
+  # intent branch, exempted only for "mapped_zone_reaction") was built with
+  # execution_eligibility=None -- the classic scanner.py detection path is
+  # the only thing that ever populates it. 34 of 55 live HFS publishes on
+  # 2026-08-06 died to exactly this before ever reaching a stop/target check.
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="hfs-preflight-missing",
+    thesis_id="hfs-preflight-missing-thesis",
+    strategy="HFS impulse_pullback",
+    strategy_mode="hfs_scalp",
+    execution_eligibility=None,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4038.51, ts=int(time.time()), fresh=True, bid=4038.41, ask=4038.61,
+  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  intent = _intent_for_match(match)
+
+  failure = await worker._admit_strategy_intent_for_cycle(
+    client, intent, match, spot=spot,
+    regime=RegimeInfo("trend", "down", 3, 1.0, True, None, ("test",)),
+    htf_zones=[], htf_levels=[],
+  )
+  assert failure is not None
+  assert failure.reason_code == "static_eligibility_missing"
+
+
+@pytest.mark.asyncio
+async def test_hfs_match_with_eligibility_is_admitted(monkeypatch):
+  client = redis_state.get_client()
+  match = _reaction_match(
+    match_id="hfs-preflight-eligible",
+    thesis_id="hfs-preflight-eligible-thesis",
+    strategy="HFS impulse_pullback",
+    strategy_mode="hfs_scalp",
+  )
+  match = replace(match, execution_eligibility=_hfs_eligibility(match))
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4038.51, ts=int(time.time()), fresh=True, bid=4038.41, ask=4038.61,
+  )
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
+  intent = _intent_for_match(match)
+
+  failure = await worker._admit_strategy_intent_for_cycle(
+    client, intent, match, spot=spot,
+    regime=RegimeInfo("trend", "down", 3, 1.0, True, None, ("test",)),
+    htf_zones=[], htf_levels=[],
+  )
+  assert failure is None
+
+
 @pytest.mark.asyncio
 async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
   client = redis_state.get_client()
