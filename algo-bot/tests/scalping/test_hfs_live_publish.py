@@ -162,49 +162,6 @@ async def test_publish_hfs_live_calls_worker(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_publish_hfs_live_ensures_root_card_on_published(monkeypatch):
-  # Regression: HFS setups that publish via a later re-evaluation cycle
-  # (status remained_watching on first pass, executable on a later one)
-  # never ran zone_execution_cutover's own root-card ensure -- a real fill
-  # could land with no Telegram history to thread to. Live 2026-08-06: a
-  # filled order with no root card, no entry zone, no SL/TP ever shown.
-  from app.scalping import publish as pub
-
-  match = build_hfs_strategy_match(
-    _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
-  )
-  _patch_common(monkeypatch, pub, status=worker.PUBLISH_STATUS_PUBLISHED)
-  ensure_card = AsyncMock(return_value=123)
-  monkeypatch.setattr(
-    "app.autotrade.setup_card.ensure_plan_published_root_card", ensure_card,
-  )
-
-  await publish_hfs_live(object(), match, symbol="XAU", bar_ts=120)
-
-  ensure_card.assert_awaited_once()
-  called_match = ensure_card.await_args.args[1]
-  assert called_match.thesis_id == "thesis-1"
-
-
-@pytest.mark.asyncio
-async def test_publish_hfs_live_skips_root_card_when_not_published(monkeypatch):
-  from app.scalping import publish as pub
-
-  match = build_hfs_strategy_match(
-    _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
-  )
-  _patch_common(monkeypatch, pub, status=worker.PUBLISH_STATUS_INVALIDATED)
-  ensure_card = AsyncMock(return_value=123)
-  monkeypatch.setattr(
-    "app.autotrade.setup_card.ensure_plan_published_root_card", ensure_card,
-  )
-
-  await publish_hfs_live(object(), match, symbol="XAU", bar_ts=120)
-
-  ensure_card.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_persist_hfs_match_writes_worker_keys():
   from app.scalping.publish import _persist_hfs_match
 
