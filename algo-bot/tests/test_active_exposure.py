@@ -35,6 +35,29 @@ def test_opposing_blocks_when_absolute_distance_too_near():
   assert decision.measured["price_distance"] == pytest.approx(2.27)
 
 
+def test_scalp_ignores_opposing_active_when_fitted_room():
+  """Owner: active opposite position does not block scalp with min room."""
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4051.93,
+    exposures=[
+      ActiveExposure(
+        direction="SELL",
+        entry_price=4054.20,
+        source="v7_plan",
+        plan_id="sell-active",
+      )
+    ],
+    min_price_separation=15.0,
+    ignore_opposing_active=True,
+  )
+  assert decision.block is False
+  assert decision.reason_code == "opposing_active_too_close_ignored_scalp"
+  assert decision.measured is not None
+  assert decision.measured["ignore_opposing_active"] is True
+  assert decision.measured["preference_telemetry"] is True
+
+
 def test_opposing_allows_when_far_enough():
   decision = evaluate_entry_against_exposure(
     direction="BUY",

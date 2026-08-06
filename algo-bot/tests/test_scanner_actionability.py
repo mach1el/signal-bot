@@ -196,9 +196,8 @@ def test_buy_under_overlapping_sell_major_hard_blocks_below_cost_room(
 
 
 def test_scalp_keeps_ladder_when_room_fits_swing_hard_blocks_when_below_cost():
-  """Scalp uses a tighter barrier buffer so positive usable room still
-  publishes the full ladder. Swing with ATR buffer collapses to below
-  cost and hard-kills.
+  """Scalp ignores HTF opposing discovery geometry once detector min room
+  already cleared. Swing with ATR buffer collapses to below cost and hard-kills.
   """
   market_map = _map(
     _entry("sell", 4045.60, 4050.0, tier="major"),
@@ -228,6 +227,10 @@ def test_scalp_keeps_ladder_when_room_fits_swing_hard_blocks_when_below_cost():
   assert len(scalp_resolution.actionable) == 1
   assert scalp_resolution.actionable[0].setup == "Range Edge Scalp"
   assert scalp_resolution.gated == ()
+  assert not any(
+    decision.reason_code == "opposing_barrier_room_below_cost"
+    for _item, decision in scalp_resolution.decisions
+  )
 
   swing = _result(
     "BUY",
@@ -248,6 +251,38 @@ def test_scalp_keeps_ladder_when_room_fits_swing_hard_blocks_when_below_cost():
   assert swing_resolution.actionable == ()
   assert swing_resolution.gated[0][1].reason_code == (
     "opposing_barrier_room_below_cost"
+  )
+
+
+def test_scalp_not_hard_killed_by_zero_usable_htf_opposing_room():
+  """Range Edge near HTF demand/supply with usable HTF room=0 still goes —
+  native range min room is the gate, not HTF opposing distance.
+  """
+  scalp = _result(
+    "SELL",
+    4267.8,
+    4270.4,
+    setup="Range Edge Scalp",
+    current_price=4268.24,
+  )
+  market_map = _map(
+    _entry("buy", 4263.76, 4267.8, tier="major"),
+    price=4268.24,
+  )
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[scalp],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="up"),
+    atr=4.53,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
+  assert not any(
+    decision.reason_code == "opposing_barrier_room_below_cost"
+    for _item, decision in resolution.decisions
   )
 
 
