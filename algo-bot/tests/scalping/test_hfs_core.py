@@ -140,8 +140,17 @@ def test_context_freshness():
   assert not is_context_fresh(snap, snap.m5_bar_ts + 1000, 420)
 
 
-def test_asia_permits_only_range_sweep():
-  assert permitted_archetypes_for_session("asia") == (ARCHETYPE_RANGE_SWEEP,)
+def test_asia_permits_full_archetype_set():
+  from app.scalping.models import (
+    ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_RANGE_SWEEP,
+  )
+  assert permitted_archetypes_for_session("asia") == (
+    ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_BREAKOUT_RETEST,
+  )
   assert permitted_archetypes_for_session("rollover") == ()
 
 
@@ -159,6 +168,38 @@ def test_lower_edge_sweep_reclaim():
   hit = detect_sweep_reclaim(df, direction="BUY", edge_price=4000.0, tolerance=1.0)
   assert hit is not None
   assert hit["pattern"] == "sweep_reclaim"
+
+
+def test_edge_touch_reclaim_counts_without_piercing_below():
+  # Wick exactly to the edge (not through) used to return None forever.
+  idx = pd.date_range("2026-07-01 10:00", periods=2, freq="1min", tz="UTC")
+  df = pd.DataFrame([
+    {"open": 4010, "high": 4012, "low": 4008, "close": 4009, "volume": 1},
+    {"open": 4001, "high": 4005, "low": 4000.0, "close": 4004, "volume": 1},
+  ], index=idx)
+  hit = detect_sweep_reclaim(
+    df, direction="BUY", edge_price=4000.0, tolerance=1.0, lookback_bars=1,
+  )
+  assert hit is not None
+  assert hit["extreme"] == 4000.0
+
+
+def test_sweep_reclaim_lookback_picks_prior_bar():
+  idx = pd.date_range("2026-07-01 10:00", periods=3, freq="1min", tz="UTC")
+  df = pd.DataFrame([
+    {"open": 4010, "high": 4012, "low": 4008, "close": 4011, "volume": 1},
+    {"open": 3998, "high": 4005, "low": 3995, "close": 4002, "volume": 1},
+    # Newest is mid-range noise — no edge touch within tolerance.
+    {"open": 4005, "high": 4008, "low": 4004, "close": 4007, "volume": 1},
+  ], index=idx)
+  assert detect_sweep_reclaim(
+    df, direction="BUY", edge_price=4000.0, tolerance=1.0, lookback_bars=1,
+  ) is None
+  hit = detect_sweep_reclaim(
+    df, direction="BUY", edge_price=4000.0, tolerance=1.0, lookback_bars=2,
+  )
+  assert hit is not None
+  assert hit["bar_ts"] == int(idx[1].timestamp())
 
 
 def test_shallow_pullback_blocks():
