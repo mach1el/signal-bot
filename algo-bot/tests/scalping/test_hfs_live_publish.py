@@ -92,6 +92,22 @@ def test_build_hfs_strategy_match_is_valid():
   assert _valid_match(match)
 
 
+def test_build_hfs_strategy_match_carries_execution_eligibility():
+  # Regression: strategy_mode="hfs_scalp" routes through the generic
+  # source="scanner_strategy_match" intent branch in worker.py (only
+  # "mapped_zone_reaction" is exempt), and that branch hard-rejects any
+  # match whose execution_eligibility is None as static_eligibility_missing.
+  # HFS never runs the classic scanner.py detection path that normally
+  # populates it, so every HFS opportunity died here unconditionally --
+  # 34 of 55 live HFS publishes in production on 2026-08-06.
+  match = build_hfs_strategy_match(
+    _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.execution_eligibility is not None
+  assert match.execution_eligibility.allowed is True
+  assert match.execution_eligibility.direction == "BUY"
+
+
 @pytest.mark.asyncio
 async def test_publish_hfs_live_calls_worker(monkeypatch):
   from app.scalping import publish as pub
