@@ -265,6 +265,59 @@ async def test_do_cancel_falls_through_when_algo_and_still_requested(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_do_delete_cancels_broker_order_when_algo_and_pending(monkeypatch):
+  # Real production bug: /trade_delete on a still-pending algo-manual
+  # signal only wiped the Postgres row and channel posts, leaving the
+  # broker-side resting limit order live with nothing left tracking it.
+  rec = await _algo_signal()
+  await store.set_execution_intent(
+    rec["id"], intent_id="manual:x:3", status="requested", revision=0,
+  )
+  await store.set_execution_status(rec["id"], "pending")
+  request_cancel = AsyncMock()
+  monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
+
+  result = await trade_ops.do_delete({"sid": rec["id"], "symbol": "XAU"})
+
+  request_cancel.assert_awaited_once_with("manual:x:3")
+  assert result["ok"] is True
+  assert await store.get_manual_signal(rec["id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_do_delete_does_not_cancel_when_algo_and_already_filled(monkeypatch):
+  # A filled position is an open position, not a resting order - there is
+  # nothing left to cancel. /trade_close is the right verb for that; the
+  # real broker position must stay untouched by /trade_delete.
+  rec = await _algo_signal()
+  await store.set_execution_fill(
+    rec["id"], broker_position_id=555, broker_fill_price=4100.0,
+  )
+  request_cancel = AsyncMock()
+  monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
+
+  result = await trade_ops.do_delete({"sid": rec["id"], "symbol": "XAU"})
+
+  request_cancel.assert_not_awaited()
+  assert result["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_do_delete_non_algo_does_not_attempt_broker_cancel(monkeypatch):
+  await store.init_db()
+  rec = await store.store_manual_signal(
+    1, "BUY", 2000.0, 2002.0, 1990.0, [2010.0, 2020.0],
+  )
+  request_cancel = AsyncMock()
+  monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
+
+  result = await trade_ops.do_delete({"sid": rec["id"], "symbol": "XAU"})
+
+  request_cancel.assert_not_awaited()
+  assert result["ok"] is True
+
+
+@pytest.mark.asyncio
 async def test_do_close_falls_through_for_errored_algo_signal(monkeypatch):
   rec = await _algo_signal()
   await store.set_execution_status(rec["id"], "error", error="boom")
