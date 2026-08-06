@@ -246,6 +246,27 @@ def test_quality_tiers_and_risk_multipliers():
   assert risk_multiplier_for_tier("C", range_scalp=True) == 2.0
 
 
+def test_evaluate_ignores_stale_tier_b_half_size_stamp():
+  """ZoneWatch candidates can still hold pre-fix risk_multiplier=0.5."""
+  from app.autotrade.execution_policy import evaluate_execution_policy
+
+  stale = replace(
+    _match("Trend Pullback", "BUY", 4270.0, 4272.0, confluence=2),
+    tier="B",
+    risk_multiplier=0.5,
+    targets_pips=(30, 60, 90, 120, 200),
+  )
+  result = evaluate_execution_policy(
+    stale,
+    spot_price=4271.0,
+    regime="trend",
+    pip_size=0.1,
+  )
+  assert result.measured["stamped_risk_multiplier"] == 0.5
+  assert result.measured["match_risk_multiplier"] == 1.0
+  assert result.measured["effective_risk_multiplier"] == 1.0
+
+
 def _match(
   strategy: str,
   direction: str,
