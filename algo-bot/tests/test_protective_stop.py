@@ -317,7 +317,8 @@ def test_reward_risk_accepts_near_entry_structure_after_minimum_clamp():
 
 
 def test_reaction_family_room_synced_stop_tracks_primary_tp():
-  # Near-entry structure clamps to the room-synced envelope (not forced 40).
+  # Room sync still pins to primary TP, but never below the owner 40–60
+  # reaction envelope (live: floor-20 + TP-30 produced a 30-pip SL).
   thin = evaluate_execution_policy(
     _policy_subject(
       strategy="Key Level Reaction",
@@ -351,8 +352,8 @@ def test_reaction_family_room_synced_stop_tracks_primary_tp():
 
   assert thin.measured["stop_bounds_source"] == "reaction_room"
   assert thin.measured["primary_tp_pips"] == 25.0
-  assert thin.measured["desired_stop_pips"] == 25
-  assert thin.measured["planned_stop_pips"] == "25.0"
+  assert thin.measured["desired_stop_pips"] == 40
+  assert thin.measured["planned_stop_pips"] == "40.0"
 
   assert mid.measured["stop_bounds_source"] == "reaction_room"
   assert mid.measured["desired_stop_pips"] == 50
@@ -425,6 +426,8 @@ def test_stop_bounds_for_reaction_room_pins_and_caps():
   cfg = execution_cfg(
     auto_trade_trend_stop_min_pips=40,
     auto_trade_trend_stop_max_pips=60,
+    auto_trade_reaction_stop_min_pips=40,
+    auto_trade_reaction_stop_max_pips=60,
     auto_trade_reaction_room_stop_min_rr=1.0,
     auto_trade_reaction_room_stop_floor_pips=20,
   )
@@ -452,7 +455,13 @@ def test_stop_bounds_for_reaction_room_pins_and_caps():
     primary_tp_pips=18,
     pip_size=0.1,
     cfg=cfg,
-  )[:2] == (20, 20)  # floor
+  )[:2] == (40, 40)  # owner reaction floor, not legacy room_floor 20
+  assert stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=30,
+    pip_size=0.1,
+    cfg=cfg,
+  )[:2] == (40, 40)  # TP-30 must not produce a 30-pip SL
   assert stop_bounds_for_reaction_room(
     strategy="Key Level Reaction",
     primary_tp_pips=90,
