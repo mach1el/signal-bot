@@ -613,3 +613,59 @@ def test_group_structural_stop_beyond_max_clamps_to_envelope():
   # Raw structural/clearance would have been well outside the envelope.
   assert (plan.raw_stop_price - plan.entry_price) / Decimal("0.1") > Decimal("60")
   assert plan.final_stop_price < plan.raw_stop_price
+
+
+def test_group_stop_floors_every_planned_leg_not_just_weighted():
+  from app.autotrade.protective_stop import plan_group_protective_stop
+
+  # Narrow leg span (10 pips) so 40–60 can fit. Structural stop would leave
+  # the near leg ~30 pips away while weighted sits mid — floor expands until
+  # the nearest leg clears 40.
+  plan = plan_group_protective_stop(
+    direction="BUY",
+    entry_zone_low="4252.00",
+    entry_zone_high="4253.00",
+    planned_leg_prices=("4252.00", "4253.00"),
+    resolved_leg_volumes=("0.04", "0.02"),
+    structure_swing="4250.00",
+    atr="1",
+    structure_buffer_atr="0.1",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  near = Decimal("4252.00") - plan.final_stop_price
+  far = Decimal("4253.00") - plan.final_stop_price
+  assert near / Decimal("0.1") >= Decimal("40")
+  assert far / Decimal("0.1") <= Decimal("60")
+  assert plan.final_stop_pips == far / Decimal("0.1")
+
+
+def test_group_stop_rejects_when_leg_span_cannot_fit_envelope():
+  from app.autotrade.protective_stop import plan_group_protective_stop
+
+  # Live Key Level geometry: ~46 pip L1–L2 span cannot put every leg inside
+  # a 40–60 shared stop without stranding the near leg under the floor.
+  with pytest.raises(
+    ProtectiveStopError, match="stop_leg_span_exceeds_envelope",
+  ) as exc:
+    plan_group_protective_stop(
+      direction="BUY",
+      entry_zone_low="4252.20",
+      entry_zone_high="4256.84",
+      planned_leg_prices=("4252.20", "4256.84"),
+      resolved_leg_volumes=("0.04", "0.02"),
+      structure_swing="4251.56",
+      atr="1",
+      structure_buffer_atr="0.0",
+      sweep_extreme=None,
+      wick_buffer_atr="0.15",
+      minimum_stop_pips=40,
+      maximum_stop_pips=60,
+      pip_size="0.1",
+      digits=2,
+    )
+  assert exc.value.measured["stop_reject_detail"] == "leg_span_exceeds_envelope"
