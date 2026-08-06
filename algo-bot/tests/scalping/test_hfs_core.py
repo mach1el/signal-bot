@@ -21,6 +21,7 @@ from app.scalping.microstructure import (
   detect_momentum_ignition,
   detect_sweep_reclaim,
   build_micro_structure,
+  macro_momentum_direction,
 )
 from app.scalping.models import (
   ARCHETYPE_IMPULSE_PULLBACK,
@@ -727,3 +728,108 @@ def test_discover_momentum_chase_builds_1to1_opportunity():
   # 1:1 -- same rule as every other archetype after the owner's directive.
   assert opp.expected_target_pips == opp.expected_stop_pips
   assert opp.expected_reward_risk == pytest.approx(1.0)
+
+
+def _drift_bars(*, direction: str, bars: int = 60, step: float = 0.7, start: float = 4230.0):
+  """A wide, gentle net drift -- mimics a real reclaim: not every bar is
+  directional (unlike _thrust_bars), the NET displacement over the whole
+  window is what matters here.
+  """
+  rows = []
+  index = []
+  price = start
+  sign = 1.0 if direction == "BUY" else -1.0
+  for i in range(bars):
+    wiggle = 0.3 if i % 3 == 0 else -0.15  # net still trends, not monotonic
+    o = price
+    c = price + sign * step + sign * wiggle
+    h = max(o, c) + 0.2
+    low = min(o, c) - 0.2
+    rows.append({"open": o, "high": h, "low": low, "close": c, "volume": 1.0})
+    index.append(pd.Timestamp(1_780_000_000 + i * 60, unit="s", tz="UTC"))
+    price = c
+  return pd.DataFrame(rows, index=index)
+
+
+def test_macro_momentum_direction_detects_buy_bias():
+  df = _drift_bars(direction="BUY")
+  assert macro_momentum_direction(df, atr=8.0) == "BUY"
+
+
+def test_macro_momentum_direction_detects_sell_bias():
+  df = _drift_bars(direction="SELL")
+  assert macro_momentum_direction(df, atr=8.0) == "SELL"
+
+
+def test_macro_momentum_direction_none_when_insufficient_bars():
+  df = _drift_bars(direction="BUY", bars=40)
+  assert macro_momentum_direction(df, atr=8.0, lookback_bars=60) is None
+
+
+def test_macro_momentum_direction_none_when_displacement_too_small():
+  df = _drift_bars(direction="BUY", step=0.05)
+  assert macro_momentum_direction(df, atr=8.0) is None
+
+
+def test_impulse_pullback_vetoes_sell_against_fresh_reclaim(monkeypatch):
+  # Regression, live 2026-08-06: an impulse_pullback SELL faded the "top"
+  # of a range whose own high was the pre-crash level -- price was
+  # mid-reclaim of a flash crash under an hour old, with the freshest,
+  # strongest momentum on the chart still running against the SELL.
+  # detect_impulse_pullback's own lookback (30 bars) never saw the move
+  # that made that level matter; this proves the wider veto now does.
+  from app.scalping.strategies import discover_impulse_pullback
+
+  local_sell_match = {
+    "pattern": "impulse_pullback",
+    "direction": "SELL",
+    "bar_ts": 1_780_003_600,
+    "origin": 4270.0,
+    "extreme": 4230.0,
+    "retracement": 0.5,
+    "preferred": True,
+    "close": 4250.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: local_sell_match if direction == "SELL" else None,
+  )
+
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-reclaim",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="unknown",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=4230.0,
+    dealing_range_high=4274.0,
+    dealing_range_position=0.95,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=None,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=("impulse_pullback",),
+    atr=8.0,
+  )
+
+  # A wide BUY reclaim is still fresh -> the local SELL match is vetoed.
+  reclaiming = _drift_bars(direction="BUY")
+  vetoed = discover_impulse_pullback(ctx, None, reclaiming, _cfg(), pip_size=0.1, now=1_780_003_600)
+  assert vetoed == []
+
+  # No macro drift at all -> the same local match is allowed through.
+  flat = _drift_bars(direction="BUY", step=0.0)
+  allowed = discover_impulse_pullback(ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600)
+  assert len(allowed) == 1
+  assert allowed[0].direction == "SELL"
