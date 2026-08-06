@@ -124,6 +124,16 @@ def test_apply_forming_card_price_updates_live_line():
   assert setup_card.parse_forming_card_price_now(text) == pytest.approx(4269.55)
 
 
+def test_should_stop_forming_price_track_after_activation():
+  waiting = "🔎 <b>XAU M5 · SETUP FORMING</b>\n🟢 <b>PLAN PUBLISHED</b>"
+  filled = "✅ <b>POSITION ACTIVATED · XAU M5</b>\n🟢 <b>ORDER FILLED</b>"
+  assert setup_card.should_stop_forming_price_track(waiting) is False
+  assert setup_card.should_stop_forming_price_track(filled) is True
+  assert setup_card.should_stop_forming_price_track(
+    waiting, status_state="order_filled",
+  ) is True
+
+
 @pytest.mark.asyncio
 async def test_edit_forming_card_price_skips_tiny_move():
   client = redis_state.get_client()
