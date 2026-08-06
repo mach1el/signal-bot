@@ -583,36 +583,33 @@ def test_sell_group_stop_clears_zone_high_and_uses_weighted_reference():
   assert Decimal("40") <= plan.final_stop_pips <= Decimal("60")
 
 
-def test_group_structural_stop_beyond_max_rejects_without_inward_clamp():
+def test_group_structural_stop_beyond_max_clamps_to_envelope():
   from app.autotrade.protective_stop import plan_group_protective_stop
 
-  with pytest.raises(ProtectiveStopError, match="stop_exceeds_max_envelope") as exc:
-    plan_group_protective_stop(
-      direction="SELL",
-      entry_zone_low="4097.07",
-      entry_zone_high="4101.03",
-      planned_leg_prices=("4098.50", "4100.50"),
-      resolved_leg_volumes=("0.08", "0.03"),
-      structure_swing="4110.00",
-      atr="1",
-      structure_buffer_atr="0.3",
-      sweep_extreme=None,
-      wick_buffer_atr="0.15",
-      minimum_stop_pips=40,
-      maximum_stop_pips=60,
-      pip_size="0.1",
-      digits=2,
-    )
+  # Owner directive 2026-08-06: do not fail-closed when structural/clearance
+  # distance exceeds the max envelope. Clamp to max (same as single-leg
+  # structure-stop path) so a ready plan still publishes. Live incident
+  # lost a Key Level Reaction BUY to a 0.02-pip post-floor overshoot.
+  plan = plan_group_protective_stop(
+    direction="SELL",
+    entry_zone_low="4097.07",
+    entry_zone_high="4101.03",
+    planned_leg_prices=("4098.50", "4100.50"),
+    resolved_leg_volumes=("0.08", "0.03"),
+    structure_swing="4110.00",
+    atr="1",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
 
-  # Regression: this rejection used to reach worker.py's "v7 plan build
-  # rejected" log line with every diagnostic field (stop_detail, base_stop,
-  # max_pips, over_envelope_pips) blank, making production incidents
-  # undiagnosable. It must now carry the same rich `measured` contract as
-  # the opposing-zone reject path.
-  measured = exc.value.measured
-  assert measured["stop_reject_detail"] == "raw_distance_exceeds_max"
-  assert measured["stop_max_envelope_pips"] == 60
-  assert Decimal(measured["raw_stop_pips"]) > Decimal("60")
-  assert Decimal(measured["pushed_over_envelope_pips"]) > 0
-  assert measured["planned_base_stop_price"] is not None
-  assert measured["structure_swing"] == "4110.00"
+  assert plan.clamped is True
+  assert plan.final_stop_pips <= Decimal("60")
+  assert plan.final_stop_pips >= Decimal("40")
+  # Raw structural/clearance would have been well outside the envelope.
+  assert (plan.raw_stop_price - plan.entry_price) / Decimal("0.1") > Decimal("60")
+  assert plan.final_stop_price < plan.raw_stop_price

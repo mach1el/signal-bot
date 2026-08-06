@@ -161,6 +161,26 @@ def test_lower_edge_sweep_reclaim():
   assert hit["pattern"] == "sweep_reclaim"
 
 
+def test_sweep_reclaim_lookback_picks_prior_bar():
+  # Reclaim on bar -2; newest bar is noise. Activation allows age=2 bars so
+  # discovery must recover the prior reclaim instead of reporting discovered=0.
+  idx = pd.date_range("2026-07-01 10:00", periods=3, freq="1min", tz="UTC")
+  df = pd.DataFrame([
+    {"open": 4010, "high": 4012, "low": 4008, "close": 4011, "volume": 1},
+    {"open": 3998, "high": 4005, "low": 3995, "close": 4002, "volume": 1},
+    {"open": 4002, "high": 4004, "low": 4001, "close": 4003, "volume": 1},
+  ], index=idx)
+  miss = detect_sweep_reclaim(
+    df, direction="BUY", edge_price=4000.0, tolerance=1.0, lookback_bars=1,
+  )
+  assert miss is None
+  hit = detect_sweep_reclaim(
+    df, direction="BUY", edge_price=4000.0, tolerance=1.0, lookback_bars=2,
+  )
+  assert hit is not None
+  assert hit["bar_ts"] == int(idx[1].timestamp())
+
+
 def test_shallow_pullback_blocks():
   idx = pd.date_range("2026-07-01 10:00", periods=20, freq="1min", tz="UTC")
   closes = list(range(4000, 4020))
@@ -356,3 +376,14 @@ def test_aggregate_report_expectancy():
   assert report["count"] == 2
   assert report["win_rate"] == 0.5
   assert report["expectancy_r"] == pytest.approx(0.1)
+
+
+def test_hfs_stop_clamps_into_envelope_instead_of_dropping():
+  from app.scalping.strategies import _stop_pips
+
+  cfg = _cfg()
+  # Deep wick used to return None → silent discovered=0.
+  assert _stop_pips(structural=42.0, cfg=cfg) == 30.0
+  assert _stop_pips(structural=8.0, cfg=cfg) == 12.0
+  assert _stop_pips(structural=18.0, cfg=cfg) == 18.0
+  assert _stop_pips(structural=0.0, cfg=cfg) is None
