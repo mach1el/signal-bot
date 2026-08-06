@@ -714,7 +714,7 @@ async def test_tp_booked_does_not_overwrite_forming_card_head(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_order_filled_stores_manage_keys_and_second_fill_edits(monkeypatch):
+async def test_order_filled_stores_manage_keys_and_second_fill_replaces(monkeypatch):
   client = redis_state.get_client()
   setup_id = "manage-fill-setup"
   await client.set(
@@ -731,16 +731,24 @@ async def test_order_filled_stores_manage_keys_and_second_fill_edits(monkeypatch
     ex=60,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
+  next_id = {"n": 8123}
 
   async def sent(text, **kwargs):
-    calls.append((text, kwargs))
-    return SimpleNamespace(message_id=8123)
+    mid = next_id["n"]
+    next_id["n"] += 1
+    calls.append((text, kwargs, mid))
+    return SimpleNamespace(message_id=mid)
 
   await delivery._deliver_auto_trade_event(
     client,
@@ -772,15 +780,18 @@ async def test_order_filled_stores_manage_keys_and_second_fill_edits(monkeypatch
     chat_id=123,
     send=sent,
   )
-  assert len(calls) == 1  # second fill edits, does not send
-  manage_edits = [e for e in edited if e[1] == 8123]
-  assert manage_edits
-  assert "FULLY FILLED" in manage_edits[-1][2]
+  assert deleted == [(123, 8123)]
+  assert len(calls) == 2  # second fill deletes old + posts new
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "8124"
+  assert "FULLY FILLED" in calls[1][0]
+  assert calls[1][1]["reply_to"] == 7001
+  # Root card may be edited for POSITION ACTIVATED; manage msg itself is never edited.
+  assert all(e[1] != 8123 for e in edited)
 
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
+async def test_tp_booked_replaces_manage_reply_accumulates_lines(monkeypatch):
   client = redis_state.get_client()
   setup_id = "manage-tp-setup"
   await client.set(
@@ -805,16 +816,24 @@ async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
     client, setup_id, message_id=8123, text=fill_body,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
+  next_id = {"n": 9001}
 
   async def sent(text, **kwargs):
-    calls.append((text, kwargs))
-    return SimpleNamespace(message_id=9999)
+    mid = next_id["n"]
+    next_id["n"] += 1
+    calls.append((text, kwargs, mid))
+    return SimpleNamespace(message_id=mid)
 
   for target, price, pips in (("TP1", 4029.98, 41.0), ("TP2", 4010.0, 60.0)):
     await delivery._deliver_auto_trade_event(
@@ -833,13 +852,14 @@ async def test_tp_booked_edits_manage_reply_accumulates_lines(monkeypatch):
       send=sent,
     )
 
-  assert calls == []
-  manage_edits = [e for e in edited if e[1] == 8123]
-  assert len(manage_edits) == 2
-  final = manage_edits[-1][2]
+  assert deleted == [(123, 8123), (123, 9001)]
+  assert len(calls) == 2
+  final = calls[-1][0]
   assert "✅ <b>ORDER FILLED</b>" in final
   assert "🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
   assert "🎯 TP2 · 💰 Fill: 4010.00 · ✅ Achieved: +60.0 pips" in final
+  assert calls[-1][1]["reply_to"] == 7001
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "9002"
   head_edits = [e for e in edited if e[1] == 7001]
   assert head_edits == []
 
@@ -870,16 +890,21 @@ async def test_sl_moved_be_updates_manage_reply_not_head(monkeypatch):
     client, setup_id, message_id=8123, text=fill_body,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
     calls.append((text, kwargs))
-    return SimpleNamespace(message_id=1)
+    return SimpleNamespace(message_id=9001)
 
   await delivery._deliver_auto_trade_event(
     client,
@@ -895,11 +920,12 @@ async def test_sl_moved_be_updates_manage_reply_not_head(monkeypatch):
     send=sent,
   )
 
-  assert calls == []
-  manage_edits = [e for e in edited if e[1] == 8123]
-  assert manage_edits
-  assert "BE" in manage_edits[0][2]
-  assert "4034.99" in manage_edits[0][2]
+  assert deleted == [(123, 8123)]
+  assert len(calls) == 1
+  assert calls[0][1]["reply_to"] == 7001
+  assert "BE" in calls[0][0]
+  assert "4034.99" in calls[0][0]
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "9001"
   head_edits = [e for e in edited if e[1] == 7001]
   assert head_edits == []
 
@@ -931,16 +957,21 @@ async def test_sl_moved_trail_updates_manage_reply_not_head(monkeypatch):
     client, setup_id, message_id=8124, text=fill_body,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
     calls.append((text, kwargs))
-    return SimpleNamespace(message_id=1)
+    return SimpleNamespace(message_id=9002)
 
   await delivery._deliver_auto_trade_event(
     client,
@@ -956,19 +987,19 @@ async def test_sl_moved_trail_updates_manage_reply_not_head(monkeypatch):
     send=sent,
   )
 
-  assert calls == []
-  manage_edits = [e for e in edited if e[1] == 8124]
-  assert manage_edits
-  assert "Trail" in manage_edits[0][2]
-  assert "4070.31" in manage_edits[0][2]
-  assert "🔐" not in manage_edits[0][2]
+  assert deleted == [(123, 8124)]
+  assert len(calls) == 1
+  assert "Trail" in calls[0][0]
+  assert "4070.31" in calls[0][0]
+  assert "🔐" not in calls[0][0]
+  assert calls[0][1]["reply_to"] == 7001
   head_edits = [e for e in edited if e[1] == 7001]
   assert head_edits == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
+async def test_position_closed_replaces_manage_reply_under_card(monkeypatch):
   client = redis_state.get_client()
   setup_id = "manage-close-setup"
   await client.set(
@@ -990,11 +1021,16 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
     client, setup_id, message_id=8123, text=fill_body,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
@@ -1016,10 +1052,10 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
     send=sent,
   )
 
-  assert calls == []
-  manage_edits = [e for e in edited if e[1] == 8123]
-  assert manage_edits
-  final = manage_edits[-1][2]
+  assert deleted == [(123, 8123)]
+  assert len(calls) == 1
+  final = calls[0][0]
+  assert calls[0][1]["reply_to"] == 7001
   assert "✅ <b>ORDER FILLED</b>" in final
   assert "🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
   assert "🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in final
@@ -1027,6 +1063,7 @@ async def test_position_closed_edits_manage_reply_under_card(monkeypatch):
   assert "@ 4106.00" in final
   assert "• @ 4106.00" not in final
   assert "Highest TP archived" not in final
+  assert await client.get(delivery._manage_msg_key(setup_id)) == "9001"
 
 
 @pytest.mark.asyncio
@@ -1054,11 +1091,16 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
     client, setup_id, message_id=8123, text=fill_body,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
@@ -1080,16 +1122,16 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
     send=sent,
   )
 
-  assert calls == []
-  manage_edits = [e for e in edited if e[1] == 8123]
-  assert manage_edits
-  final = manage_edits[-1][2]
+  assert deleted == [(123, 8123)]
+  assert len(calls) == 1
+  final = calls[0][0]
   assert "🎯 TP1 · 💰 Fill: 4029.98 · ✅ Achieved: +41.0 pips" in final
   assert "🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
   # Root SETUP FORMING card is left alone on close.
   assert all(e[1] != 7001 for e in edited)
+  assert all(d[1] != 7001 for d in deleted)
 
 
 @pytest.mark.asyncio
@@ -1391,16 +1433,24 @@ async def test_stop_moved_and_position_closed_also_thread_to_forming_card(
     ex=60,
   )
   edited = []
+  deleted = []
 
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
+  next_id = {"n": 8124}
 
   async def sent(text, **kwargs):
-    calls.append((text, kwargs))
-    return SimpleNamespace(message_id=8124)
+    mid = next_id["n"]
+    next_id["n"] += 1
+    calls.append((text, kwargs, mid))
+    return SimpleNamespace(message_id=mid)
 
   await delivery._deliver_auto_trade_event(
     client,
@@ -1427,12 +1477,15 @@ async def test_stop_moved_and_position_closed_also_thread_to_forming_card(
     send=sent,
   )
 
-  # BE/trail seeds the manage reply; close edits that same reply under the card.
-  assert len(calls) == 1
+  # BE/trail seeds manage reply; close deletes it and posts an updated reply.
+  assert len(calls) == 2
   assert calls[0][1]["reply_to"] == 7001
   assert "BE" in calls[0][0] or "Trail" in calls[0][0] or "Stop" in calls[0][0]
-  assert edited
-  assert any("POSITION CLOSED" in text for _, _, text in edited)
+  assert deleted == [(123, 8124)]
+  assert calls[1][1]["reply_to"] == 7001
+  assert "POSITION CLOSED" in calls[1][0]
+  # Root forming card itself is never deleted here.
+  assert all(d[1] != 7001 for d in deleted)
 
 
 @pytest.mark.asyncio

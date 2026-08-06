@@ -921,6 +921,7 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
 
   calls = []
   edited = []
+  deleted = []
 
   async def sent(text, **kwargs):
     calls.append((text, kwargs))
@@ -929,7 +930,11 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
   async def fake_edit(chat_id, message_id, text):
     edited.append((chat_id, message_id, text))
 
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
   monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
 
   for event in (
     {
@@ -962,20 +967,21 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
       send=sent,
     )
 
-  # TP creates the manage reply; BE/trail edits manage only; close edits manage.
-  assert len(calls) == 1
-  assert calls[0][1]["reply_to"] == 6060
+  # TP creates manage reply; BE/trail and close each delete+repost under root.
+  assert len(calls) == 3
+  assert all(c[1]["reply_to"] == 6060 for c in calls)
   assert "🎯" in calls[0][0] and "TP1" in calls[0][0]
-  close_edits = [text for _, _mid, text in edited if "POSITION CLOSED" in text]
-  assert close_edits
-  assert "TP3" in close_edits[-1] or "+81.0" in close_edits[-1]
+  assert any("BE" in text or "Trail" in text or "Stop" in text for text, _ in calls)
+  assert "POSITION CLOSED" in calls[-1][0]
+  assert "TP3" in calls[-1][0] or "+81.0" in calls[-1][0]
+  assert deleted == [(123, 7001), (123, 7002)]
+  # Root forming card itself is never deleted here.
+  assert all(d[1] != 6060 for d in deleted)
   # Trailing / BE update the manage reply; Trade-area Stop stays as published.
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
   assert "4,044.91" not in card["text"] and "4044.91" not in card["text"]
   assert "🛰️" not in card["text"] and "🔐" not in card["text"]
-  assert any("BE" in text or "Trail" in text or "Stop" in text for _, _, text in edited)
-  assert edited
 
 
 @pytest.mark.asyncio
