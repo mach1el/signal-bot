@@ -569,3 +569,41 @@ def test_hfs_stop_clamps_into_envelope_instead_of_dropping():
   assert _stop_pips(structural=8.0, cfg=cfg) == 12.0
   assert _stop_pips(structural=18.0, cfg=cfg) == 18.0
   assert _stop_pips(structural=0.0, cfg=cfg) is None
+
+
+def test_scalp_target_always_matches_stop_1to1():
+  # Owner 2026-08-06: scalp is a 1:1 gamble -- target distance must equal
+  # stop distance exactly, not whichever ladder level happened to fit.
+  from app.scalping.strategies import _select_target
+
+  buy_price, buy_pips = _select_target(
+    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=18.0,
+    min_net=15.0, pip_size=0.1,
+  )
+  assert buy_pips == 18.0
+  assert buy_price == pytest.approx(4001.8)
+
+  sell_price, sell_pips = _select_target(
+    direction="SELL", entry=4000.0, room_pips=40.0, stop_pips=18.0,
+    min_net=15.0, pip_size=0.1,
+  )
+  assert sell_pips == 18.0
+  assert sell_price == pytest.approx(3998.2)
+
+  # Stop below the minimum net target -> no opportunity, not a bumped-up
+  # target that would break the 1:1 relationship.
+  assert _select_target(
+    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=10.0,
+    min_net=15.0, pip_size=0.1,
+  ) is None
+
+  # Stop wider than available room -> no opportunity, not a trimmed target.
+  assert _select_target(
+    direction="BUY", entry=4000.0, room_pips=15.0, stop_pips=18.0,
+    min_net=15.0, pip_size=0.1,
+  ) is None
+
+  assert _select_target(
+    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=None,
+    min_net=15.0, pip_size=0.1,
+  ) is None
