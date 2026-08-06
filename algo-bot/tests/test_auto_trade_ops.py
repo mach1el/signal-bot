@@ -1910,6 +1910,48 @@ async def test_v7_order_filled_and_position_closed_feed_trade_stats():
 
 
 @pytest.mark.asyncio
+async def test_archived_tp_wins_over_group_realized_pips_when_both_present():
+  """Owner directive: /trade_stats records the highest TP archived, not a
+  volume-weighted blended net - even when the broker also reports a real
+  blended group_realized_pips alongside it (a 4-leg TP1-TP4 close reports
+  both: the true blended net and the highest booked target)."""
+  await store.init_db()
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 10,
+    "position_id": 39760750,
+    "group_id": "v7:archived-vs-net",
+    "candidate_id": "v7:archived-vs-net",
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4270.0,
+    "stop_loss": 4267.0,
+    "volume": 1100,
+    "message": "ENTRY GROUP FULLY FILLED BUY lot=1100 weighted=4270.0",
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 20,
+    "position_id": 39760750,
+    "group_id": "v7:archived-vs-net",
+    "candidate_id": "v7:archived-vs-net",
+    "direction": "BUY",
+    "price": 4287.0,
+    "target_pips": 170,
+    "group_realized_pips": 87.04,
+    "remaining_volume": 0,
+    "message": "PLAN CLOSED · highest TP archived TP4",
+  })
+
+  records = await store.get_pips_records(0, 4_000_000_000)
+  assert len(records) == 1
+  row = records[0]
+  assert row["sign"] == "+"
+  assert row["pips"] == 170  # archived TP4, not the 87.04 blended net
+
+
+@pytest.mark.asyncio
 async def test_terminal_manual_close_uses_broker_fill_before_reconcile_fallback():
   await store.init_db()
   await store.record_auto_trade_event({
