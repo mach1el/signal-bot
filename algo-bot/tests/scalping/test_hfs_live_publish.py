@@ -88,6 +88,9 @@ def test_build_hfs_strategy_match_is_valid():
   assert match.structural_source == "hfs"
   assert match.structural_kind == "demand"
   assert match.direction == "BUY"
+  assert match.full_take_profit_pips == 25
+  assert match.family == "hfs"
+  assert match.strategy_mode == "hfs_scalp"
   assert _identity_ok(match)
   assert _valid_match(match)
 
