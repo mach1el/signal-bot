@@ -104,10 +104,10 @@ async def test_mark_filled_auto_cancels_stale_pending(sql):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-  ("runner_pips", "expected_achieved"),
-  [(90, 90), (-30, 50)],
+  ("runner_pips", "expected_net"),
+  [(90, 70), (-30, 10)],
 )
-async def test_close_leg_uses_achieved_tp_pips(sql, runner_pips, expected_achieved):
+async def test_close_leg_uses_volume_weighted_net_pips(sql, runner_pips, expected_net):
   await store.init_db()
   rec = await store.store_manual_signal(
     1, "BUY", 2000.0, 2002.0, 1990.0, [2010.0],
@@ -120,19 +120,19 @@ async def test_close_leg_uses_achieved_tp_pips(sql, runner_pips, expected_achiev
 
   final = await store.close_leg(rec["id"], runner_pips)
   assert final["closed"] is True
-  assert final["net"] == expected_achieved
+  assert final["net"] == expected_net
 
   row = await sql.row(
     "SELECT status, result_pips, legs FROM manual_signals WHERE id = $1",
     rec["id"],
   )
   assert row["status"] == "closed"
-  assert row["result_pips"] == expected_achieved
+  assert row["result_pips"] == expected_net
   assert len(json.loads(row["legs"])) == 2
 
 
 @pytest.mark.asyncio
-async def test_partial_profit_then_breakeven_stop_preserves_peak_tp():
+async def test_partial_profit_then_breakeven_stop_blends_the_residual_in():
   await store.init_db()
   rec = await store.store_manual_signal(
     1, "SELL", 4026.0, 4029.0, 4034.0, [4023.0, 4017.0],
@@ -143,9 +143,10 @@ async def test_partial_profit_then_breakeven_stop_preserves_peak_tp():
 
   assert partial["remaining"] == pytest.approx(0.5)
   assert final["closed"] is True
-  # Highest TP booked was +90; BE residual must not dilute it to 45.
-  assert final["net"] == 90
-  assert final["net"] != 45
+  # Only half the position ever booked +90; the other half exited at BE,
+  # so the real result is the blend, not the best leg's own level.
+  assert final["net"] == 45
+  assert final["net"] != 90
 
 
 @pytest.mark.asyncio
