@@ -112,6 +112,63 @@ def test_apply_forming_card_stop_does_not_duplicate_existing_stop():
   assert "• <b>Stop:</b> <b>4,039.68</b>" in text
 
 
+def test_apply_forming_card_price_updates_live_line():
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "• <b>Price now:</b> <b>4,268.10</b> <i>(live)</i>",
+    "• <b>Entry zone:</b> <b>4,270.00–4,275.00</b>",
+  ])
+  text = setup_card.apply_forming_card_price(original, 4269.55)
+  assert "• <b>Price now:</b> <b>4,269.55</b> <i>(live)</i>" in text
+  assert setup_card.parse_forming_card_symbol(original) == "XAU"
+  assert setup_card.parse_forming_card_price_now(text) == pytest.approx(4269.55)
+
+
+@pytest.mark.asyncio
+async def test_edit_forming_card_price_skips_tiny_move():
+  client = redis_state.get_client()
+  setup_id = "setup-price-live"
+  await _confirmed_setup(client, setup_id)
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "• <b>Price now:</b> <b>4,268.10</b> <i>(live)</i>",
+  ])
+  await setup_card.save_forming_card(
+    client,
+    setup_id,
+    chat_id=123,
+    message_id=901,
+    text=original,
+  )
+  edits: list[str] = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edits.append(text)
+
+  changed = await setup_card.edit_forming_card_price(
+    client,
+    setup_id,
+    4268.15,
+    edit_fn=edit_fn,
+    min_move=0.1,
+  )
+  assert changed is False
+  assert edits == []
+  changed = await setup_card.edit_forming_card_price(
+    client,
+    setup_id,
+    4268.30,
+    edit_fn=edit_fn,
+    min_move=0.1,
+  )
+  assert changed is True
+  assert edits and "4,268.30" in edits[0]
+  members = await client.smembers(setup_card.FORMING_ACTIVE_INDEX_KEY)
+  assert setup_id.encode() in members or setup_id in {
+    (m.decode() if isinstance(m, bytes) else m) for m in members
+  }
+
+
 @pytest.mark.asyncio
 async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   client = redis_state.get_client()
