@@ -185,6 +185,8 @@ def test_edge_touch_reclaim_counts_without_piercing_below():
 
 
 def test_sweep_reclaim_lookback_picks_prior_bar():
+  # Reclaim on bar -2; newest bar is noise. Activation allows age=2 bars so
+  # discovery must recover the prior reclaim instead of reporting discovered=0.
   idx = pd.date_range("2026-07-01 10:00", periods=3, freq="1min", tz="UTC")
   df = pd.DataFrame([
     {"open": 4010, "high": 4012, "low": 4008, "close": 4011, "volume": 1},
@@ -397,3 +399,14 @@ def test_aggregate_report_expectancy():
   assert report["count"] == 2
   assert report["win_rate"] == 0.5
   assert report["expectancy_r"] == pytest.approx(0.1)
+
+
+def test_hfs_stop_clamps_into_envelope_instead_of_dropping():
+  from app.scalping.strategies import _stop_pips
+
+  cfg = _cfg()
+  # Deep wick used to return None → silent discovered=0.
+  assert _stop_pips(structural=42.0, cfg=cfg) == 30.0
+  assert _stop_pips(structural=8.0, cfg=cfg) == 12.0
+  assert _stop_pips(structural=18.0, cfg=cfg) == 18.0
+  assert _stop_pips(structural=0.0, cfg=cfg) is None
