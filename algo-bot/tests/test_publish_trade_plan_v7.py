@@ -1130,8 +1130,71 @@ async def test_range_edge_scalp_publishes_inside_opposing_structure():
 
 
 @pytest.mark.asyncio
+async def test_hfs_scalp_publishes_inside_opposing_structure():
+  """HFS with fitted native room must ignore HTF opposing containment."""
+  client = redis_state.get_client()
+  match = _match(
+    match_id="match-v7-hfs-opposing",
+    thesis_id="thesis-v7-hfs-opposing",
+    strategy="HFS Range Sweep",
+    strategy_mode="hfs_scalp",
+    direction="BUY",
+    family="hfs",
+    structural_source="hfs",
+    structural_kind="demand",
+    key_level=4089.0,
+    entry_low=4088.10,
+    entry_high=4090.00,
+    current_price=4089.0,
+    targets_pips=(20,),
+    full_take_profit_pips=20,
+    structure_swing=4070.0,
+  )
+  await _confirm_setup(client, match)
+  spot = worker.AutoTradeSpot(
+    price=4089.0,
+    ts=int(time.time()),
+    fresh=True,
+    bid=4088.9,
+    ask=4089.1,
+  )
+  market_map = _market_map(MapEntry(
+    "sell",
+    4089.2,
+    4095.0,
+    4089,
+    4095,
+    "major",
+    ["supply"],
+    13.0,
+  ))
+
+  plan_id = await worker._publish_trade_plan_v7(
+    client,
+    "XAU",
+    spot,
+    match,
+    frames={"M1": _m1_trigger_bar()},
+    market_map=market_map,
+  )
+
+  assert plan_id is not None
+  plan = await read_trade_plan(client, plan_id)
+  assert plan is not None
+  assert plan.analysis.direction == "BUY"
+  rejected = int(
+    await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
+  )
+  assert rejected == 0
+
+
+@pytest.mark.asyncio
 async def test_range_edge_without_target_room_still_hits_opposing():
-  """Scalp opposing bypass requires fitted full_take_profit_pips."""
+  """Scalp opposing bypass requires fitted full_take_profit_pips.
+
+  Planned BUY entry is literally inside opposing supply → hard reject
+  via target-room containment (not soft barrier-ahead telemetry).
+  """
   client = redis_state.get_client()
   match = _match(
     match_id="match-v7-range-edge-no-room",
@@ -1163,9 +1226,9 @@ async def test_range_edge_without_target_room_still_hits_opposing():
   )
   market_map = _market_map(MapEntry(
     "sell",
-    4089.2,
+    4088.0,
     4095.0,
-    4089,
+    4088,
     4095,
     "major",
     ["supply"],

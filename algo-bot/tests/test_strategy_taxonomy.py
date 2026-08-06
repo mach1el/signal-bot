@@ -102,3 +102,51 @@ def test_range_strategies_bypass_opposing_structure_gates():
   assert not bypasses_opposing_structure_gates(
     "Liquidity Sweep", full_take_profit_pips=15,
   )
+
+
+def test_hfs_strategies_bypass_opposing_when_room_fits():
+  from app.autotrade.strategy_taxonomy import (
+    CANONICAL_FAMILY_HFS,
+    HFS_STRATEGIES,
+    is_hfs_strategy,
+    match_bypasses_opposing_structure,
+  )
+
+  for name in HFS_STRATEGIES:
+    assert is_hfs_strategy(name)
+    assert not bypasses_opposing_structure_gates(name)
+    assert bypasses_opposing_structure_gates(name, full_take_profit_pips=20)
+    assert canonical_family(name) == CANONICAL_FAMILY_HFS
+  assert is_hfs_strategy("HFS Custom Archetype")
+  assert bypasses_opposing_structure_gates(
+    "HFS Range Sweep",
+    full_take_profit_pips=15,
+    family="hfs",
+    strategy_mode="hfs_scalp",
+  )
+  # family/mode alone must still require fitted room
+  assert not bypasses_opposing_structure_gates(
+    "Unknown", family="hfs", strategy_mode="hfs_scalp",
+  )
+  assert bypasses_opposing_structure_gates(
+    "Unknown",
+    full_take_profit_pips=20,
+    family="hfs",
+    strategy_mode="hfs_scalp",
+  )
+
+  class _Match:
+    strategy = "HFS Impulse Pullback"
+    full_take_profit_pips = 25
+    family = "hfs"
+    strategy_mode = "hfs_scalp"
+
+  assert match_bypasses_opposing_structure(_Match())
+  assert not match_bypasses_opposing_structure(
+    type("M", (), {
+      "strategy": "HFS Impulse Pullback",
+      "full_take_profit_pips": None,
+      "family": "hfs",
+      "strategy_mode": "hfs_scalp",
+    })(),
+  )
