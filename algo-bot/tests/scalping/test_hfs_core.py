@@ -357,6 +357,91 @@ def test_activation_blocks_buy_in_premium():
   assert decision.hard_block is True
 
 
+def test_activation_chases_momentum_within_chase_budget():
+  """Price past zone high must chase, not wait as quote_outside_zone."""
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="c",
+    symbol="XAU",
+    created_at=100,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=100,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=4000.0,
+    dealing_range_high=4200.0,
+    dealing_range_position=0.25,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=4000.0,
+    nearest_support_high=4002.0,
+    nearest_resistance_low=4098.0,
+    nearest_resistance_high=4100.0,
+    buy_corridor_room_pips=40.0,
+    sell_corridor_room_pips=40.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=5.0,
+  )
+  opp = ScalpOpportunity(
+    version=OPPORTUNITY_VERSION,
+    opportunity_id="chase-o",
+    context_id="c",
+    symbol="XAU",
+    archetype=ARCHETYPE_RANGE_SWEEP,
+    direction="BUY",
+    discovered_at=100,
+    source_bar_ts=100,
+    zone_low=4010.0,
+    zone_high=4012.0,
+    key_level=4011.0,
+    trigger_type="sweep_reclaim",
+    trigger_bar_ts=90,
+    trigger_price=4011.0,
+    invalidation_price=4005.0,
+    expected_target_price=4035.0,
+    expected_target_pips=25,
+    expected_stop_pips=15,
+    expected_reward_risk=1.5,
+    location_position=0.25,
+    score=1.0,
+    reasons=("t",),
+    expires_at=200,
+  )
+  cfg = _cfg()
+  cfg.strategies.high_frequency_scalp.activation.maximum_chase_pips = 100.0
+  # 10 pips above zone high — used to soft-wait forever; must chase.
+  decision = evaluate_scalp_activation(
+    opp,
+    ctx,
+    quote_bid=4012.9,
+    quote_ask=4013.0,
+    quote_ts=100,
+    now=100,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert decision.allowed is True
+  assert decision.measured.get("chase_entry") is True
+  assert decision.measured.get("chase_pips") == pytest.approx(10.0)
+
+  missed = evaluate_scalp_activation(
+    opp,
+    ctx,
+    quote_bid=4022.9,
+    quote_ask=4023.0,  # 110 pips above zone → miss past 100
+    quote_ts=100,
+    now=100,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert missed.allowed is False
+  assert missed.reason_code == "scalp_missed_chase"
+
+
 def test_ranking_prefers_higher_score():
   ctx = ScalpContextSnapshot(
     version=1, context_id="c", symbol="XAU", created_at=1,
