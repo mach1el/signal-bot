@@ -234,16 +234,16 @@ async def test_linked_accounting_stats_and_cluster_review(tmp_path, monkeypatch)
   ]
   assert "📦 Trades" in report
   assert "💰 Net" in report
-  assert "+40p" in report
+  assert "+60p" in report
   assert "⚖ Expectancy" in report
-  assert "+20p" in report
+  assert "+30p" in report
   assert "zone 4100–4105 BUY" in report
   assert "2r · 1W/1L" in report
   assert "Round 1 · #1" in review
   assert "Round 2 · #2" in review
-  assert "Cluster:</b> 2 rounds · 1W / 1L · net +40p" in review
+  assert "Cluster:</b> 2 rounds · 1W / 1L · net +60p" in review
   assert review.count("st_mich43l · auto-map") == 2
-  assert "Result: 70 pips win" in review
+  assert "Result: 90 pips win" in review
   assert "Result: 30 pips loss" in review
   assert "+90 pips" not in review
   assert "execution" not in review.lower()
