@@ -22,6 +22,7 @@ from app.scalping.microstructure import (
   build_micro_structure,
 )
 from app.scalping.models import (
+  ARCHETYPE_IMPULSE_PULLBACK,
   ARCHETYPE_RANGE_SWEEP,
   ARMED,
   DISCOVERED,
@@ -440,6 +441,79 @@ def test_activation_chases_momentum_within_chase_budget():
   )
   assert missed.allowed is False
   assert missed.reason_code == "scalp_missed_chase"
+
+
+def test_activation_allows_one_to_one_room_when_min_net_fits():
+  """Live 2026-08-06 09:08: HFS Impulse Pullback BUY target=30 stop=30 died
+  on scalp_net_rr_insufficient after cost haircut. Min net room is enough.
+  """
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="c",
+    symbol="XAU",
+    created_at=100,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=100,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=4250.0,
+    dealing_range_high=4300.0,
+    dealing_range_position=0.52,
+    active_range_low=4250.0,
+    active_range_high=4285.0,
+    active_range_eq=4267.0,
+    nearest_support_low=4250.0,
+    nearest_support_high=4252.0,
+    nearest_resistance_low=4283.0,
+    nearest_resistance_high=4285.0,
+    buy_corridor_room_pips=40.0,
+    sell_corridor_room_pips=40.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=5.0,
+  )
+  opp = ScalpOpportunity(
+    version=OPPORTUNITY_VERSION,
+    opportunity_id="rr-o",
+    context_id="c",
+    symbol="XAU",
+    archetype=ARCHETYPE_IMPULSE_PULLBACK,
+    direction="BUY",
+    discovered_at=100,
+    source_bar_ts=100,
+    zone_low=4278.42,
+    zone_high=4279.40,
+    key_level=4278.91,
+    trigger_type="impulse_pullback",
+    trigger_bar_ts=90,
+    trigger_price=4278.91,
+    invalidation_price=4270.0,
+    expected_target_price=4281.91,
+    expected_target_pips=30,
+    expected_stop_pips=30,
+    expected_reward_risk=1.0,
+    location_position=0.52,
+    score=1.0,
+    reasons=("impulse_pullback_continuation",),
+    expires_at=200,
+  )
+  decision = evaluate_scalp_activation(
+    opp,
+    ctx,
+    quote_bid=4278.9,
+    quote_ask=4279.0,
+    quote_ts=100,
+    now=100,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "scalp_activation_allowed"
+  assert decision.measured.get("net_rr_below_policy") is True
+  assert decision.measured.get("preference_telemetry") is True
+  assert decision.measured["net_reward_risk"] < 1.10
 
 
 def test_ranking_prefers_higher_score():
