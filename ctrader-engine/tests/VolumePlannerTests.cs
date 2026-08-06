@@ -19,11 +19,14 @@ public sealed class VolumePlannerTests
   [Theory]
   [InlineData(199.99, 0)]
   [InlineData(200, 0.02)]
-  [InlineData(900, 0.06)]
-  [InlineData(1000, 0.09)]
-  [InlineData(1300, 0.11)]
+  [InlineData(599.99, 0.04)]
+  [InlineData(600, 0.10)]
+  [InlineData(900, 0.10)]
+  [InlineData(1000, 0.10)]
+  [InlineData(1000.01, 0.12)]
+  [InlineData(1300, 0.12)]
   [InlineData(1500, 0.12)]
-  [InlineData(1999, 0.15)]
+  [InlineData(1999, 0.12)]
   [InlineData(2000, 0.15)]
   [InlineData(3000, 0.25)]
   [InlineData(4000, 0.28)]
@@ -41,9 +44,9 @@ public sealed class VolumePlannerTests
   }
 
   [Fact]
-  public void LotsForEquityAt1300IsElevenCents()
+  public void LotsForEquityAboveOneThousandIsTwelveCents()
   {
-    Assert.Equal(0.11m, VolumePlanner.LotsForEquity(1_300m));
+    Assert.Equal(0.12m, VolumePlanner.LotsForEquity(1_300m));
   }
 
   [Theory]
@@ -74,7 +77,8 @@ public sealed class VolumePlannerTests
   }
 
   [Theory]
-  [InlineData(999.99, 0.06, 1000, 0.09)]
+  [InlineData(599.99, 0.04, 600, 0.10)]
+  [InlineData(1000, 0.10, 1000.01, 0.12)]
   [InlineData(2999.99, 0.15, 3000, 0.25)]
   public void PreservesIntentionalBoundarySteps(
     double belowEquity,

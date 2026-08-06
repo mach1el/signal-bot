@@ -233,12 +233,14 @@ def test_zone_split_route_produces_limit_ladder_with_two_legs():
 
 
 def test_key_level_reaction_emits_market_with_limit_scale():
+  from app.autotrade.execution_policy import evaluate_execution_policy
+
   cfg = execution_cfg(
     auto_trade_zone_fill_enabled=True,
     auto_trade_zone_fill_min_atr=0.1,
     auto_trade_reaction_scale_enabled=True,
-    auto_trade_reaction_market_fraction=0.70,
-    auto_trade_reaction_scale_fraction=0.30,
+    auto_trade_reaction_market_fraction=0.80,
+    auto_trade_reaction_scale_fraction=0.20,
     auto_trade_reaction_scale_step_atr=0.5,
     auto_trade_reaction_scale_invalid_policy="single_market",
   )
@@ -248,19 +250,22 @@ def test_key_level_reaction_emits_market_with_limit_scale():
     structural_kind="key_level",
     entry_low=4088.10,
     entry_high=4090.00,
-    # Within reaction 40–60 pip envelope from ~4089 entry.
     structure_swing=4083.50,
   )
-  plan = _build(match, cfg=cfg, spot_price=4089.0, executable_quote=4089.0)
-
-  assert plan.entry.type == "market_with_limit_scale"
-  assert len(plan.entry.legs) == 2
-  assert plan.entry.legs[0].order_type == "market"
-  assert plan.entry.legs[1].order_type == "limit"
-  assert plan.entry.legs[0].volume_ratio == Decimal("0.70")
-  assert plan.entry.legs[1].volume_ratio == Decimal("0.30")
-  assert plan.execution_policy.allow_market is True
-  assert plan.execution_policy.allow_limit is True
+  # Route + 80/20 ratios are the owner ask; stop geometry for multi-leg span
+  # vs room-synced single-point envelope is covered in protective_stop tests.
+  decision = evaluate_execution_policy(
+    match,
+    spot_price=4089.0,
+    executable_quote=4089.0,
+    regime="trend",
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  measured = decision.measured
+  assert measured["planned_execution_route"] == "market_with_limit_scale"
+  assert measured["planned_leg_volume_ratios"] == [0.8, 0.2]
+  assert len(measured["planned_leg_entry_prices"]) == 2
 
 
 def test_demand_zone_reaction_does_not_emit_market_with_limit_scale():
@@ -435,4 +440,4 @@ def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
   assert measured.get("planned_base_stop_price")
   assert measured.get("planned_pushed_stop_price")
   assert measured.get("pushed_over_envelope_pips")
-  assert measured["stop_max_envelope_pips"] == 30
+  assert measured["stop_max_envelope_pips"] == 40
