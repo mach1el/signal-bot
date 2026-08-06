@@ -98,6 +98,27 @@ def test_confirmation_policy_is_authoritative_only_with_complete_reaction_eviden
   assert non_reaction.reaction_family is False
   assert non_reaction.m5_authoritative is True
   assert non_reaction.m1_required_on_retest is False
+
+
+def test_configured_m1_body_close_is_authoritative_confirmation():
+  # Live 2026-08-06: scanner emitted body_close with full metadata and the
+  # worker still rejected as confirmation_metadata_missing.
+  for pattern in ("body_close", "strong_close", "pin_bar", "hammer", "engulfing"):
+    policy = confirmation_policy_for(replace(_match(), reaction_type=pattern))
+    assert policy.metadata_valid is True, pattern
+    assert policy.reason_code == "m5_authoritative", pattern
+    assert policy.allow_same_cycle_publish is True, pattern
+
+  non_reaction = confirmation_policy_for(
+    replace(
+      _match(),
+      strategy="Momentum Ride",
+      family="momentum_continuation",
+      reaction_type=None,
+      touch_bar_ts=None,
+      confirmation_bar_ts=None,
+    ),
+  )
   assert non_reaction.allow_same_cycle_publish is True
   assert non_reaction.require_quote_inside_zone is False
   assert non_reaction.reason_code == "momentum_continuation"
