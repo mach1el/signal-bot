@@ -1196,7 +1196,12 @@ public sealed class TradePlanRuntimeTests
   {
     var store = new FakeV7Store();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    // Default $2,000 balance sizes to 300 units, and TP1's 50% share (150)
+    // now falls under the two-step minimum meaningful close (200) - bump
+    // balance so this test keeps proving a genuine partial-close + BE
+    // interaction instead of degenerating into an all-deferred-to-TP2 case
+    // (that behavior has its own dedicated coverage elsewhere).
+    var client = new FakeV7TradingClient { AccountBalance = 3000m };
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
@@ -1208,7 +1213,11 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4096.50m, 4096.55m, 2), CancellationToken.None
     );
 
-    Assert.Single(client.Closes);
+    var tp1Close = Assert.Single(client.Closes);
+    Assert.True(
+      tp1Close.Volume >= 200,
+      $"TP1 booked {tp1Close.Volume} units - expected at least 200 (0.02 lot)"
+    );
     var afterTp1 = Assert.Single(runtime.TrackedStates);
     Assert.Equal(1, afterTp1.NextTargetIndex);
     Assert.True(afterTp1.BreakEvenApplied);
@@ -1390,13 +1399,15 @@ public sealed class TradePlanRuntimeTests
     // whose true % share rounded under it: owner's call - book by the
     // plan's actual declared ratio, always, even on a small partially-
     // filled ladder; never manufacture a close a target didn't earn just
-    // to avoid booking nothing. A target whose share is still under one
-    // step is deferred (Skip(NextTargetIndex).Sum already re-normalizes
-    // the ratio onto whatever targets remain, so a deferred share is never
-    // lost - it accumulates onto later targets' cuts) until either a later
-    // target's cumulative share clears a step or the final target, which
-    // always closes what's left regardless of size (the "keep 0.01 for the
-    // last TP level" floor belongs there, not to every target).
+    // to avoid booking nothing. A target whose share is under the minimum
+    // meaningful close (two broker steps - raised from one after a live
+    // 0.08 lot position kept booking bare single-step TPs) is deferred
+    // (Skip(NextTargetIndex).Sum already re-normalizes the ratio onto
+    // whatever targets remain, so a deferred share is never lost - it
+    // accumulates onto later targets' cuts) until either a later target's
+    // cumulative share clears that bar or the final target, which always
+    // closes what's left regardless of size (the dust floor belongs there,
+    // not to every target).
     var fiveTargets = """
       [
         {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
@@ -1502,10 +1513,11 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(200, Assert.Single(client.MarketOrders).Volume);
     Assert.Equal(4082.50m, Assert.Single(client.StopAmendments).StopLoss);
 
-    // TP1: the raw 20% share (40) rounds below StepVolume (100) - deferred,
-    // nothing closed, no tp_booked event. NextTargetIndex still advances by
-    // exactly one (the level was genuinely touched) - that's what keeps the
-    // trail-stop step below from ever computing off an untouched target.
+    // TP1: the raw 20% share (40) is under the two-step (200) minimum
+    // meaningful close - deferred, nothing closed, no tp_booked event.
+    // NextTargetIndex still advances by exactly one (the level was
+    // genuinely touched) - that's what keeps the trail-stop step below
+    // from ever computing off an untouched target.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
     );
@@ -1521,23 +1533,24 @@ public sealed class TradePlanRuntimeTests
     Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
     Assert.Contains(
       logs, line => line.Contains("v7 target partial deferred")
-        && line.Contains("target=TP1") && line.Contains("reason=share_below_one_step")
+        && line.Contains("target=TP1")
+        && line.Contains("reason=share_below_minimum_meaningful_close")
     );
 
-    // TP2: re-normalized share (200 * 0.2 / 0.8 = 50) still rounds below
-    // StepVolume - deferred again, still nothing closed.
+    // TP2: re-normalized share (200 * 0.2 / 0.8 = 50) still under the
+    // two-step minimum - deferred again, still nothing closed.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
     );
     Assert.Empty(client.Closes);
     Assert.Equal(2, Assert.Single(runtime.TrackedStates).NextTargetIndex);
 
-    // TP3: re-normalized share (200 * 0.2 / 0.6 = 66) still rounds below
-    // StepVolume - deferred a third time. NextTargetIndex now reaches 3,
-    // so the trail-stop step (NextTargetIndex - 3 = 0) fires for the first
-    // time, trailing to TP1's own price - proving the trail step reads a
-    // genuinely-touched target even though none of TP1-TP3 ever booked a
-    // close.
+    // TP3: re-normalized share (200 * 0.2 / 0.6 = 66) still under the
+    // two-step minimum - deferred a third time. NextTargetIndex now reaches
+    // 3, so the trail-stop step (NextTargetIndex - 3 = 0) fires for the
+    // first time, trailing to TP1's own price - proving the trail step
+    // reads a genuinely-touched target even though none of TP1-TP3 ever
+    // booked a close.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4096.05m, 4096.10m, 4), CancellationToken.None
     );
@@ -1546,28 +1559,160 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(3, client.StopAmendments.Count);
     Assert.Equal(4092.00m, client.StopAmendments[^1].StopLoss);
 
-    // TP4: the deferred share has now accumulated enough to clear a step
-    // (200 * 0.2 / 0.4 = 100) - the first real booking, half the position.
+    // TP4: re-normalized share (200 * 0.2 / 0.4 = 100) clears one broker
+    // step but still falls short of the two-step minimum - deferred too.
+    // Whole-position bookings only ever happen at the true final target now.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4098.05m, 4098.10m, 5), CancellationToken.None
     );
-    Assert.Equal(100, Assert.Single(client.Closes).Volume);
-    Assert.Contains(store.Events, e => e.Type == "tp_booked");
-    Assert.Equal(100, Assert.Single(runtime.TrackedStates).RemainingVolume);
+    Assert.Empty(client.Closes);
+    Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
+    Assert.Equal(4, Assert.Single(runtime.TrackedStates).NextTargetIndex);
 
     // TP5 (final target): closes whatever remains regardless of size - the
-    // "keep it for the last TP level" floor, here the other half.
+    // dust floor belongs to the last TP level only, here the entire 200
+    // units in a single booking since nothing closed earlier.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4100.05m, 4100.10m, 6), CancellationToken.None
     );
-    Assert.Equal(2, client.Closes.Count);
-    Assert.Equal(100, client.Closes[^1].Volume);
+    Assert.Equal(200, Assert.Single(client.Closes).Volume);
     // A fully closed position is pruned from TrackedStates - the
     // "position_closed" event is the durable record of the final close.
     var closedEvent = Assert.Single(
       store.Events, e => e.Type == "position_closed"
     );
     Assert.Equal(0, closedEvent.RemainingVolume);
+  }
+
+  [Fact]
+  public async Task PartialTpNeedsAtLeastTwoBrokerStepsToBookNotJustOne()
+  {
+    // Live report 2026-08-07: an 0.08 lot (8-step) position kept booking a
+    // bare single 0.01 lot at TP1 - correct proportional math at the time
+    // (a one-step floor), but not a meaningful booking on a position this
+    // size. Owner's call: TP1 should be at least 0.02 lot on an 0.08 lot
+    // position - raise the "is this worth booking now" bar from one broker
+    // step to two.
+    var threeTargets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.15"},
+        {"target_id": "TP2", "type": "absolute", "price": "4094.00", "close_ratio": "0.35"},
+        {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.50"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan($$"""
+    {
+      "version": 7,
+      "plan_id": "v7:plan-1",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "Trend Pullback",
+        "strategy_family": "trend_pullback",
+        "direction": "BUY",
+        "context_timeframes": ["M15"],
+        "formation_timeframe": "H1",
+        "confirmation_timeframe": "M15",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "up",
+        "regime": "trend",
+        "reasons": ["htf_uptrend"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "zone-xau-4088-4090",
+        "kind": "demand",
+        "timeframe": "H1",
+        "low": "4088.10",
+        "high": "4090.00",
+        "invalidation_price": "4081.80"
+      },
+      "entry": {
+        "type": "market_watch",
+        "expires_at": 2000000000,
+        "zone_low": "4088.10",
+        "zone_high": "4090.00",
+        "activation": "quote_inside_zone",
+        "price_side": "ask",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "structure",
+        "structure_id": "zone-xau-4088-4090",
+        "reason": "protective stop plan"
+      },
+      "targets": {{threeTargets}},
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "sizing": {
+        "mode": "equity_table",
+        "table_version": "owner_equity_v1",
+        "entry_distribution": "single",
+        "leg_ratios": []
+      },
+      "management": {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": false,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """);
+    // 0.08 lots -> 800 units, eight StepVolume(100) steps. TP1's raw 15%
+    // share (120 units = 1.2 steps) clears one step but not the two-step
+    // (200 unit) minimum - it must defer, not book a bare 0.01 lot.
+    var client = new FakeV7TradingClient { AccountEquity = 800m, AccountBalance = 800m };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    Assert.Equal(800, Assert.Single(client.MarketOrders).Volume);
+
+    // TP1: 800 * 0.15 / 1.0 = 120 units - under the 200-unit minimum, defers.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
+    );
+    Assert.Empty(client.Closes);
+    Assert.Equal(1, Assert.Single(runtime.TrackedStates).NextTargetIndex);
+
+    // TP2: re-normalized share is 800 * 0.35 / 0.85 = 329 units (~3.3
+    // steps) - clears the two-step minimum, so it finally books, and at
+    // least 0.02 lot (200 units) as required - not a bare single step.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
+    );
+    var booked = Assert.Single(client.Closes).Volume;
+    Assert.True(
+      booked >= 200,
+      $"TP2 booked {booked} units - expected at least 200 (0.02 lot)"
+    );
+    Assert.Contains(store.Events, e => e.Type == "tp_booked");
   }
 
   [Fact]
