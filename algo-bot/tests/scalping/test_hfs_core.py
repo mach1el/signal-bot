@@ -730,6 +730,84 @@ def test_discover_momentum_chase_builds_1to1_opportunity():
   assert opp.expected_reward_risk == pytest.approx(1.0)
 
 
+def test_impulse_pullback_episode_id_survives_an_m5_context_rollover(monkeypatch):
+  # Live 2026-08-06: a WAITING FILL card for an HFS Impulse Pullback never
+  # updated to POSITION ACTIVATED - a second, brand-new card appeared below
+  # it instead once the position actually filled. Root cause: episode_id
+  # (opportunity.episode_id, the identity same_thesis()/dedupe_matches()
+  # compares across scan cycles) was hashed from context.context_id, which
+  # itself bakes in m5_bar_ts (context.py's compute_context_id). The exact
+  # same still-unfilled impulse/pullback pattern gets a brand-new episode_id
+  # the instant the M5 candle rolls over mid-wait, fails dedup against its
+  # own earlier self, and spawns an independent second match/plan/card while
+  # the first sits orphaned. episode_id must depend only on the pattern's
+  # own stable geometry (origin/extreme/direction/symbol), never on the
+  # M5-bar-bucketed context identity.
+  from app.scalping.strategies import discover_impulse_pullback
+
+  local_sell_match = {
+    "pattern": "impulse_pullback",
+    "direction": "SELL",
+    "bar_ts": 1_780_003_600,
+    "origin": 4270.0,
+    "extreme": 4230.0,
+    "retracement": 0.5,
+    "preferred": True,
+    "close": 4250.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: local_sell_match if direction == "SELL" else None,
+  )
+  flat = _drift_bars(direction="BUY", step=0.0)
+
+  def _ctx(context_id: str, m5_bar_ts: int) -> ScalpContextSnapshot:
+    return ScalpContextSnapshot(
+      version=CONTEXT_VERSION,
+      context_id=context_id,
+      symbol="XAU",
+      created_at=m5_bar_ts,
+      h1_bar_ts=None,
+      m15_bar_ts=None,
+      m5_bar_ts=m5_bar_ts,
+      htf_bias="unknown",
+      m5_structure="range",
+      regime="range",
+      dealing_range_low=4230.0,
+      dealing_range_high=4274.0,
+      dealing_range_position=0.95,
+      active_range_low=None,
+      active_range_high=None,
+      active_range_eq=None,
+      nearest_support_low=None,
+      nearest_support_high=None,
+      nearest_resistance_low=None,
+      nearest_resistance_high=None,
+      buy_corridor_room_pips=None,
+      sell_corridor_room_pips=200.0,
+      session="london",
+      permitted_archetypes=("impulse_pullback",),
+      atr=8.0,
+    )
+
+  # Same real-world opportunity, discovered on two different M5 bars (an
+  # M5 rollover while still waiting for fill) - context_id necessarily
+  # differs since it's bucketed by m5_bar_ts.
+  first = discover_impulse_pullback(
+    _ctx("ctx-bar-1", 1_780_003_600), None, flat, _cfg(), pip_size=0.1,
+    now=1_780_003_600,
+  )
+  second = discover_impulse_pullback(
+    _ctx("ctx-bar-2", 1_780_003_900), None, flat, _cfg(), pip_size=0.1,
+    now=1_780_003_900,
+  )
+  assert len(first) == 1
+  assert len(second) == 1
+  assert first[0].context_id != second[0].context_id
+  assert first[0].episode_id == second[0].episode_id
+  assert first[0].episode_id != ""
+
+
 def _drift_bars(*, direction: str, bars: int = 60, step: float = 0.7, start: float = 4230.0):
   """A wide, gentle net drift -- mimics a real reclaim: not every bar is
   directional (unlike _thrust_bars), the NET displacement over the whole
