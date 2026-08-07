@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
+from aiogram.exceptions import TelegramRetryAfter
 
 from app.autotrade.route_outcome import route_outcome_key
 from app.autotrade.setup_card import (
@@ -157,6 +159,43 @@ async def test_reconcile_repairs_stale_route_outcome_for_terminal_setup():
   assert repaired["status"] == "blocked"
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("route_projection_repaired", 0)) >= 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_stops_scanning_once_telegram_flood_limits(monkeypatch):
+  # Live incident 2026-08-07: Telegram flood-banned the chat for ~11 hours,
+  # and this scan kept marching into every remaining stale card, each one
+  # immediately re-hitting the same wall - a wall of near-identical
+  # tracebacks doing nothing but confirming what the first failure already
+  # proved. Once Telegram says "not for N seconds," every other card in
+  # this scan is going to get the same answer - the fix aborts the rest of
+  # the pass on the first TelegramRetryAfter instead of ploughing through.
+  client = redis_state.get_client()
+  edited = []
+
+  async def edit_card(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+    if len(edited) == 1:
+      raise TelegramRetryAfter(
+        method=SimpleNamespace(chat_id=chat_id),
+        message="Too Many Requests: retry after 39856",
+        retry_after=39856,
+      )
+
+  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
+  for setup_id in ("startup-flood-1", "startup-flood-2"):
+    await create_setup(client, setup_id=setup_id, thesis_id="t1", symbol="XAU")
+    await transition_setup(client, setup_id, INVALIDATED)
+    await client.set(
+      forming_message_key(setup_id),
+      json.dumps({"chat_id": 1, "message_id": 2, "text": "x"}),
+      ex=60,
+    )
+
+  await reconcile_startup_state(client)
+
+  # The second card was never attempted once the first hit flood control.
+  assert len(edited) == 1
 
 
 @pytest.mark.asyncio
