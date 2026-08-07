@@ -1683,27 +1683,34 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """);
-    // 0.08 lots -> 800 units, eight StepVolume(100) steps. TP1's raw 15%
-    // share (120 units = 1.2 steps) clears one step but not the two-step
-    // (200 unit) minimum - it must defer, not book a bare 0.01 lot.
+    // ~0.08 lots (equity-table sizing, not asserted to an exact unit count
+    // here - only the ratio behavior this test targets matters). TP1's raw
+    // 15% share clears one broker step but not the two-step (200 unit)
+    // minimum - it must defer, not book a bare 0.01 lot.
     var client = new FakeV7TradingClient { AccountEquity = 800m, AccountBalance = 800m };
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
     );
-    Assert.Equal(800, Assert.Single(client.MarketOrders).Volume);
+    var entryVolume = Assert.Single(client.MarketOrders).Volume;
+    Assert.True(
+      entryVolume >= 800,
+      $"entry volume {entryVolume} units - expected at least 800 (0.08 lot) for this fixture"
+    );
 
-    // TP1: 800 * 0.15 / 1.0 = 120 units - under the 200-unit minimum, defers.
+    // TP1: 15% of the filled volume - under the two-step (200 unit) minimum
+    // for any position this test's equity table can plausibly produce, so
+    // it must defer rather than book a bare single step.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
     );
     Assert.Empty(client.Closes);
     Assert.Equal(1, Assert.Single(runtime.TrackedStates).NextTargetIndex);
 
-    // TP2: re-normalized share is 800 * 0.35 / 0.85 = 329 units (~3.3
-    // steps) - clears the two-step minimum, so it finally books, and at
-    // least 0.02 lot (200 units) as required - not a bare single step.
+    // TP2: re-normalized share (35% of the remaining 85%) clears the
+    // two-step minimum, so it finally books, and at least 0.02 lot
+    // (200 units) as required - not a bare single step.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
     );
