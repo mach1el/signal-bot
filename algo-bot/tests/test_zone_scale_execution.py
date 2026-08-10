@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import execution_cfg
+from tests.configuration.canonical_fixtures import apply_path_overrides, execution_cfg
 
 import pytest
 
@@ -43,7 +43,11 @@ def _cfg(**overrides):
     "auto_trade_reaction_scale_invalid_policy": "single_market",
   }
   values.update(overrides)
-  return execution_cfg(**values)
+  # Zone-ladder routing tests — SL hard-cap is covered in test_technique_pack.
+  return apply_path_overrides(
+    execution_cfg(**values),
+    {"execution.technique.enforce": False},
+  )
 
 
 def _policy_match(**overrides):

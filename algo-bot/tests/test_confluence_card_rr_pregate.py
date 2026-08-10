@@ -43,6 +43,16 @@ def _no_news_by_default(monkeypatch):
   )
 
 
+@pytest.fixture(autouse=True)
+def _technique_pack_off_for_legacy_pregate(monkeypatch):
+  # Technique pack killzone uses wall-clock spot.ts; these tests target RR /
+  # waiting-route recovery, not killzone (covered in test_technique_pack).
+  install_runtime_overrides(
+    monkeypatch,
+    {"execution.technique.enforce": False},
+  )
+
+
 def _frame(price: float = 4101.0) -> pd.DataFrame:
   index = pd.date_range("2026-07-28 12:00", periods=3, freq="5min", tz="UTC")
   return pd.DataFrame({
