@@ -114,6 +114,26 @@ def test_same_direction_blocks_when_booked_index_unknown():
   assert decision.reason_code == "same_direction_active_before_tp2"
 
 
+def test_same_direction_blocks_non_tier_a_after_tp2_booked():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+        highest_booked_target_index=1,
+      )
+    ],
+    candidate_tier="B",
+  )
+  assert decision.block is True
+  assert decision.same_direction_stack is False
+  assert decision.reason_code == "same_direction_stack_requires_tier_a"
+
+
 def test_same_direction_stacks_at_60_after_tp2_booked():
   decision = evaluate_entry_against_exposure(
     direction="BUY",
@@ -127,13 +147,14 @@ def test_same_direction_stacks_at_60_after_tp2_booked():
         highest_booked_target_index=1,  # TP2 booked
       )
     ],
+    candidate_tier="A",
   )
   assert decision.block is False
   assert decision.same_direction_stack is True
   assert decision.reason_code == "same_direction_stack"
   assert decision.measured is not None
   assert decision.measured["same_direction_tp2_booked"] is True
-  assert "unlocked after booked TP2" in decision.message
+  assert "Tier A" in decision.message
 
 
 def test_same_direction_stack_flag_when_allowed_for_scalp():

@@ -56,6 +56,7 @@ _BOUNDARIES = {
     "test_active_exposure.py",
     "test_same_direction_blocks_non_scalp_before_tp2_booked",
     "test_same_direction_blocks_when_booked_index_unknown",
+    "test_same_direction_blocks_non_tier_a_after_tp2_booked",
     "test_same_direction_stacks_at_60_after_tp2_booked",
     "test_same_direction_stack_flag_when_allowed_for_scalp",
   ),
