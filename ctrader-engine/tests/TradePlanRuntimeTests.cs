@@ -1220,6 +1220,7 @@ public sealed class TradePlanRuntimeTests
     );
     var afterTp1 = Assert.Single(runtime.TrackedStates);
     Assert.Equal(1, afterTp1.NextTargetIndex);
+    Assert.Equal(0, afterTp1.HighestBookedTargetIndex);
     Assert.True(afterTp1.BreakEvenApplied);
     // Entry amends the group absolute stop onto the filled position; TP1 then
     // moves it to break-even.
@@ -1517,7 +1518,9 @@ public sealed class TradePlanRuntimeTests
     // meaningful close - deferred, nothing closed, no tp_booked event.
     // NextTargetIndex still advances by exactly one (the level was
     // genuinely touched) - that's what keeps the trail-stop step below
-    // from ever computing off an untouched target.
+    // from ever computing off an untouched target. Deferral continues
+    // before BE/trail in the same poll — re-poll below TP2 so manage can
+    // evaluate BE without hitting another target.
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4092.05m, 4092.10m, 2), CancellationToken.None
     );
@@ -1525,45 +1528,54 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(1, afterTp1.NextTargetIndex);
     Assert.Empty(client.Closes);
     Assert.Equal(200, afterTp1.RemainingVolume);
-    // BE still applies in the same poll as TP1 - it keys off NextTargetIndex
-    // (a price level was touched), never off whether anything actually
-    // closed. Entry stop + BE stop, no bogus trail attempt yet.
-    Assert.Equal(2, client.StopAmendments.Count);
-    Assert.True(afterTp1.BreakEvenApplied);
-    Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
+    Assert.Equal(-1, afterTp1.HighestBookedTargetIndex);
     Assert.Contains(
       logs, line => line.Contains("v7 target partial deferred")
         && line.Contains("target=TP1")
         && line.Contains("reason=share_below_minimum_meaningful_close")
     );
 
+    // Manage poll with TP1 already archived-by-touch but no broker book:
+    // BE must stay off (prod 2026-08-10: BE after deferred TP1 on 0.06 lots).
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.50m, 4092.55m, 3), CancellationToken.None
+    );
+    afterTp1 = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(1, afterTp1.NextTargetIndex);
+    Assert.False(afterTp1.BreakEvenApplied);
+    Assert.Single(client.StopAmendments);
+    Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
+    Assert.DoesNotContain(store.Events, e => e.Type == "sl_moved");
+
     // TP2: re-normalized share (200 * 0.2 / 0.8 = 50) still under the
     // two-step minimum - deferred again, still nothing closed.
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 3), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4094.05m, 4094.10m, 4), CancellationToken.None
     );
     Assert.Empty(client.Closes);
     Assert.Equal(2, Assert.Single(runtime.TrackedStates).NextTargetIndex);
 
-    // TP3: re-normalized share (200 * 0.2 / 0.6 = 66) still under the
-    // two-step minimum - deferred a third time. NextTargetIndex now reaches
-    // 3, so the trail-stop step (NextTargetIndex - 3 = 0) fires for the
-    // first time, trailing to TP1's own price - proving the trail step
-    // reads a genuinely-touched target even though none of TP1-TP3 ever
-    // booked a close.
+    // TP3: deferred a third time. NextTargetIndex reaches 3; re-poll without
+    // reaching TP4 so trail (NextTargetIndex - 3 = 0) can fire. Entry stop
+    // + trail only (no BE without a booked TP).
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4096.05m, 4096.10m, 4), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4096.05m, 4096.10m, 5), CancellationToken.None
     );
     Assert.Empty(client.Closes);
     Assert.Equal(3, Assert.Single(runtime.TrackedStates).NextTargetIndex);
-    Assert.Equal(3, client.StopAmendments.Count);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4096.50m, 4096.55m, 6), CancellationToken.None
+    );
+    Assert.Empty(client.Closes);
+    Assert.False(Assert.Single(runtime.TrackedStates).BreakEvenApplied);
+    Assert.Equal(2, client.StopAmendments.Count);
     Assert.Equal(4092.00m, client.StopAmendments[^1].StopLoss);
 
     // TP4: re-normalized share (200 * 0.2 / 0.4 = 100) clears one broker
     // step but still falls short of the two-step minimum - deferred too.
     // Whole-position bookings only ever happen at the true final target now.
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4098.05m, 4098.10m, 5), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4098.05m, 4098.10m, 7), CancellationToken.None
     );
     Assert.Empty(client.Closes);
     Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
@@ -1573,7 +1585,7 @@ public sealed class TradePlanRuntimeTests
     // dust floor belongs to the last TP level only, here the entire 200
     // units in a single booking since nothing closed earlier.
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4100.05m, 4100.10m, 6), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4100.05m, 4100.10m, 8), CancellationToken.None
     );
     Assert.Equal(200, Assert.Single(client.Closes).Volume);
     // A fully closed position is pruned from TrackedStates - the
