@@ -74,6 +74,70 @@ async def test_one_card_per_setup_posts_once_then_edits():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_first_create_sends_only_one_telegram_root():
+  """Prod 2026-08-10 13:07: same setup_id double mode=send → msg 3946+3947.
+
+  Two concurrent post_or_edit callers both saw no forming card and both
+  sent a full root. Create-lock must serialize so only one Telegram send
+  happens; the loser attaches to the winner's message_id.
+  """
+  client = redis_state.get_client()
+  setup_id = "f716d5f0c179a9bb3da16e7ddf1b8d8b"
+  await _confirmed_setup(client, setup_id)
+
+  send_count = 0
+  send_started = asyncio.Event()
+  release_send = asyncio.Event()
+  message_ids = iter((3946, 3947, 3948))
+
+  async def send_fn(text, **kwargs):
+    nonlocal send_count
+    send_count += 1
+    send_started.set()
+    await release_send.wait()
+    await asyncio.sleep(0)
+    return SimpleNamespace(message_id=next(message_ids))
+
+  async def edit_fn(chat_id, message_id, text):
+    return None
+
+  waiting = "\n".join([
+    "⚫ <b>XAU M1 · IN ZONE · WAITING FILL</b>",
+    "⏳ <b>IN ZONE · waiting market fill</b>",
+    "🔴 <b>SELL</b> · HFS Impulse Pullback",
+  ])
+  activated = setup_card.apply_forming_card_status(
+    waiting,
+    "✅ <b>POSITION ACTIVATED</b>",
+  )
+
+  async def _caller(body: str):
+    return await setup_card.post_or_edit_forming_card(
+      client,
+      setup_id,
+      body,
+      chat_id=123,
+      send_fn=send_fn,
+      edit_fn=edit_fn,
+    )
+
+  first = asyncio.create_task(_caller(waiting))
+  await send_started.wait()
+  second = asyncio.create_task(_caller(activated))
+  await asyncio.sleep(0.05)
+  release_send.set()
+  first_id, second_id = await asyncio.gather(first, second)
+
+  assert send_count == 1
+  assert first_id == 3946
+  assert second_id == 3946
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert card["message_id"] == 3946
+  assert "POSITION ACTIVATED" in card["text"]
+
+
+@pytest.mark.asyncio
 async def test_edit_failure_falls_back_to_a_fresh_post():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-2")
