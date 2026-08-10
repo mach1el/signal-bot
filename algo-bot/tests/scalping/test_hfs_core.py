@@ -143,20 +143,39 @@ def test_context_freshness():
   assert not is_context_fresh(snap, snap.m5_bar_ts + 1000, 420)
 
 
-def test_asia_permits_full_archetype_set():
+def test_asia_empty_outside_killzone_under_technique_pack():
+  """Owner 2026-08-10: HFS archetypes only inside killzone (not all of Asia)."""
+  from types import SimpleNamespace
   from app.scalping.models import (
     ARCHETYPE_BREAKOUT_RETEST,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_MOMENTUM_CHASE,
     ARCHETYPE_RANGE_SWEEP,
   )
-  assert permitted_archetypes_for_session("asia") == (
+  cfg = SimpleNamespace(
+    market_data=SimpleNamespace(
+      sessions=SimpleNamespace(
+        london_start=7, ny_start=13, asia_start=22, daily_rollover_utc_hour=21,
+      ),
+    ),
+    execution=SimpleNamespace(
+      technique=SimpleNamespace(
+        enforce=True,
+        include_late_ny=True,
+        london_window_hours=3,
+        ny_window_hours=3,
+        hfs_require_killzone=True,
+      ),
+    ),
+  )
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("rollover", cfg=cfg) == ()
+  assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
     ARCHETYPE_MOMENTUM_CHASE,
   )
-  assert permitted_archetypes_for_session("rollover") == ()
 
 
 def test_lower_edge_sweep_reclaim():

@@ -648,9 +648,21 @@ def test_group_stop_floors_every_planned_leg_not_just_weighted():
   assert plan.final_stop_pips == far / Decimal("0.1")
 
 
-def test_group_stop_prefers_near_leg_floor_over_far_leg_cap():
+def test_group_stop_prefers_near_leg_floor_over_far_leg_cap(monkeypatch):
+  from types import SimpleNamespace
+
   from app.autotrade.protective_stop import plan_group_protective_stop
 
+  # Soft-max path only when technique pack is off; with pack on, furthest
+  # overshoot becomes stop_exceeds_envelope_furthest_leg (see technique pack).
+  monkeypatch.setattr(
+    "app.autotrade.protective_stop._default_runtime_cfg",
+    lambda: SimpleNamespace(
+      execution=SimpleNamespace(
+        technique=SimpleNamespace(enforce=False, hard_cap_group_stop=False),
+      ),
+    ),
+  )
   # Live Trend Pullback 2026-08-06: stop sat 40p under zone-high / key and
   # only ~23p under weighted fill. Prefer near-leg ≥40 even if far leg >60.
   plan = plan_group_protective_stop(
@@ -676,10 +688,20 @@ def test_group_stop_prefers_near_leg_floor_over_far_leg_cap():
   assert plan.final_stop_price <= Decimal("4256.19")
 
 
-def test_group_stop_rejects_when_leg_span_cannot_fit_envelope():
-  # Kept name for history — wide spans no longer hard-reject; they expand.
+def test_group_stop_rejects_when_leg_span_cannot_fit_envelope(monkeypatch):
+  # Soft expand when technique hard-cap is off.
+  from types import SimpleNamespace
+
   from app.autotrade.protective_stop import plan_group_protective_stop
 
+  monkeypatch.setattr(
+    "app.autotrade.protective_stop._default_runtime_cfg",
+    lambda: SimpleNamespace(
+      execution=SimpleNamespace(
+        technique=SimpleNamespace(enforce=False, hard_cap_group_stop=False),
+      ),
+    ),
+  )
   plan = plan_group_protective_stop(
     direction="BUY",
     entry_zone_low="4252.20",

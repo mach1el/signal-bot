@@ -67,6 +67,16 @@ def _no_news_by_default(monkeypatch):
   )
 
 
+@pytest.fixture(autouse=True)
+def _technique_pack_off_for_legacy_publish(monkeypatch):
+  # Existing publish suite uses live wall-clock spot.ts; technique pack
+  # killzone/sweep gates are covered in test_technique_pack.py.
+  install_runtime_overrides(
+    monkeypatch,
+    {"execution.technique.enforce": False},
+  )
+
+
 def _eligibility(
   *,
   direction: str,

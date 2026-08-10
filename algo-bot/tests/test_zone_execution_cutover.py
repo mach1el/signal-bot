@@ -20,6 +20,16 @@ from app.autotrade import zone_watch as zw
 pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 
 
+@pytest.fixture(autouse=True)
+def _technique_pack_off_for_legacy_cutover(monkeypatch):
+  # Cutover uses wall-clock quotes; technique pack gates are in
+  # test_technique_pack.py.
+  install_runtime_overrides(
+    monkeypatch,
+    {"execution.technique.enforce": False},
+  )
+
+
 @pytest_asyncio.fixture
 async def client():
   url = os.getenv("REAL_REDIS_URL")
