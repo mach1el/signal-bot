@@ -76,7 +76,8 @@ def test_opposing_allows_when_far_enough():
   assert decision.same_direction_stack is False
 
 
-def test_same_direction_stack_flag():
+def test_same_direction_blocks_non_scalp_before_tp2_booked():
+  """Owner: same-dir add waits until first position books TP2."""
   decision = evaluate_entry_against_exposure(
     direction="BUY",
     entry_price=4050.0,
@@ -86,8 +87,90 @@ def test_same_direction_stack_flag():
         entry_price=4048.0,
         source="v7_plan",
         plan_id="buy-open",
+        highest_booked_target_index=0,  # TP1 only
       )
     ],
+  )
+  assert decision.block is True
+  assert decision.same_direction_stack is False
+  assert decision.reason_code == "same_direction_active_before_tp2"
+
+
+def test_same_direction_blocks_when_booked_index_unknown():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+        highest_booked_target_index=None,
+      )
+    ],
+  )
+  assert decision.block is True
+  assert decision.reason_code == "same_direction_active_before_tp2"
+
+
+def test_same_direction_blocks_non_tier_a_after_tp2_booked():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+        highest_booked_target_index=1,
+      )
+    ],
+    candidate_tier="B",
+  )
+  assert decision.block is True
+  assert decision.same_direction_stack is False
+  assert decision.reason_code == "same_direction_stack_requires_tier_a"
+
+
+def test_same_direction_stacks_at_60_after_tp2_booked():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+        highest_booked_target_index=1,  # TP2 booked
+      )
+    ],
+    candidate_tier="A",
+  )
+  assert decision.block is False
+  assert decision.same_direction_stack is True
+  assert decision.reason_code == "same_direction_stack"
+  assert decision.measured is not None
+  assert decision.measured["same_direction_tp2_booked"] is True
+  assert "Tier A" in decision.message
+
+
+def test_same_direction_stack_flag_when_allowed_for_scalp():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+        highest_booked_target_index=None,
+      )
+    ],
+    allow_same_direction_stack=True,
   )
   assert decision.block is False
   assert decision.same_direction_stack is True
@@ -110,6 +193,7 @@ async def test_load_v7_exposures_reads_pascal_case_runtime_json():
           "GroupWeightedFillPrice": 4054.2,
           "TotalFilledVolume": 200,
           "RemainingVolume": 200,
+          "HighestBookedTargetIndex": 1,
         }).encode()
       return None
 
@@ -122,3 +206,4 @@ async def test_load_v7_exposures_reads_pascal_case_runtime_json():
   assert exposures[0].entry_price == pytest.approx(4054.2)
   assert exposures[0].source == "v7_plan"
   assert exposures[0].plan_id == "plan-sell-1"
+  assert exposures[0].highest_booked_target_index == 1
