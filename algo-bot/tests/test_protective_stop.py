@@ -648,54 +648,48 @@ def test_group_stop_floors_every_planned_leg_not_just_weighted():
   assert plan.final_stop_pips == far / Decimal("0.1")
 
 
-def test_group_stop_prefers_near_leg_floor_over_far_leg_cap():
-  from app.autotrade.protective_stop import plan_group_protective_stop
+def test_group_stop_rejects_when_near_floor_overshoots_far_leg_cap():
+  from app.autotrade.protective_stop import ProtectiveStopError, plan_group_protective_stop
 
-  # Live Trend Pullback 2026-08-06: stop sat 40p under zone-high / key and
-  # only ~23p under weighted fill. Prefer near-leg ≥40 even if far leg >60.
-  plan = plan_group_protective_stop(
-    direction="BUY",
-    entry_zone_low="4260.19",
-    entry_zone_high="4262.66",
-    planned_leg_prices=("4260.19", "4262.66"),
-    resolved_leg_volumes=("0.02", "0.04"),
-    structure_swing="4258.66",
-    atr="1",
-    structure_buffer_atr="0.0",
-    sweep_extreme=None,
-    wick_buffer_atr="0.15",
-    minimum_stop_pips=40,
-    maximum_stop_pips=60,
-    pip_size="0.1",
-    digits=2,
-  )
-  near = (Decimal("4260.19") - plan.final_stop_price) / Decimal("0.1")
-  far = (Decimal("4262.66") - plan.final_stop_price) / Decimal("0.1")
-  assert near >= Decimal("40")
-  assert far > Decimal("60")  # soft cap — floor wins
-  assert plan.final_stop_price <= Decimal("4256.19")
+  # Live Trend Pullback-shaped ladder: floor from nearest clears 40 but
+  # furthest exceeds 60 — always reject (no soft-max legacy path).
+  with pytest.raises(ProtectiveStopError, match="stop_exceeds_envelope_furthest_leg") as exc:
+    plan_group_protective_stop(
+      direction="BUY",
+      entry_zone_low="4260.19",
+      entry_zone_high="4262.66",
+      planned_leg_prices=("4260.19", "4262.66"),
+      resolved_leg_volumes=("0.02", "0.04"),
+      structure_swing="4258.66",
+      atr="1",
+      structure_buffer_atr="0.0",
+      sweep_extreme=None,
+      wick_buffer_atr="0.15",
+      minimum_stop_pips=40,
+      maximum_stop_pips=60,
+      pip_size="0.1",
+      digits=2,
+    )
+  assert Decimal(exc.value.measured["furthest_leg_stop_pips"]) > Decimal("60")
 
 
 def test_group_stop_rejects_when_leg_span_cannot_fit_envelope():
-  # Kept name for history — wide spans no longer hard-reject; they expand.
-  from app.autotrade.protective_stop import plan_group_protective_stop
+  from app.autotrade.protective_stop import ProtectiveStopError, plan_group_protective_stop
 
-  plan = plan_group_protective_stop(
-    direction="BUY",
-    entry_zone_low="4252.20",
-    entry_zone_high="4256.84",
-    planned_leg_prices=("4252.20", "4256.84"),
-    resolved_leg_volumes=("0.04", "0.02"),
-    structure_swing="4251.56",
-    atr="1",
-    structure_buffer_atr="0.0",
-    sweep_extreme=None,
-    wick_buffer_atr="0.15",
-    minimum_stop_pips=40,
-    maximum_stop_pips=60,
-    pip_size="0.1",
-    digits=2,
-  )
-  near = (Decimal("4252.20") - plan.final_stop_price) / Decimal("0.1")
-  assert near >= Decimal("40")
-  assert (Decimal("4256.84") - plan.final_stop_price) / Decimal("0.1") > Decimal("60")
+  with pytest.raises(ProtectiveStopError, match="stop_exceeds_envelope_furthest_leg"):
+    plan_group_protective_stop(
+      direction="BUY",
+      entry_zone_low="4252.20",
+      entry_zone_high="4256.84",
+      planned_leg_prices=("4252.20", "4256.84"),
+      resolved_leg_volumes=("0.04", "0.02"),
+      structure_swing="4251.56",
+      atr="1",
+      structure_buffer_atr="0.0",
+      sweep_extreme=None,
+      wick_buffer_atr="0.15",
+      minimum_stop_pips=40,
+      maximum_stop_pips=60,
+      pip_size="0.1",
+      digits=2,
+    )

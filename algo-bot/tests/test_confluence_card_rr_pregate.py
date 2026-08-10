@@ -43,6 +43,18 @@ def _no_news_by_default(monkeypatch):
   )
 
 
+@pytest.fixture(autouse=True)
+def _freeze_technique_killzone_hour(monkeypatch):
+  from app.autotrade import killzone as kz
+
+  real = kz.evaluate_killzone_gate
+
+  def _gated(*, ts=None, hour=None, cfg=None, require=True):
+    return real(ts=None, hour=14, cfg=cfg, require=require)
+
+  monkeypatch.setattr(kz, "evaluate_killzone_gate", _gated)
+
+
 def _frame(price: float = 4101.0) -> pd.DataFrame:
   index = pd.date_range("2026-07-28 12:00", periods=3, freq="5min", tz="UTC")
   return pd.DataFrame({
@@ -98,7 +110,7 @@ def _result(
     structural_high=high,
     structural_timeframe="M5",
     structural_kind=kind,
-    confirmation_type="wick_rejection",
+    confirmation_type="body_close",
     confirmation_bar_ts="2026-07-28T12:10:00+00:00",
     touch_bar_ts="2026-07-28T12:05:00+00:00",
   )

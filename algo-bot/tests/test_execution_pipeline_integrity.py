@@ -49,6 +49,18 @@ def _no_news_by_default(monkeypatch):
   )
 
 
+@pytest.fixture(autouse=True)
+def _freeze_technique_killzone_hour(monkeypatch):
+  from app.autotrade import killzone as kz
+
+  real = kz.evaluate_killzone_gate
+
+  def _gated(*, ts=None, hour=None, cfg=None, require=True):
+    return real(ts=None, hour=14, cfg=cfg, require=require)
+
+  monkeypatch.setattr(kz, "evaluate_killzone_gate", _gated)
+
+
 def _intent(
   intent_id: str,
   *,

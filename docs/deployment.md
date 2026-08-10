@@ -106,6 +106,34 @@ For autonomous execution on the broker-confirmed demo account, use the
 profile contract, live-account fail-closed behavior, and Redis evidence
 commands.
 
+## Technique pack (killzone + sweep/body + HTF PD + SL hard-cap)
+
+After shipping an image that includes `execution.technique`, host
+`config/trading-bot.yml` (Ansible `apexvoid_trading_bot_config`) should keep:
+
+```yaml
+actionability:
+  entry_location:
+    mode: enforce
+execution:
+  technique:
+    enforce: true          # emergency off without code revert
+    include_late_ny: true
+    reaction_require_killzone: true
+    hfs_require_killzone: true
+    require_sweep_body: true
+    strict_premium_discount: true
+  activation:
+    mode: enforce
+```
+
+Smoke after deploy:
+
+- HFS discovery outside killzone (UTC 01/03/05/…) logs empty permits / no Impulse spam.
+- Key Level inside London/NY/late-NY killzone with `sweep_reclaim`/`body_close` still publishes.
+- Ladder stops that would soft-max past 60 furthest log
+  `stop_exceeds_envelope_furthest_leg`.
+
 ## 5. Smoke test
 
 DM your bot:

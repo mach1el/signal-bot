@@ -56,7 +56,9 @@ def _policy_match(**overrides):
     "confluence": 3,
     "atr": 1.0,
     "structure_swing": 4038.0,
-    "targets_pips": (30, 60),
+    # Primary TP must stay ≤ stop_min so room-sync leaves [40,60] band —
+    # TP60 collapsed min=max=60 and furthest leg overshot the hard cap.
+    "targets_pips": (40,),
     "target_price": None,
     "risk_multiplier": 1.0,
   }
