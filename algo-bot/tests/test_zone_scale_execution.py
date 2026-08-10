@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import apply_path_overrides, execution_cfg
+from tests.configuration.canonical_fixtures import (
+  apply_path_overrides,
+  execution_cfg,
+  install_runtime_overrides,
+)
 
 import pytest
 
@@ -25,6 +29,15 @@ from app.autotrade.execution_route import (
 
 
 pytestmark = pytest.mark.no_database
+
+
+@pytest.fixture(autouse=True)
+def _technique_pack_off_for_zone_scale(monkeypatch):
+  # plan_group_protective_stop hard-cap reads runtime_config, not cfg=.
+  install_runtime_overrides(
+    monkeypatch,
+    {"execution.technique.enforce": False},
+  )
 
 
 def _cfg(**overrides):
@@ -43,7 +56,6 @@ def _cfg(**overrides):
     "auto_trade_reaction_scale_invalid_policy": "single_market",
   }
   values.update(overrides)
-  # Zone-ladder routing tests — SL hard-cap is covered in test_technique_pack.
   return apply_path_overrides(
     execution_cfg(**values),
     {"execution.technique.enforce": False},
