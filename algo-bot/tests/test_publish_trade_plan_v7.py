@@ -68,13 +68,16 @@ def _no_news_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _technique_pack_off_for_legacy_publish(monkeypatch):
-  # Existing publish suite uses live wall-clock spot.ts; technique pack
-  # killzone/sweep gates are covered in test_technique_pack.py.
-  install_runtime_overrides(
-    monkeypatch,
-    {"execution.technique.enforce": False},
-  )
+def _freeze_technique_killzone_hour(monkeypatch):
+  """Publish suite stays under technique.enforce; freeze UTC hour to NY open."""
+  from app.autotrade import killzone as kz
+
+  real = kz.evaluate_killzone_gate
+
+  def _gated(*, ts=None, hour=None, cfg=None, require=True):
+    return real(ts=None, hour=14, cfg=cfg, require=require)
+
+  monkeypatch.setattr(kz, "evaluate_killzone_gate", _gated)
 
 
 def _eligibility(

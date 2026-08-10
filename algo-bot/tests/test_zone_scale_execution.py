@@ -12,11 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from tests.configuration.canonical_fixtures import (
-  apply_path_overrides,
-  execution_cfg,
-  install_runtime_overrides,
-)
+from tests.configuration.canonical_fixtures import execution_cfg
 
 import pytest
 
@@ -29,15 +25,6 @@ from app.autotrade.execution_route import (
 
 
 pytestmark = pytest.mark.no_database
-
-
-@pytest.fixture(autouse=True)
-def _technique_pack_off_for_zone_scale(monkeypatch):
-  # plan_group_protective_stop hard-cap reads runtime_config, not cfg=.
-  install_runtime_overrides(
-    monkeypatch,
-    {"execution.technique.enforce": False},
-  )
 
 
 def _cfg(**overrides):
@@ -56,10 +43,7 @@ def _cfg(**overrides):
     "auto_trade_reaction_scale_invalid_policy": "single_market",
   }
   values.update(overrides)
-  return apply_path_overrides(
-    execution_cfg(**values),
-    {"execution.technique.enforce": False},
-  )
+  return execution_cfg(**values)
 
 
 def _policy_match(**overrides):
@@ -72,7 +56,9 @@ def _policy_match(**overrides):
     "confluence": 3,
     "atr": 1.0,
     "structure_swing": 4038.0,
-    "targets_pips": (30, 60),
+    # Primary TP must stay ≤ stop_min so room-sync leaves [40,60] band —
+    # TP60 collapsed min=max=60 and furthest leg overshot the hard cap.
+    "targets_pips": (40,),
     "target_price": None,
     "risk_multiplier": 1.0,
   }

@@ -50,13 +50,15 @@ def _no_news_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _technique_pack_off_for_legacy_pipeline(monkeypatch):
-  # Group stop hard-cap reads runtime_config; keep legacy route/RR fixtures
-  # off the pack (covered in test_technique_pack / test_zone_scale).
-  install_runtime_overrides(
-    monkeypatch,
-    {"execution.technique.enforce": False},
-  )
+def _freeze_technique_killzone_hour(monkeypatch):
+  from app.autotrade import killzone as kz
+
+  real = kz.evaluate_killzone_gate
+
+  def _gated(*, ts=None, hour=None, cfg=None, require=True):
+    return real(ts=None, hour=14, cfg=cfg, require=require)
+
+  monkeypatch.setattr(kz, "evaluate_killzone_gate", _gated)
 
 
 def _intent(

@@ -38,7 +38,6 @@ _HFS_ALL = (
 def _technique_cfg(
   *,
   enforce: bool = True,
-  hard_cap: bool = True,
   require_sweep: bool = True,
   strict_pd: bool = True,
   hfs_kz: bool = True,
@@ -62,7 +61,6 @@ def _technique_cfg(
         hfs_require_killzone=hfs_kz,
         require_sweep_body=require_sweep,
         strict_premium_discount=strict_pd,
-        hard_cap_group_stop=hard_cap,
       ),
       activation=SimpleNamespace(
         mode="enforce",
@@ -192,12 +190,7 @@ def test_activation_allows_sweep_reclaim_under_technique():
   assert decision.reason_code == "entry_activation_allowed"
 
 
-def test_group_stop_hard_rejects_furthest_leg_over_max(monkeypatch):
-  cfg = _technique_cfg(hard_cap=True)
-  monkeypatch.setattr(
-    "app.autotrade.protective_stop._default_runtime_cfg",
-    lambda: cfg,
-  )
+def test_group_stop_hard_rejects_furthest_leg_over_max():
   with pytest.raises(ProtectiveStopError, match="stop_exceeds_envelope_furthest_leg") as exc:
     plan_group_protective_stop(
       direction="BUY",
@@ -215,36 +208,7 @@ def test_group_stop_hard_rejects_furthest_leg_over_max(monkeypatch):
       pip_size="0.1",
       digits=2,
     )
-  assert exc.value.measured["hard_cap_group_stop"] is True
   assert Decimal(exc.value.measured["furthest_leg_stop_pips"]) > Decimal("60")
-
-
-def test_group_stop_soft_max_when_technique_off(monkeypatch):
-  cfg = _technique_cfg(enforce=False)
-  monkeypatch.setattr(
-    "app.autotrade.protective_stop._default_runtime_cfg",
-    lambda: cfg,
-  )
-  plan = plan_group_protective_stop(
-    direction="BUY",
-    entry_zone_low="4260.19",
-    entry_zone_high="4262.66",
-    planned_leg_prices=("4260.19", "4262.66"),
-    resolved_leg_volumes=("0.02", "0.04"),
-    structure_swing="4258.66",
-    atr="1",
-    structure_buffer_atr="0.0",
-    sweep_extreme=None,
-    wick_buffer_atr="0.15",
-    minimum_stop_pips=40,
-    maximum_stop_pips=60,
-    pip_size="0.1",
-    digits=2,
-  )
-  near = (Decimal("4260.19") - plan.final_stop_price) / Decimal("0.1")
-  far = (Decimal("4262.66") - plan.final_stop_price) / Decimal("0.1")
-  assert near >= Decimal("40")
-  assert far > Decimal("60")
 
 
 def test_entry_location_blocks_buy_premium_sell_discount():

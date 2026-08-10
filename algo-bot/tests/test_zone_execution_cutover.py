@@ -21,13 +21,16 @@ pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
 
 
 @pytest.fixture(autouse=True)
-def _technique_pack_off_for_legacy_cutover(monkeypatch):
-  # Cutover uses wall-clock quotes; technique pack gates are in
-  # test_technique_pack.py.
-  install_runtime_overrides(
-    monkeypatch,
-    {"execution.technique.enforce": False},
-  )
+def _freeze_technique_killzone_hour(monkeypatch):
+  """Cutover stays under technique.enforce; freeze UTC hour to NY open."""
+  from app.autotrade import killzone as kz
+
+  real = kz.evaluate_killzone_gate
+
+  def _gated(*, ts=None, hour=None, cfg=None, require=True):
+    return real(ts=None, hour=14, cfg=cfg, require=require)
+
+  monkeypatch.setattr(kz, "evaluate_killzone_gate", _gated)
 
 
 @pytest_asyncio.fixture
@@ -517,7 +520,7 @@ async def test_enforce_reaction_activates_with_fresh_m1_once(
     AsyncMock(return_value=(4114.4, 4114.6, now_ts)),
   )
   trigger = M1TriggerResult(
-    "wick_rejection", "SELL", 4116.0, entered_at + 30, "sell rejection",
+    "body_close", "SELL", 4116.0, entered_at + 30, "sell rejection",
   )
   monkeypatch.setattr(
     cutover, "_m1_trigger_for_zone", AsyncMock(return_value=trigger),
@@ -574,8 +577,8 @@ async def test_enforce_location_blocks_buy_after_premium_rally(
     confluence_tags=("key_level", "demand"),
     confluence=3,
     source_score=12.0,
-    confirmation_type="wick_rejection",
-    confirmation="wick_rejection",
+    confirmation_type="body_close",
+    confirmation="body_close",
     execution_eligibility=SimpleNamespace(allowed=True, market_map_id="map-1"),
   )
   buy_match = StrategyMatch(
@@ -648,7 +651,7 @@ async def test_enforce_location_blocks_buy_after_premium_rally(
     cutover,
     "_m1_trigger_for_zone",
     AsyncMock(return_value=M1TriggerResult(
-      "wick_rejection", "BUY", 4078.0, now_ts - 30, "buy rejection",
+      "body_close", "BUY", 4078.0, now_ts - 30, "buy rejection",
     )),
   )
   direct_publish = AsyncMock()
