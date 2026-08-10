@@ -54,7 +54,8 @@ _BOUNDARIES = {
   ),
   "position_limit": (
     "test_active_exposure.py",
-    "test_same_direction_stack_flag",
+    "test_same_direction_blocks_non_scalp_by_default",
+    "test_same_direction_stack_flag_when_allowed_for_scalp",
   ),
   "manual_command": (
     "test_manual_execution.py",

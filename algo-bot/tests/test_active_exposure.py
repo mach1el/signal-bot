@@ -76,7 +76,8 @@ def test_opposing_allows_when_far_enough():
   assert decision.same_direction_stack is False
 
 
-def test_same_direction_stack_flag():
+def test_same_direction_blocks_non_scalp_by_default():
+  """Owner 2026-08-10: skip same-direction non-scalp adds instead of 60%."""
   decision = evaluate_entry_against_exposure(
     direction="BUY",
     entry_price=4050.0,
@@ -88,6 +89,25 @@ def test_same_direction_stack_flag():
         plan_id="buy-open",
       )
     ],
+  )
+  assert decision.block is True
+  assert decision.same_direction_stack is False
+  assert decision.reason_code == "same_direction_active"
+
+
+def test_same_direction_stack_flag_when_allowed_for_scalp():
+  decision = evaluate_entry_against_exposure(
+    direction="BUY",
+    entry_price=4050.0,
+    exposures=[
+      ActiveExposure(
+        direction="BUY",
+        entry_price=4048.0,
+        source="v7_plan",
+        plan_id="buy-open",
+      )
+    ],
+    allow_same_direction_stack=True,
   )
   assert decision.block is False
   assert decision.same_direction_stack is True
