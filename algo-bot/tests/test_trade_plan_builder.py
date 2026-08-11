@@ -350,6 +350,15 @@ def test_be_after_target_index_can_be_overridden():
   assert plan.management.be_after_target_id == "TP2"
 
 
+def test_be_after_can_be_disabled():
+  plan = _build(_match(targets=(15, 30)), be_after_target_index=None)
+
+  assert plan.management.be_after_target_id is None
+  assert [t.close_ratio for t in plan.targets] == [
+    Decimal("0.5"), Decimal("0.5"),
+  ]
+
+
 def test_execution_policy_preference_does_not_block_builder():
   # confluence 1 is below Trend Pullback's min_confluence=2 — preference
   # telemetry only; the builder still produces a plan.

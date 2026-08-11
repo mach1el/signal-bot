@@ -89,9 +89,47 @@ def test_build_hfs_strategy_match_is_valid():
   assert match.structural_kind == "demand"
   assert match.direction == "BUY"
   assert match.full_take_profit_pips == 25
+  assert match.targets_pips == (25,)
   assert match.family == "hfs"
   assert match.strategy_mode == "hfs_scalp"
   assert _identity_ok(match)
+  assert _valid_match(match)
+
+
+def test_build_hfs_1to2_publishes_half_at_one_r():
+  # Owner 2026-08-11: 1:2 books half at 1R and half at 2R; final TP stays 2R.
+  opp = _opp()
+  # Rebuild with exact 1:2 geometry (stop 15 → target 30).
+  from dataclasses import replace
+  opp = replace(
+    opp,
+    expected_target_pips=30.0,
+    expected_target_price=4030.0,
+    expected_stop_pips=15.0,
+    expected_reward_risk=2.0,
+  )
+  match = build_hfs_strategy_match(
+    opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.targets_pips == (15, 30)
+  assert match.full_take_profit_pips == 30
+  assert _valid_match(match)
+
+
+def test_build_hfs_1to1_stays_single_full_exit():
+  from dataclasses import replace
+  opp = replace(
+    _opp(),
+    expected_target_pips=15.0,
+    expected_target_price=4015.0,
+    expected_stop_pips=15.0,
+    expected_reward_risk=1.0,
+  )
+  match = build_hfs_strategy_match(
+    opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.targets_pips == (15,)
+  assert match.full_take_profit_pips == 15
   assert _valid_match(match)
 
 
