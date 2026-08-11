@@ -656,7 +656,7 @@ def _thrust_bars(*, direction: str, bars: int = 5, step: float = 2.0, start: flo
 
 def test_momentum_ignition_detects_live_sell_thrust():
   # 5 straight bearish bars, 10 price units of displacement against a 1.0
-  # ATR (10x the 1.2x floor) -- exactly the "not_matched" scenario from
+  # ATR (10x the 1.0x floor) -- exactly the "not_matched" scenario from
   # production, now caught instead of waited out.
   df = _thrust_bars(direction="SELL")
   ev = detect_momentum_ignition(df, direction="SELL", atr=1.0)
@@ -679,16 +679,18 @@ def test_momentum_ignition_detects_live_buy_thrust():
 
 def test_momentum_ignition_rejects_insufficient_displacement():
   # Same shape, but a much larger ATR means 10 units of displacement no
-  # longer clears the 1.2x floor. Diagnostic (2026-08-11): this used to be
-  # a bare None, indistinguishable from every other rejection reason -
-  # now carries its own reason + the measured/required displacement.
+  # longer clears the 1.0x floor (owner-tuned 2026-08-11, was 1.2 - a real
+  # production thrust measured 1.056, 88% of the old floor, and got
+  # rejected). Diagnostic (2026-08-11): this used to be a bare None,
+  # indistinguishable from every other rejection reason - now carries its
+  # own reason + the measured/required displacement.
   df = _thrust_bars(direction="SELL")
   ev = detect_momentum_ignition(df, direction="SELL", atr=50.0)
   assert ev is not None
   assert ev.get("rejected") is True
   assert ev["reason"] == "insufficient_displacement"
   assert ev["displacement_atr"] == pytest.approx(0.2)
-  assert ev["min_displacement_atr"] == pytest.approx(1.2)
+  assert ev["min_displacement_atr"] == pytest.approx(1.0)
 
 
 def test_momentum_ignition_rejects_mixed_direction():
