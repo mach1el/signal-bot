@@ -3739,13 +3739,57 @@ public sealed partial class AutoTradeEngineTests
   [Fact]
   public async Task ConfirmedMissingPositionAtProtectiveStopReportsSlReason()
   {
-    // Default FakeTradingClient lookup stays Unknown, but the exit falls
-    // back to the protective stop — that is an ordinary SL hit, not an
-    // ambiguous "reason unconfirmed" close.
+    // Lookup stays Unknown but recovers an execution price on the protective
+    // stop — promote to SL/TP. Without a recovered price the classify would
+    // stay unconfirmed (see UnknownWithoutRecoveredExitKeepsAmbiguousMessage).
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var stop = client.StopAmendments.Single().StopLoss;
+    client.PositionCloseReasonToReturn = PositionCloseReason.Unknown;
+    client.PositionCloseExecutionPriceToReturn = stop;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("stop loss / take profit", closed.Message);
+    Assert.DoesNotContain("unconfirmed", closed.Message);
+    Assert.Equal(stop, closed.Price);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task UnknownWithoutRecoveredExitKeepsAmbiguousMessage()
+  {
+    // Deal-list timeout / Unknown with no execution price must NOT promote
+    // to SL/TP just because pip accounting fell back to CurrentStopLoss.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      PositionCloseExecutionPriceToReturn = null,
+    };
     var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
@@ -3766,10 +3810,66 @@ public sealed partial class AutoTradeEngineTests
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
-    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
-    Assert.Contains("stop loss / take profit", closed.Message);
-    Assert.DoesNotContain("unconfirmed", closed.Message);
+    Assert.Null(closed.ReasonCode);
+    Assert.Contains("unconfirmed", closed.Message);
     Assert.Equal(stop, closed.Price);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task LabelMismatchDoesNotConfirmMissingWhilePositionIdStillOpen()
+  {
+    // Broker Label drifted off options.Label but PositionId is still on the
+    // symbol — must keep managing, not treat as snapshot-missing.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var tracked = store.Positions[positionId];
+
+    client.RemovePosition(positionId);
+    client.SeedPosition(new TradingPosition(
+      tracked.PositionId,
+      Symbol.SymbolId,
+      tracked.Direction,
+      tracked.RemainingVolume,
+      tracked.EntryPrice,
+      tracked.CurrentStopLoss ?? tracked.EntryPrice,
+      "",
+      tracked.CandidateId
+    ));
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("tracked_position_label_mismatch_recovered")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await Task.Delay(100, cts.Token);
+
+    Assert.Contains(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(
+      "position_missing_snapshot_suspected",
+      store.MetricsSnapshot()
+    );
+    Assert.DoesNotContain(
+      "position_missing_snapshot_confirmed",
+      store.MetricsSnapshot()
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.Contains(
+      "tracked_position_label_mismatch_recovered",
+      store.MetricsSnapshot()
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
