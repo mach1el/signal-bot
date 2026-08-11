@@ -679,9 +679,16 @@ def test_momentum_ignition_detects_live_buy_thrust():
 
 def test_momentum_ignition_rejects_insufficient_displacement():
   # Same shape, but a much larger ATR means 10 units of displacement no
-  # longer clears the 1.2x floor.
+  # longer clears the 1.2x floor. Diagnostic (2026-08-11): this used to be
+  # a bare None, indistinguishable from every other rejection reason -
+  # now carries its own reason + the measured/required displacement.
   df = _thrust_bars(direction="SELL")
-  assert detect_momentum_ignition(df, direction="SELL", atr=50.0) is None
+  ev = detect_momentum_ignition(df, direction="SELL", atr=50.0)
+  assert ev is not None
+  assert ev.get("rejected") is True
+  assert ev["reason"] == "insufficient_displacement"
+  assert ev["displacement_atr"] == pytest.approx(0.2)
+  assert ev["min_displacement_atr"] == pytest.approx(1.2)
 
 
 def test_momentum_ignition_rejects_mixed_direction():
@@ -691,7 +698,12 @@ def test_momentum_ignition_rejects_mixed_direction():
   close_col = df.columns.get_loc("close")
   df.iloc[1, close_col] = df.iloc[1]["open"] + 0.5
   df.iloc[2, close_col] = df.iloc[2]["open"] + 0.5
-  assert detect_momentum_ignition(df, direction="SELL", atr=1.0) is None
+  ev = detect_momentum_ignition(df, direction="SELL", atr=1.0)
+  assert ev is not None
+  assert ev.get("rejected") is True
+  assert ev["reason"] == "insufficient_directional_bars"
+  assert ev["directional_bars"] == 3
+  assert ev["min_directional_bars"] == 4
 
 
 def test_momentum_ignition_rejects_when_stalling():
