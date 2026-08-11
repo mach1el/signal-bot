@@ -42,6 +42,29 @@ async def test_reopen_inherits_original_stop_not_moved_sl():
 
 
 @pytest.mark.asyncio
+async def test_reopen_card_displays_original_stop_not_moved_sl():
+  # Regression: do_reopen correctly stored the original stop (verified
+  # above), but render_result's "reopen" card read source['sl'] - the OLD
+  # signal's current field, still holding its break-even move - instead of
+  # the new round's own stop. Owner saw the trailed SL on the reopen card
+  # even though the armed order underneath used the right one.
+  await store.init_db()
+  src = await store.store_manual_signal(
+    1, "BUY", 4100.0, 4105.0, 4088.0, [4130.0], symbol="XAU",
+  )
+  await store.update_sl(src["id"], 4102.5)
+  await store.close_leg(src["id"], 0)
+  result = await trade_ops.do_reopen({
+    "sid": src["id"], "symbol": "XAU", "entry_override": None,
+  })
+
+  text = trade_ops.render_result(result, "XAU", "vip")
+
+  assert trade_ops._price(4088.0, "XAU") in text
+  assert trade_ops._price(4102.5, "XAU") not in text
+
+
+@pytest.mark.asyncio
 async def test_reopen_rejects_open_signal():
   await store.init_db()
   src = await store.store_manual_signal(
