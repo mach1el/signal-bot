@@ -594,33 +594,44 @@ def test_hfs_stop_clamps_into_envelope_instead_of_dropping():
   assert _stop_pips(structural=0.0, cfg=cfg) is None
 
 
-def test_scalp_target_always_matches_stop_1to1():
-  # Owner 2026-08-06: scalp is a 1:1 gamble -- target distance must equal
-  # stop distance exactly, not whichever ladder level happened to fit.
+def test_scalp_target_prefers_1to2_falls_back_to_1to1():
+  # Owner 2026-08-11: every scalp is 1:2 when the room supports it, 1:1
+  # otherwise - never a ladder, never anything outside this pair.
   from app.scalping.strategies import _select_target
 
+  # Room comfortably fits 2x stop -> 1:2 wins.
   buy_price, buy_pips = _select_target(
     direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   )
-  assert buy_pips == 18.0
-  assert buy_price == pytest.approx(4001.8)
+  assert buy_pips == pytest.approx(36.0)
+  assert buy_price == pytest.approx(4003.6)
 
   sell_price, sell_pips = _select_target(
     direction="SELL", entry=4000.0, room_pips=40.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   )
-  assert sell_pips == 18.0
-  assert sell_price == pytest.approx(3998.2)
+  assert sell_pips == pytest.approx(36.0)
+  assert sell_price == pytest.approx(3996.4)
 
-  # Stop below the minimum net target -> no opportunity, not a bumped-up
-  # target that would break the 1:1 relationship.
-  assert _select_target(
+  # Room fits 1x stop but not 2x -> falls back to 1:1, not a trimmed 1:2.
+  price, pips = _select_target(
+    direction="BUY", entry=4000.0, room_pips=20.0, stop_pips=18.0,
+    min_net=15.0, pip_size=0.1,
+  )
+  assert pips == pytest.approx(18.0)
+  assert price == pytest.approx(4001.8)
+
+  # Stop below the minimum net target at 1:1 but 1:2 clears it -> 1:2 wins,
+  # not the old "no opportunity" outcome from when only 1:1 existed.
+  price, pips = _select_target(
     direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=10.0,
     min_net=15.0, pip_size=0.1,
-  ) is None
+  )
+  assert pips == pytest.approx(20.0)
 
-  # Stop wider than available room -> no opportunity, not a trimmed target.
+  # Neither ratio fits the available room -> no opportunity, not a trimmed
+  # target outside the {1:1, 1:2} pair.
   assert _select_target(
     direction="BUY", entry=4000.0, room_pips=15.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
@@ -720,7 +731,7 @@ def test_momentum_ignition_rejects_when_stalling():
   assert ev["reason"] == "momentum_stalling"
 
 
-def test_discover_momentum_chase_builds_1to1_opportunity():
+def test_discover_momentum_chase_builds_1to2_opportunity_when_room_allows():
   from app.scalping.strategies import discover_momentum_chase
 
   df = _thrust_bars(direction="SELL")
@@ -758,9 +769,10 @@ def test_discover_momentum_chase_builds_1to1_opportunity():
   opp = opps[0]
   assert opp.archetype == "momentum_chase"
   assert opp.direction == "SELL"
-  # 1:1 -- same rule as every other archetype after the owner's directive.
-  assert opp.expected_target_pips == opp.expected_stop_pips
-  assert opp.expected_reward_risk == pytest.approx(1.0)
+  # 1:2 -- owner 2026-08-11: every scalp prefers 1:2 when the (huge, 200
+  # pip) room here easily supports it, same rule as every other archetype.
+  assert opp.expected_target_pips == pytest.approx(opp.expected_stop_pips * 2)
+  assert opp.expected_reward_risk == pytest.approx(2.0)
 
 
 def test_impulse_pullback_episode_id_survives_an_m5_context_rollover(monkeypatch):
