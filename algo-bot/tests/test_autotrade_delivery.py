@@ -108,6 +108,67 @@ async def test_position_events_never_fall_back_to_group_or_other_position(
   assert reason != ""
 
 
+@pytest.mark.asyncio
+async def test_order_filled_waits_for_a_root_card_still_mid_send(monkeypatch):
+  # Live 2026-08-11: order_filled sent standalone (no reply_to) because its
+  # own setup's root card was still mid-send (Telegram flood-control
+  # stretched a single edit/send to 17s+) - the owner saw a disconnected
+  # ORDER FILLED bubble with no thread to its POSITION ACTIVATED card.
+  # Reply resolution must poll for the card instead of giving up on the
+  # first empty lookup.
+  client = redis_state.get_client()
+  match_id = "root-card-still-sending"
+  await _confirmed_setup(client, match_id)
+  monkeypatch.setattr(delivery, "_FORMING_REPLY_WAIT_SECONDS", 1.0)
+  monkeypatch.setattr(delivery, "_FORMING_REPLY_POLL_SECONDS", 0.01)
+
+  calls = 0
+
+  async def fake_load_forming_card(_client, _setup_id):
+    nonlocal calls
+    calls += 1
+    if calls < 3:
+      return None
+    return {"chat_id": 123, "message_id": 9001, "text": "root"}
+
+  monkeypatch.setattr(delivery, "load_forming_card", fake_load_forming_card)
+
+  message_id, reason = await _resolve_reply_message_id(
+    client,
+    {"type": "order_filled", "candidate_id": f"v7:{match_id}"},
+    "internal",
+  )
+
+  assert message_id == 9001
+  assert reason == ""
+  assert calls >= 3
+
+
+@pytest.mark.asyncio
+async def test_order_filled_falls_back_standalone_after_the_wait_expires(
+  monkeypatch,
+):
+  client = redis_state.get_client()
+  match_id = "root-card-never-arrives"
+  await _confirmed_setup(client, match_id)
+  monkeypatch.setattr(delivery, "_FORMING_REPLY_WAIT_SECONDS", 0.05)
+  monkeypatch.setattr(delivery, "_FORMING_REPLY_POLL_SECONDS", 0.01)
+
+  async def fake_load_forming_card(_client, _setup_id):
+    return None
+
+  monkeypatch.setattr(delivery, "load_forming_card", fake_load_forming_card)
+
+  message_id, reason = await _resolve_reply_message_id(
+    client,
+    {"type": "order_filled", "candidate_id": f"v7:{match_id}"},
+    "internal",
+  )
+
+  assert message_id is None
+  assert reason != ""
+
+
 def test_compact_route_line_never_shows_a_preflight_pass_through_code():
   # preflight_reason_code lingers as whatever the last preflight-stage
   # event recorded - once a candidate clears every preflight check that's
