@@ -136,6 +136,26 @@ public sealed class StopTrailPlannerTests
     Assert.Null(StopTrailPlanner.Plan(state, 4, Symbol, 0.1m, 6));
   }
 
+  [Fact]
+  public void AbsoluteTargetPricesDriveTrailNotFillRelativePips()
+  {
+    // Manual ladders book absolute TargetPrices; trail after TP4 must lock
+    // to Absolute TP2, not Entry±TargetsPips (fill slippage desync).
+    var state = State(TradeDirection.Sell, 4401.10m, 4408.10m) with
+    {
+      TargetsPips = [30, 60, 100, 130, 200],
+      TargetOrdinals = [1, 2, 3, 4, 5],
+      TargetPrices = [4398.0m, 4395.0m, 4391.0m, 4388.0m, 4381.0m],
+      CurrentStopLoss = 4398.10m,
+    };
+
+    var afterTp4 = Assert.IsType<StopTrailMove>(
+      StopTrailPlanner.Plan(state, 3, Symbol, 0.1m, 6)
+    );
+    Assert.Equal(4395.0m, afterTp4.StopLoss);
+    Assert.Equal("TP2", afterTp4.Label);
+  }
+
   [Theory]
   [InlineData(TradeDirection.Buy, 4000.26, 4000.25)]
   [InlineData(TradeDirection.Sell, 4000.14, 4000.15)]
