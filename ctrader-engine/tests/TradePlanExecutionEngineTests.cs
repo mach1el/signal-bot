@@ -246,9 +246,10 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
-  public void CalculateVolumeHalvesScalpBoostBelowTwoThousandEquity()
+  public void CalculateVolumeUsesOnePointFiveScalpBoostBelowTwoThousandEquity()
   {
-    // Owner 2026-08-12: below $2k, scalp ×2 stamp becomes ×0.5 table lots.
+    // Owner 2026-08-12: below $2k, scalp ×2 stamp becomes ×1.5 table lots
+    // (0.10 → 0.15), not double and not half.
     var plan = MarketWatchPlan() with
     {
       Risk = new TradePlanRisk(1.0m, 2.0m, 100_000, 2.0m),
@@ -258,8 +259,8 @@ public sealed class TradePlanExecutionEngineTests
       plan, Account(800m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    // LotsForEquity(800)=0.10 → ×0.5 = 0.05 lots → 500 volume units.
-    Assert.Equal(500, result.TotalVolume);
+    // LotsForEquity(800)=0.10 → ×1.5 = 0.15 lots → 1500 volume units.
+    Assert.Equal(1_500, result.TotalVolume);
     Assert.Empty(result.Slices);
   }
 
