@@ -82,6 +82,7 @@ def _activate(
   mode: str = "enforce",
   breakout_evidence: dict | None = None,
   continuation_evidence: dict | None = None,
+  m5_authoritative: bool = False,
 ):
   return evaluate_entry_activation(
     strategy=strategy,
@@ -95,6 +96,7 @@ def _activate(
     cfg=_activation_cfg(mode),
     breakout_evidence=breakout_evidence,
     continuation_evidence=continuation_evidence,
+    m5_authoritative=m5_authoritative,
   )
 
 
@@ -247,6 +249,53 @@ def test_case_15_shadow_allows_with_would_block():
   assert decision.allowed is True
   assert decision.would_block is True
   assert decision.reason_code == "reaction_trigger_missing"
+
+
+def test_m5_authoritative_in_zone_allows_without_m1():
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=True,
+  )
+  assert decision.allowed is True
+  assert decision.would_block is False
+  assert decision.reason_code == "reaction_m5_authoritative_in_zone"
+  assert decision.measured["m1_fallback_reason"] == "reaction_trigger_missing"
+
+
+def test_m5_authoritative_outside_zone_still_blocked():
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=False,
+    m5_authoritative=True,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "quote_outside_zone"
+
+
+def test_m5_authoritative_false_without_m1_still_missing():
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=False,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "reaction_trigger_missing"
+
+
+def test_m1_preferred_over_m5_bridge():
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=_trigger(pattern="wick_rejection", direction="BUY"),
+    quote_inside=True,
+    m5_authoritative=True,
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "entry_activation_allowed"
+  assert "m1_fallback_reason" not in decision.measured
 
 
 # Cases 16-18 (persist/publish on cutover) belong in integration tests:

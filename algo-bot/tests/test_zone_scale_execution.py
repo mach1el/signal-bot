@@ -192,6 +192,21 @@ def test_buy_zone_already_inside_anchors_first_leg_at_current_price():
   assert measured["planned_leg_entry_prices"][1] == pytest.approx(4035.5)
 
 
+def test_key_session_trendline_outside_zone_keeps_limit_ladder():
+  # Approaching from outside must not fire L1 market; resting DCA ladder.
+  evaluation = evaluate_execution_policy(
+    _policy_match(strategy="Key Level Reaction", direction="SELL"),
+    spot_price=4034.5,
+    executable_quote=4034.5,
+    regime="range",
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert evaluation.allowed
+  assert evaluation.measured["planned_execution_route"] == "zone_split"
+  assert evaluation.measured["order_type_preference"] == "limit"
+
+
 def test_scale_ladder_never_places_the_second_leg_past_the_far_edge():
   # Zone only 0.35 wide (above a 0.3*ATR qualification floor) with a
   # 0.5*ATR step - the second leg would overshoot past the far edge, so it
