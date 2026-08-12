@@ -290,7 +290,7 @@ def test_supply_demand_technique_reaction_buy():
   )
   result = supply_demand_technique_reaction(ctx)
   assert result is not None
-  assert result.setup == "Supply Demand Reaction"
+  assert result.setup == "Supply Demand"
   assert result.direction == "BUY"
   assert result.structural_source == "technique"
   assert result.structural_kind == TECHNIQUE_SD
@@ -549,7 +549,7 @@ def test_touch_prior_bar_confirmation_within_lookback():
     )
   )
   assert result is not None
-  assert result.setup == "Supply Demand Reaction"
+  assert result.setup == "Supply Demand"
 
 
 def test_confirmation_older_than_lookback_rejected():
