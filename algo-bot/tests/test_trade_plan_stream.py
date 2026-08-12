@@ -28,7 +28,7 @@ def _plan(**overrides) -> TradePlan:
   base = json.loads(
     (
       __import__("pathlib").Path(__file__).resolve().parents[2]
-      / "contracts" / "autotrade" / "trade-plan-v7.json"
+      / "contracts" / "autotrade" / "trade-plan-v8.json"
     ).read_text()
   )
   plan_dict = next(

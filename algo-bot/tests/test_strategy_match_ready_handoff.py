@@ -287,7 +287,7 @@ async def test_a_grade_reaction_publishes_directly_in_the_same_scan_cycle(
   route = json.loads(
     await client.get(route_outcome_key("XAU", match.match_id)),
   )
-  plan_id = worker._v7_plan_id(match)
+  plan_id = worker._v8_plan_id(match)
   assert route["status"] == "candidate_published"
   assert route["candidate_id"] == plan_id
   assert (await load_setup(client, match.match_id)).state == PLAN_PUBLISHED
@@ -349,7 +349,7 @@ async def test_nearby_quote_outside_zone_waits_instead_of_distance_chasing(
   assert raw is not None
   match = worker.StrategyMatch.from_json(raw)
   assert match is not None
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
 
 
 @pytest.mark.asyncio

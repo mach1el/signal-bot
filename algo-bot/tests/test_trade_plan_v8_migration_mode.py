@@ -35,8 +35,8 @@ def _load(**extra):
   ))
 
 
-def test_default_contract_mode_is_v7_only():
-  assert leaf(runtime_config, "auto_trade_contract_mode") == "v7_only"
+def test_default_contract_mode_is_v8_only():
+  assert leaf(runtime_config, "auto_trade_contract_mode") == "v8_only"
 
 
 def test_contract_mode_rejects_unknown_value():
@@ -64,7 +64,7 @@ def test_manifest_carries_trade_plan_version_and_contract_mode():
 def test_contract_mode_mismatch_is_fatal_not_a_warning():
   python = python_manifest()
   ctrader = dict(python)
-  ctrader["contract_mode"] = "v7_only"
+  ctrader["contract_mode"] = "v8_only"
   python["contract_mode"] = "legacy_v6"
 
   health = compare_manifests(python, ctrader)

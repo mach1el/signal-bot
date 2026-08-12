@@ -254,7 +254,7 @@ async def test_active_plan_state_race_is_reconciled(monkeypatch):
     "_ORIGINAL_DIRECT_PUBLISH",
     AsyncMock(return_value=worker.PublishResult(
       status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
-      plan_id="v7:setup-1",
+      plan_id="v8:setup-1",
       reason_code="zone_watching_retest",
       zone_id="zone-1",
       setup_id="setup-1",
@@ -262,9 +262,9 @@ async def test_active_plan_state_race_is_reconciled(monkeypatch):
   )
   monkeypatch.setattr(
     worker,
-    "resolve_existing_v7_state",
-    AsyncMock(return_value=worker.ExistingV7State(
-      plan_id="v7:setup-1",
+    "resolve_existing_v8_state",
+    AsyncMock(return_value=worker.ExistingV8State(
+      plan_id="v8:setup-1",
       setup_state="plan_published",
       plan_state="armed",
       plan_exists=True,
@@ -289,9 +289,9 @@ async def test_direct_exception_returns_durable_fallback(monkeypatch):
   )
   monkeypatch.setattr(
     worker,
-    "resolve_existing_v7_state",
-    AsyncMock(return_value=worker.ExistingV7State(
-      plan_id="v7:setup-1",
+    "resolve_existing_v8_state",
+    AsyncMock(return_value=worker.ExistingV8State(
+      plan_id="v8:setup-1",
       setup_state="worker_acknowledged",
       plan_state=None,
       plan_exists=False,
@@ -378,7 +378,7 @@ async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   )
   direct_publish = AsyncMock(return_value=worker.PublishResult(
     status=worker.PUBLISH_STATUS_PUBLISHED,
-    plan_id="v7:setup-1",
+    plan_id="v8:setup-1",
     reason_code="candidate_published",
     zone_id="zone-1",
     setup_id="setup-1",
@@ -400,7 +400,7 @@ async def test_grade_b_zone_publishes_without_waiting_for_an_m1_trigger(
   watched = await zw.load_zone_watch(client, "zone-1")
   assert watched is not None
   assert watched.state == zw.PUBLISHED_LOCKED
-  assert watched.last_plan_id == "v7:setup-1"
+  assert watched.last_plan_id == "v8:setup-1"
 
 
 @pytest.mark.asyncio
@@ -527,7 +527,7 @@ async def test_enforce_reaction_activates_with_fresh_m1_once(
   )
   direct_publish = AsyncMock(return_value=worker.PublishResult(
     status=worker.PUBLISH_STATUS_PUBLISHED,
-    plan_id="v7:setup-1",
+    plan_id="v8:setup-1",
     reason_code="candidate_published",
     zone_id="zone-1",
     setup_id="setup-1",
@@ -994,7 +994,7 @@ async def test_safe_direct_publish_ensures_plan_published_root_card(monkeypatch)
     "_ORIGINAL_DIRECT_PUBLISH",
     AsyncMock(return_value=worker.PublishResult(
       status=worker.PUBLISH_STATUS_PUBLISHED,
-      plan_id="v7:setup-1",
+      plan_id="v8:setup-1",
       reason_code="candidate_published",
       zone_id="zone-1",
       setup_id="setup-1",
@@ -1002,10 +1002,10 @@ async def test_safe_direct_publish_ensures_plan_published_root_card(monkeypatch)
   )
   monkeypatch.setattr(
     worker,
-    "resolve_existing_v7_state",
+    "resolve_existing_v8_state",
     AsyncMock(return_value=SimpleNamespace(
       already_published=True,
-      plan_id="v7:setup-1",
+      plan_id="v8:setup-1",
     )),
   )
 

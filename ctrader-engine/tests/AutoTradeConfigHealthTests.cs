@@ -189,7 +189,7 @@ public sealed class AutoTradeConfigHealthTests
     int storageTtl = 604800,
     int candidateMaxAge = 420,
     string contractMode = "legacy_v6",
-    int tradePlanVersion = 7,
+    int tradePlanVersion = 8,
     string tradePlanStream = "execution:trade_plans",
     bool omitTradePlanFields = false
   )

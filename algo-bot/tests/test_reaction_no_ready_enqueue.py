@@ -26,7 +26,7 @@ async def test_reaction_remained_watching_skips_ready_enqueue():
   direct = AsyncMock(
     return_value=worker.PublishResult(
       status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
-      plan_id="v7:x",
+      plan_id="v8:x",
       reason_code="zone_watching_retest",
       zone_id="z",
       setup_id="s",
@@ -115,7 +115,7 @@ async def test_cutover_reaction_exception_skips_ready_fallback(monkeypatch):
     AsyncMock(
       return_value=worker.PublishResult(
         status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
-        plan_id="v7:setup-1",
+        plan_id="v8:setup-1",
         reason_code="direct_publish_failed_durable_fallback",
         zone_id="zone-1",
         setup_id="setup-1",

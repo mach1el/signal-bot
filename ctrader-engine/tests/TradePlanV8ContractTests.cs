@@ -5,12 +5,12 @@ using ApexVoid.CTraderFeed;
 namespace CTraderFeed.Tests;
 
 /// <summary>
-/// Executor half of the shared TradePlan V7 contract fixture. The same file
+/// Executor half of the shared TradePlan V8 contract fixture. The same file
 /// drives `algo-bot/tests/test_trade_plan_v7_contract.py`, so the plan
 /// Python builds and the plan C# parses/validates cannot drift apart
 /// unnoticed.
 /// </summary>
-public sealed class TradePlanV7ContractTests
+public sealed class TradePlanV8ContractTests
 {
   private static readonly JsonSerializerOptions ReadOptions = new()
   {
@@ -28,7 +28,7 @@ public sealed class TradePlanV7ContractTests
         directory.FullName,
         "contracts",
         "autotrade",
-        "trade-plan-v7.json"
+        "trade-plan-v8.json"
       );
       if (File.Exists(candidate))
       {
@@ -37,7 +37,7 @@ public sealed class TradePlanV7ContractTests
       directory = directory.Parent;
     }
     throw new FileNotFoundException(
-      "contracts/autotrade/trade-plan-v7.json was not found above "
+      "contracts/autotrade/trade-plan-v8.json was not found above "
       + AppContext.BaseDirectory
     );
   }

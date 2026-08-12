@@ -55,13 +55,13 @@ def test_v7_order_submitted_event_renders_without_crashing():
 def test_event_setup_id_strips_v7_plan_prefix():
   assert delivery._event_match_id({
     "match_id": "abc123",
-    "candidate_id": "v7:abc123",
+    "candidate_id": "v8:abc123",
   }) == "abc123"
   assert delivery._event_match_id({
-    "candidate_id": "v7:setup-only",
+    "candidate_id": "v8:setup-only",
   }) == "setup-only"
   assert delivery._event_match_id({
-    "plan_id": "v7:from-plan",
+    "plan_id": "v8:from-plan",
   }) == "from-plan"
 
 

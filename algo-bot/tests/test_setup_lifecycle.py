@@ -54,7 +54,7 @@ def test_parse_cycle_owner_intent_id_extracts_from_json_payload():
   """
   raw = (
     b'{"symbol":"XAU","cycle_id":"1722168600","intent_id":"strategy:abc",'
-    b'"setup_id":"abc","plan_id":"v7:abc","published_at":1722168600}'
+    b'"setup_id":"abc","plan_id":"v8:abc","published_at":1722168600}'
   )
   assert parse_cycle_owner_intent_id(raw) == "strategy:abc"
 

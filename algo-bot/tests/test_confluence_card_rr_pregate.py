@@ -545,7 +545,7 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
     reject_rr,
   )
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   ) is None
   assert (await load_setup(client, setup_id)).state == EXPIRED
@@ -595,7 +595,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   worker.py's preflight pass writes route_outcome with
   reason_code="reaction_confirmation_handoff" every cycle a reaction stays
   outside its zone (V7 persists WAITING_RETEST on out-of-zone presence),
-  intending _publish_trade_plan_v7's own confirmation-phase persist to
+  intending _publish_trade_plan_v8's own confirmation-phase persist to
   immediately correct it back to the durable "waiting_retest_entry_zone"
   reason. Outside-zone setups now remain CONFIRMED while waiting (no
   ARMED_WAITING_TRIGGER node). This reproduces a second waiting cycle
@@ -649,7 +649,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
     price=4095.0, ts=1722168600, fresh=True, bid=4094.9, ask=4095.1,
   )
 
-  first = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  first = await worker._publish_trade_plan_v8(client, "XAU", spot, match)
   assert first is None
   record = await load_setup(client, setup_id)
   assert record.state == CONFIRMED
@@ -658,7 +658,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   assert json.loads(outcome_raw)["reason_code"] == "waiting_retest_entry_zone"
 
   # Simulate the next cycle's preflight pass, which runs BEFORE
-  # _publish_trade_plan_v7 and unconditionally records the transient
+  # _publish_trade_plan_v8 and unconditionally records the transient
   # handoff reason for any reaction still outside its zone.
   await record_route_outcome(
     client, match,
@@ -671,7 +671,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
   outcome_raw = await client.get(route_outcome_key("XAU", setup_id))
   assert json.loads(outcome_raw)["reason_code"] == "reaction_confirmation_handoff"
 
-  second = await worker._publish_trade_plan_v7(
+  second = await worker._publish_trade_plan_v8(
     client, "XAU", worker.AutoTradeSpot(
       price=4095.0, ts=1722168660, fresh=True, bid=4094.9, ask=4095.1,
     ),

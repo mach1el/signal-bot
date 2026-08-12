@@ -135,7 +135,7 @@ async def test_order_filled_waits_for_a_root_card_still_mid_send(monkeypatch):
 
   message_id, reason = await _resolve_reply_message_id(
     client,
-    {"type": "order_filled", "candidate_id": f"v7:{match_id}"},
+    {"type": "order_filled", "candidate_id": f"v8:{match_id}"},
     "internal",
   )
 
@@ -161,7 +161,7 @@ async def test_order_filled_falls_back_standalone_after_the_wait_expires(
 
   message_id, reason = await _resolve_reply_message_id(
     client,
-    {"type": "order_filled", "candidate_id": f"v7:{match_id}"},
+    {"type": "order_filled", "candidate_id": f"v8:{match_id}"},
     "internal",
   )
 

@@ -53,7 +53,7 @@ async def test_same_cycle_install_is_identity_without_armed_retry(monkeypatch):
   match = _range_match()
   watching = worker.PublishResult(
     status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
-    plan_id="v7:range-setup",
+    plan_id="v8:range-setup",
     reason_code="waiting_retest_entry_zone",
     zone_id="zone-1",
     setup_id="range-setup",

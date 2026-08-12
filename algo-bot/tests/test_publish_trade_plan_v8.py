@@ -1,6 +1,6 @@
 """Proves worker.py actually publishes TradePlan V7 to execution:trade_plans.
 
-Exercises app.autotrade.worker._publish_trade_plan_v7 directly against a real
+Exercises app.autotrade.worker._publish_trade_plan_v8 directly against a real
 Redis client (same fakeredis-backed client the rest of the suite uses) - not
 a mock of the publish call - so a regression here means the live runtime
 stopped publishing, not just that a function was called with the right args.
@@ -105,7 +105,7 @@ def _eligibility(
 def _match(**overrides) -> StrategyMatch:
   # expires_at must be in the future relative to real wall-clock time (not
   # a fixed historical epoch) since P4's EXPIRED sweep in
-  # _publish_trade_plan_v7 compares it against datetime.now(timezone.utc).
+  # _publish_trade_plan_v8 compares it against datetime.now(timezone.utc).
   base = dict(
     version=STRATEGY_MATCH_VERSION,
     match_id="match-v7-1",
@@ -171,7 +171,7 @@ async def _publish_nonreaction_after_m1(
   **kwargs,
 ):
   # Zone presence alone authorizes publication; M1 is optional stop evidence.
-  return await worker._publish_trade_plan_v7(
+  return await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -315,7 +315,7 @@ async def test_nonreaction_setup_publishes_with_optional_m1_stop_anchor():
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1)
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
   )
 
@@ -346,7 +346,7 @@ async def test_publish_ensures_root_card_regardless_of_which_path_called_it(
   # never touches HFS's own wrapper. Live 2026-08-06: a real fill with no
   # root card, confirmed via prod logs to have published on exactly that
   # second path. ensure_plan_published_root_card() must run from inside
-  # _publish_trade_plan_v7 itself -- the one function every publish route
+  # _publish_trade_plan_v8 itself -- the one function every publish route
   # funnels through -- not from any one caller's wrapper.
   client = redis_state.get_client()
   match = _match()
@@ -357,7 +357,7 @@ async def test_publish_ensures_root_card_regardless_of_which_path_called_it(
     "app.autotrade.setup_card.ensure_plan_published_root_card", ensure_card,
   )
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match, frames={"M1": _m1_trigger_bar()},
   )
 
@@ -383,7 +383,7 @@ async def test_nonreaction_setup_publishes_in_zone_without_m1():
     ask=4089.5,
   )
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
 
@@ -408,7 +408,7 @@ async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
     ask=4038.61,
   )
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
 
@@ -425,7 +425,7 @@ async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
   assert state.phase == PUBLISHED
   assert await client.xlen(leaf(runtime_config, "auto_trade_trade_plan_stream")) == 1
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   ) == plan_id
   assert await client.xlen(leaf(runtime_config, "auto_trade_trade_plan_stream")) == 1
@@ -442,10 +442,10 @@ async def test_publication_result_reconciles_durable_v7_plan_when_local_is_none(
     entry_high=4047.14248,
     current_price=4045.56,
   )
-  plan_id = worker._v7_plan_id(match)
+  plan_id = worker._v8_plan_id(match)
   await client.set(
     plan_key(plan_id),
-    '{"version":7,"plan_id":"' + plan_id + '"}',
+    '{"version":8,"plan_id":"' + plan_id + '"}',
     ex=3600,
   )
   await client.set(plan_state_key(plan_id), "published", ex=3600)
@@ -463,8 +463,8 @@ async def test_rejected_plan_state_wins_over_retained_plan_payload():
     match_id="rejected-v7-replay",
     thesis_id="rejected-v7-thesis",
   )
-  plan_id = worker._v7_plan_id(match)
-  await client.set(plan_key(plan_id), '{"version":7}', ex=3600)
+  plan_id = worker._v8_plan_id(match)
+  await client.set(plan_key(plan_id), '{"version":8}', ex=3600)
   await client.set(plan_state_key(plan_id), "rejected", ex=3600)
 
   result = await worker._strategy_publication_result(client, match, None)
@@ -489,7 +489,7 @@ async def test_published_setup_reconciles_on_replay_without_re_publishing():
     bid=4038.41,
     ask=4038.61,
   )
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
   assert plan_id is not None
@@ -498,7 +498,7 @@ async def test_published_setup_reconciles_on_replay_without_re_publishing():
   # already-published plan without either re-publishing or invalidating it.
   # (Old code path: preflight short-circuited on existing_v7_plan; V7 now
   # owns that reconciliation itself.)
-  replay_plan_id = await worker._publish_trade_plan_v7(
+  replay_plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -545,7 +545,7 @@ async def test_m5_authoritative_buy_uses_ask_for_same_cycle_eligibility():
     ask=4041.9,
   )
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
 
@@ -584,14 +584,14 @@ async def test_confirmed_trendline_sell_below_zone_waits_for_fresh_retest():
     ask=4037.98,
   )
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   ) is None
   assert (await load_setup(client, match.match_id)).state == CONFIRMED
   state = await load_execution_confirmation(client, match.match_id)
   assert state is not None
   assert state.phase == WAITING_RETEST
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
 
 
 @pytest.mark.asyncio
@@ -625,7 +625,7 @@ async def test_outside_reaction_routes_to_waiting_retest_via_v7(
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_strategy_match_enabled": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_trendline_reaction_enabled": True,})
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
 
@@ -674,7 +674,7 @@ async def test_inside_authoritative_reaction_admits_and_publishes(
   assert failure is None
 
   # V7 itself then publishes the plan for the same inside reaction.
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
   assert plan_id is not None
@@ -784,7 +784,7 @@ async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
     bid=4037.78,
     ask=4037.98,
   )
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", outside, match,
   ) is None
 
@@ -797,7 +797,7 @@ async def test_retest_episode_finds_fresh_m1_and_publishes_in_same_cycle():
     ask=4044.70,
   )
   before_publish = int(time.time())
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     inside,
@@ -856,7 +856,7 @@ async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
     bid=4047.9,
     ask=4048.1,
   )
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", outside, match,
   ) is None
 
@@ -868,7 +868,7 @@ async def test_buy_retest_uses_ask_and_publishes_fresh_episode_trigger():
     bid=4040.0,
     ask=4040.2,
   )
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     inside,
@@ -909,17 +909,17 @@ async def test_reaction_expiry_is_terminal_while_waiting_retest():
   outside = worker.AutoTradeSpot(
     price=4037.88, ts=start, fresh=True, bid=4037.78, ask=4037.98,
   )
-  await worker._publish_trade_plan_v7(client, "XAU", outside, match)
+  await worker._publish_trade_plan_v8(client, "XAU", outside, match)
 
   expired = replace(match, expires_at=int(time.time()) - 1)
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", outside, expired,
   ) is None
   assert (await load_setup(client, match.match_id)).state == EXPIRED
   state = await load_execution_confirmation(client, match.match_id)
   assert state is not None
   assert state.phase == "expired"
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
 
 
 @pytest.mark.asyncio
@@ -939,7 +939,7 @@ async def test_structure_invalidation_prevents_retest_revival():
     ask=4045.7,
   )
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", invalidating_spot, match,
   ) is None
   assert (await load_setup(client, match.match_id)).state == INVALIDATED
@@ -954,14 +954,14 @@ async def test_structure_invalidation_prevents_retest_revival():
     bid=4040.0,
     ask=4040.2,
   )
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client,
     "XAU",
     inside,
     match,
     frames={"M1": _sell_retest_bar(inside.ts)},
   ) is None
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
 
 
 @pytest.mark.asyncio
@@ -981,7 +981,7 @@ async def test_reaction_missing_confirmation_metadata_fails_closed():
     ask=4038.61,
   )
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   ) is None
   assert (await load_setup(client, match.match_id)).state == INVALIDATED
@@ -1014,7 +1014,7 @@ async def test_far_waits_then_executes_only_on_zone_reentry_without_m1():
   outside = worker.AutoTradeSpot(
     price=4037.88, ts=start, fresh=True, bid=4037.78, ask=4037.98,
   )
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", outside, match,
   ) is None
   waiting = await load_execution_confirmation(client, match.match_id)
@@ -1028,7 +1028,7 @@ async def test_far_waits_then_executes_only_on_zone_reentry_without_m1():
     bid=4043.80,
     ask=4044.00,
   )
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", returned, match,
   )
 
@@ -1070,7 +1070,7 @@ async def test_midpoint_inside_does_not_override_executable_quote_outside(
     ask=ask,
   )
 
-  assert await worker._publish_trade_plan_v7(
+  assert await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   ) is None
   state = await load_execution_confirmation(client, match.match_id)
@@ -1106,14 +1106,14 @@ async def test_final_v7_gate_rejects_entry_inside_opposing_structure():
     13.0,
   ))
 
-  await worker._publish_trade_plan_v7(
+  await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
     match,
     market_map=market_map,
   )
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1124,7 +1124,7 @@ async def test_final_v7_gate_rejects_entry_inside_opposing_structure():
 
   assert plan_id is None
   assert (await load_setup(client, match.match_id)).state == INVALIDATED
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
   rejected = int(
     await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
   )
@@ -1169,7 +1169,7 @@ async def test_final_v7_gate_rejects_sell_from_demand_containment():
     12.0,
   ))
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1179,7 +1179,7 @@ async def test_final_v7_gate_rejects_sell_from_demand_containment():
 
   assert plan_id is None
   assert (await load_setup(client, match.match_id)).state == INVALIDATED
-  assert await read_trade_plan(client, worker._v7_plan_id(match)) is None
+  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
   rejected = int(
     await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
   )
@@ -1231,7 +1231,7 @@ async def test_range_edge_scalp_publishes_inside_opposing_structure():
     13.0,
   ))
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1294,7 +1294,7 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
     13.0,
   ))
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1362,7 +1362,7 @@ async def test_range_edge_without_target_room_still_hits_opposing():
     13.0,
   ))
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1406,7 +1406,7 @@ async def test_final_v7_gate_keeps_configured_ladder_with_opposing_structure():
     10.0,
   ))
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client,
     "XAU",
     spot,
@@ -1422,7 +1422,7 @@ async def test_final_v7_gate_keeps_configured_ladder_with_opposing_structure():
 
 @pytest.mark.asyncio
 async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
-  # _publish_trade_plan_v7 must not gate on AUTO_TRADE_CONTRACT_MODE - V7 is
+  # _publish_trade_plan_v8 must not gate on AUTO_TRADE_CONTRACT_MODE - V7 is
   # the sole autonomous path, unconditionally, not a mode. Force the
   # setting to a value that would have disabled V7 under the old gate (and
   # is now rejected by Settings validation, but this function doesn't
@@ -1470,7 +1470,7 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
   # Only one plan_id was ever minted for this thesis.
   first_plan = await read_trade_plan(client, first_plan_id)
   assert first_plan is not None
-  second_plan = await read_trade_plan(client, worker._v7_plan_id(second_match))
+  second_plan = await read_trade_plan(client, worker._v8_plan_id(second_match))
   assert second_plan is None
 
 
@@ -1484,7 +1484,7 @@ async def test_setup_not_confirmed_is_rejected():
     price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
   )
 
-  plan_id = await worker._publish_trade_plan_v7(client, "XAU", spot, match)
+  plan_id = await worker._publish_trade_plan_v8(client, "XAU", spot, match)
 
   assert plan_id is None
   assert await load_setup(client, "match-v7-4") is None
@@ -1513,7 +1513,7 @@ async def test_nonreaction_non_qualifying_m1_still_publishes_on_zone_presence():
     "volume": [100.0],
   }, index=index)
 
-  plan_id = await worker._publish_trade_plan_v7(
+  plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match, frames={"M1": flat_bar},
   )
 

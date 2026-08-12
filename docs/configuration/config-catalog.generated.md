@@ -189,7 +189,7 @@
 | `contract.keys.executor_readiness` | `—` | `str` | `identifier` | `protocol_constant` | `"auto_trade:executor_readiness"` |
 | `contract.keys.python_manifest` | `—` | `str` | `identifier` | `protocol_constant` | `"auto_trade:config_manifest:python"` |
 | `contract.keys.tracked_positions` | `—` | `str` | `identifier` | `protocol_constant` | `"auto_trade:positions"` |
-| `contract.mode` | `AUTO_TRADE_CONTRACT_MODE` | `str` | `enum` | `configurable` | `"v7_only"` |
+| `contract.mode` | `AUTO_TRADE_CONTRACT_MODE` | `str` | `enum` | `configurable` | `"v8_only"` |
 | `contract.streams.candidate_maximum_length` | `AUTO_TRADE_STREAM_MAXLEN` | `int` | `count` | `configurable` | `1000` |
 | `contract.streams.candidates` | `AUTO_TRADE_CANDIDATE_STREAM` | `str` | `identifier` | `configurable` | `"auto_trade:candidates"` |
 | `contract.streams.events` | `AUTO_TRADE_EVENT_STREAM` | `str` | `identifier` | `configurable` | `"auto_trade:events"` |
@@ -199,7 +199,7 @@
 | `contract.versions.config_manifest` | `—` | `int` | `version` | `protocol_constant` | `2` |
 | `contract.versions.entry_plan` | `—` | `int` | `version` | `protocol_constant` | `1` |
 | `contract.versions.stop_plan` | `—` | `int` | `version` | `protocol_constant` | `3` |
-| `contract.versions.trade_plan` | `—` | `int` | `version` | `protocol_constant` | `7` |
+| `contract.versions.trade_plan` | `—` | `int` | `version` | `protocol_constant` | `8` |
 
 ## delivery
 

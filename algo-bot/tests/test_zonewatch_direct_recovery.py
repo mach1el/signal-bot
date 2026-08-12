@@ -66,7 +66,7 @@ async def test_zonewatch_direct_publish_recovers_after_transient_failure(
       raise RuntimeError("transient publish failure")
     return worker.PublishResult(
       status=worker.PUBLISH_STATUS_PUBLISHED,
-      plan_id="v7:setup-1",
+      plan_id="v8:setup-1",
       reason_code="candidate_published",
       zone_id="zone-1",
       setup_id="setup-1",
@@ -75,10 +75,10 @@ async def test_zonewatch_direct_publish_recovers_after_transient_failure(
   monkeypatch.setattr(cutover, "_ORIGINAL_DIRECT_PUBLISH", flaky_then_ok)
   monkeypatch.setattr(
     worker,
-    "resolve_existing_v7_state",
+    "resolve_existing_v8_state",
     AsyncMock(side_effect=[
       SimpleNamespace(already_published=False, plan_id=None),
-      SimpleNamespace(already_published=True, plan_id="v7:setup-1"),
+      SimpleNamespace(already_published=True, plan_id="v8:setup-1"),
     ]),
   )
 

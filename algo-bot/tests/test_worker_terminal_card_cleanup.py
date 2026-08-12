@@ -87,10 +87,10 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
     ex=60,
   )
 
-  plan_id = worker._v7_plan_id(match)
+  plan_id = worker._v8_plan_id(match)
   assert await client.exists(f"execution:trade_plan:v7:{plan_id}") == 0
 
-  result = await worker._publish_trade_plan_v7(client, "XAU", None, match)
+  result = await worker._publish_trade_plan_v8(client, "XAU", None, match)
 
   assert result is None
   record = await load_setup(client, setup_id)
@@ -100,7 +100,7 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   payloads = [json.loads(fields["payload"]) for _id, fields in events]
   assert payloads, "expected a terminal lifecycle event to be published"
   assert payloads[-1]["type"] == CANCELLED
-  assert payloads[-1]["reason_code"] == "v7_plan_build_incomplete"
+  assert payloads[-1]["reason_code"] == "v8_plan_build_incomplete"
 
   edited = []
 

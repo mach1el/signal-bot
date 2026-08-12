@@ -489,7 +489,7 @@ async def test_zone_split_capability_gate_rejects_via_execution_policy(
   monkeypatch,
 ):
   """The V7-owned zone-split hard gate now runs inside
-  ``_publish_trade_plan_v7`` on top of ``evaluate_execution_policy``. When the
+  ``_publish_trade_plan_v8`` on top of ``evaluate_execution_policy``. When the
   policy demands zone-split but ``auto_trade_zone_fill_enabled`` is False, the
   gate short-circuits the publish before ``build_trade_plan_from_strategy_match``
   is even called. Exercising it via ``evaluate_execution_policy`` keeps the
@@ -517,8 +517,8 @@ async def test_zone_split_capability_gate_rejects_via_execution_policy(
   assert evaluation.measured.get("entry_distribution") == "zone_split"
   # ``zone_fill_enabled`` toggles the guard V7 wraps around
   # ``evaluate_execution_policy`` (see the ``zone_split_capability_unavailable``
-  # gate inside ``_publish_trade_plan_v7``). Behaviour is verified via the V7
-  # publish path in ``test_publish_trade_plan_v7.py``.
+  # gate inside ``_publish_trade_plan_v8``). Behaviour is verified via the V7
+  # publish path in ``test_publish_trade_plan_v8.py``.
   assert not leaf(runtime_config, "auto_trade_zone_fill_enabled")
 
 
@@ -645,7 +645,7 @@ async def test_ranked_v7_publication_persists_full_cycle_owner_record():
   async def publisher(_intent):
     nonlocal calls
     calls += 1
-    return CandidatePublicationResult.published("v7:setup-v7-owner")
+    return CandidatePublicationResult.published("v8:setup-v7-owner")
 
   first = await publish_ranked_cycle(
     client,
@@ -672,7 +672,7 @@ async def test_ranked_v7_publication_persists_full_cycle_owner_record():
   assert owner["cycle_id"] == "m1-owner-cycle"
   assert owner["intent_id"] == intent.intent_id
   assert owner["setup_id"] == intent.match_id
-  assert owner["plan_id"] == "v7:setup-v7-owner"
+  assert owner["plan_id"] == "v8:setup-v7-owner"
   assert owner["published_at"] > 0
 
 

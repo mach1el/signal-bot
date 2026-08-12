@@ -21,7 +21,7 @@ FIXTURE = (
   Path(__file__).resolve().parents[2]
   / "contracts"
   / "autotrade"
-  / "trade-plan-v7.json"
+  / "trade-plan-v8.json"
 )
 
 
@@ -60,7 +60,7 @@ def test_shared_valid_plan_round_trips(case):
   plan = TradePlan.from_dict(case["plan"])
   assert plan.plan_id == case["plan"]["plan_id"]
   assert plan.to_dict()["plan_id"] == case["plan"]["plan_id"]
-  assert plan.to_dict()["version"] == 7
+  assert plan.to_dict()["version"] == 8
 
 
 @pytest.mark.parametrize("case", _fixture()["invalid_plans"], ids=lambda c: c["name"])

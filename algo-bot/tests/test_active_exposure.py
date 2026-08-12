@@ -23,7 +23,7 @@ def test_opposing_blocks_when_absolute_distance_too_near():
       ActiveExposure(
         direction="SELL",
         entry_price=4054.20,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="sell-near",
       )
     ],
@@ -44,7 +44,7 @@ def test_scalp_ignores_opposing_active_when_fitted_room():
       ActiveExposure(
         direction="SELL",
         entry_price=4054.20,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="sell-active",
       )
     ],
@@ -66,7 +66,7 @@ def test_opposing_allows_when_far_enough():
       ActiveExposure(
         direction="SELL",
         entry_price=4096.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="sell-far",
       )
     ],
@@ -85,7 +85,7 @@ def test_same_direction_blocks_non_scalp_before_tp2_booked():
       ActiveExposure(
         direction="BUY",
         entry_price=4048.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="buy-open",
         highest_booked_target_index=0,  # TP1 only
       )
@@ -104,7 +104,7 @@ def test_same_direction_blocks_when_booked_index_unknown():
       ActiveExposure(
         direction="BUY",
         entry_price=4048.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="buy-open",
         highest_booked_target_index=None,
       )
@@ -122,7 +122,7 @@ def test_same_direction_blocks_non_tier_a_after_tp2_booked():
       ActiveExposure(
         direction="BUY",
         entry_price=4048.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="buy-open",
         highest_booked_target_index=1,
       )
@@ -142,7 +142,7 @@ def test_same_direction_stacks_at_60_after_tp2_booked():
       ActiveExposure(
         direction="BUY",
         entry_price=4048.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="buy-open",
         highest_booked_target_index=1,  # TP2 booked
       )
@@ -165,7 +165,7 @@ def test_same_direction_stack_flag_when_allowed_for_scalp():
       ActiveExposure(
         direction="BUY",
         entry_price=4048.0,
-        source="v7_plan",
+        source="v8_plan",
         plan_id="buy-open",
         highest_booked_target_index=None,
       )
@@ -178,7 +178,7 @@ def test_same_direction_stack_flag_when_allowed_for_scalp():
 
 
 @pytest.mark.asyncio
-async def test_load_v7_exposures_reads_pascal_case_runtime_json():
+async def test_load_trade_plan_exposures_reads_pascal_case_runtime_json():
   class FakeRedis:
     async def get(self, key: str):
       if key == "execution:trade_plan_runtime_ids":
@@ -204,6 +204,6 @@ async def test_load_v7_exposures_reads_pascal_case_runtime_json():
   assert len(exposures) == 1
   assert exposures[0].direction == "SELL"
   assert exposures[0].entry_price == pytest.approx(4054.2)
-  assert exposures[0].source == "v7_plan"
+  assert exposures[0].source == "v8_plan"
   assert exposures[0].plan_id == "plan-sell-1"
   assert exposures[0].highest_booked_target_index == 1

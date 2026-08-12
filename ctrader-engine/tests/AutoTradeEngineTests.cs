@@ -693,7 +693,7 @@ public sealed partial class AutoTradeEngineTests
     var store = new FakeAutoTradeStore(CandidateJson());
     var client = new FakeTradingClient();
     var engine = new AutoTradeEngine(
-      Options() with { ContractMode = "v7_only" }, store, () => Now, _ => { }
+      Options() with { ContractMode = "v8_only" }, store, () => Now, _ => { }
     );
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, Now.ToUnixTimeSeconds()),
@@ -707,7 +707,7 @@ public sealed partial class AutoTradeEngineTests
     Assert.Contains(
       store.Events,
       item => item.Type == "rejected"
-        && item.Message.Contains("legacy_candidate_disabled_in_v7_only")
+        && item.Message.Contains("legacy_candidate_disabled_in_v8_only")
     );
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);

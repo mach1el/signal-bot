@@ -2,7 +2,9 @@
 
 ## Status
 
-Adopted and live. TradePlan V7 is the sole autonomous order-creation path:
+Adopted historically. **Superseded for new publishes** by
+`docs/adr-trade-plan-v8-cutover.md` (TradePlan V8). In-flight V7 plans
+remain manageable during the drain window. TradePlan V7 is the sole autonomous order-creation path:
 `algo-bot` publishes only V7 plans for autonomous (non-manual) trade ideas,
 and `ctrader-engine` executes only V7 plans autonomously
 (`TradePlanRuntime`/`TradePlanExecutionEngine`). The parallel V6 autonomous

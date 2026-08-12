@@ -39,7 +39,7 @@ public sealed class TradePlanRuntimeTests
   );
 
   private static string PlanJson(
-    string planId = "v7:plan-1",
+    string planId = "v8:plan-1",
     string thesisId = "thesis-1",
     string setupId = "setup-1",
     string direction = "BUY",
@@ -51,7 +51,7 @@ public sealed class TradePlanRuntimeTests
   {
     return $$"""
     {
-      "version": 7,
+      "version": 8,
       "plan_id": "{{planId}}",
       "thesis_id": "{{thesisId}}",
       "setup_id": "{{setupId}}",
@@ -159,7 +159,7 @@ public sealed class TradePlanRuntimeTests
 
     var order = Assert.Single(client.MarketOrders);
     Assert.Equal(TradeDirection.Buy, order.Direction);
-    Assert.Contains("v7:plan-1", order.Comment);
+    Assert.Contains("v8:plan-1", order.Comment);
     var open = Assert.Single(runtime.TrackedStates);
     Assert.Equal(TradePlanRuntimeStage.FullyOpen, open.Stage);
     Assert.NotNull(open.PositionId);
@@ -385,8 +385,8 @@ public sealed class TradePlanRuntimeTests
     var store = new FakeV7Store();
     store.EnqueuePlan($$"""
     {
-      "version": 7,
-      "plan_id": "v7:plan-1",
+      "version": 8,
+      "plan_id": "v8:plan-1",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -493,8 +493,8 @@ public sealed class TradePlanRuntimeTests
     var store = new FakeV7Store();
     store.EnqueuePlan("""
     {
-      "version": 7,
-      "plan_id": "v7:plan-1",
+      "version": 8,
+      "plan_id": "v8:plan-1",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -589,9 +589,9 @@ public sealed class TradePlanRuntimeTests
 
     Assert.Empty(client.MarketOrders);
     Assert.Empty(runtime.TrackedStates);
-    Assert.Equal("rejected", store.Value("execution:plan_state:v7:plan-1"));
+    Assert.Equal("rejected", store.Value("execution:plan_state:v8:plan-1"));
     Assert.Contains(
-      store.Events, e => e.Type == "plan_rejected" && e.CandidateId == "v7:plan-1"
+      store.Events, e => e.Type == "plan_rejected" && e.CandidateId == "v8:plan-1"
     );
     Assert.Contains(logs, line => line.Contains("v7 plan sizing rejected"));
 
@@ -608,8 +608,8 @@ public sealed class TradePlanRuntimeTests
   {
     const string planJson = """
     {
-      "version": 7,
-      "plan_id": "v7:plan-mwls",
+      "version": 8,
+      "plan_id": "v8:plan-mwls",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -716,8 +716,8 @@ public sealed class TradePlanRuntimeTests
 
   private const string LadderPlanJson = """
   {
-    "version": 7,
-    "plan_id": "v7:plan-1",
+    "version": 8,
+    "plan_id": "v8:plan-1",
     "thesis_id": "thesis-1",
     "setup_id": "setup-1",
     "symbol": "XAU",
@@ -816,8 +816,10 @@ public sealed class TradePlanRuntimeTests
   [InlineData("v7|v7:plan-1|thesis-1|L2", null, "v7:plan-1", "thesis-1", "L2")]
   [InlineData("v7|v7:plan-1|thesis-1|0", null, "v7:plan-1", "thesis-1", "L1")]
   [InlineData("v7|v7:plan-1|thesis-1|1", null, "v7:plan-1", "thesis-1", "L2")]
-  [InlineData(null, "v7:plan-1:L1", "v7:plan-1", "", "L1")]
-  [InlineData(null, "v7:plan-1:0", "v7:plan-1", "", "L1")]
+  [InlineData("v8|v8:plan-1|thesis-1|L1", null, "v8:plan-1", "thesis-1", "L1")]
+  [InlineData("v8|v8:plan-1|thesis-1|L2", null, "v8:plan-1", "thesis-1", "L2")]
+  [InlineData(null, "v8:plan-1:L1", "v8:plan-1", "", "L1")]
+  [InlineData(null, "v8:plan-1:0", "v8:plan-1", "", "L1")]
   public void TryParseV7OwnershipMapsL1L2AndLegacyIndex(
     string? comment,
     string? clientOrderId,
@@ -1069,8 +1071,8 @@ public sealed class TradePlanRuntimeTests
     );
     var clientOrderIds = client.LimitOrders.Select(o => o.ClientOrderId).ToArray();
     Assert.Equal(clientOrderIds.Length, clientOrderIds.Distinct().Count());
-    Assert.Contains("v7:plan-1:L1", clientOrderIds);
-    Assert.Contains("v7:plan-1:L2", clientOrderIds);
+    Assert.Contains("v8:plan-1:L1", clientOrderIds);
+    Assert.Contains("v8:plan-1:L2", clientOrderIds);
     var comments = client.LimitOrders.Select(o => o.Comment).ToArray();
     Assert.Equal(comments.Length, comments.Distinct().Count());
     Assert.Contains(comments, c => c.EndsWith("|L1", StringComparison.Ordinal));
@@ -1253,8 +1255,8 @@ public sealed class TradePlanRuntimeTests
     var store = new FakeV7Store();
     store.EnqueuePlan($$"""
     {
-      "version": 7,
-      "plan_id": "v7:plan-1",
+      "version": 8,
+      "plan_id": "v8:plan-1",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -1421,8 +1423,8 @@ public sealed class TradePlanRuntimeTests
     var store = new FakeV7Store();
     store.EnqueuePlan($$"""
     {
-      "version": 7,
-      "plan_id": "v7:plan-1",
+      "version": 8,
+      "plan_id": "v8:plan-1",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -1615,8 +1617,8 @@ public sealed class TradePlanRuntimeTests
     var store = new FakeV7Store();
     store.EnqueuePlan($$"""
     {
-      "version": 7,
-      "plan_id": "v7:plan-1",
+      "version": 8,
+      "plan_id": "v8:plan-1",
       "thesis_id": "thesis-1",
       "setup_id": "setup-1",
       "symbol": "XAU",
@@ -1746,8 +1748,8 @@ public sealed class TradePlanRuntimeTests
     );
     Assert.Single(first.TrackedStates);
     Assert.Equal(TradePlanRuntimeStage.Received, first.TrackedStates.Single().Stage);
-    Assert.Null(store.Value("execution:plan:v7:plan-1"));
-    Assert.NotNull(store.Value("execution:plan_recovery:v7:plan-1"));
+    Assert.Null(store.Value("execution:plan:v8:plan-1"));
+    Assert.NotNull(store.Value("execution:plan_recovery:v8:plan-1"));
 
     // Simulate a restart: brand new runtime instance, same backing store.
     var second = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
@@ -2032,8 +2034,8 @@ public sealed class TradePlanRuntimeTests
   public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillReceives()
   {
     var store = new FakeV7Store();
-    store.EnqueuePlan("""{"version":7,"plan_id":"v7:broken","targets":[]}""");
-    store.EnqueuePlan(PlanJson(planId: "v7:after-broken"));
+    store.EnqueuePlan("""{"version": 8,"plan_id":"v8:broken","targets":[]}""");
+    store.EnqueuePlan(PlanJson(planId: "v8:after-broken"));
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -2048,7 +2050,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
-    Assert.Equal("received", store.Value("execution:plan_state:v7:after-broken"));
+    Assert.Equal("received", store.Value("execution:plan_state:v8:after-broken"));
     Assert.Equal("2-0", store.TradePlanCursor);
     Assert.Single(runtime.TrackedStates);
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
@@ -2061,8 +2063,8 @@ public sealed class TradePlanRuntimeTests
     // Source-gen / required-member failures can surface as NotSupportedException
     // rather than JsonException — must not abort the poll batch.
     var store = new FakeV7Store();
-    store.EnqueuePlan("""{"version":7,"plan_id":"v7:unsupported-shape"}""");
-    store.EnqueuePlan(PlanJson(planId: "v7:after-unsupported"));
+    store.EnqueuePlan("""{"version": 8,"plan_id":"v8:unsupported-shape"}""");
+    store.EnqueuePlan(PlanJson(planId: "v8:after-unsupported"));
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -2077,7 +2079,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.NotNull(store.Value("execution:plan_rejection:1-0"));
-    Assert.Equal("received", store.Value("execution:plan_state:v7:after-unsupported"));
+    Assert.Equal("received", store.Value("execution:plan_state:v8:after-unsupported"));
     Assert.Equal("2-0", store.TradePlanCursor);
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_rejected"));
     Assert.Contains(logs, line => line.Contains("auto_trade_plan_received_ready"));
@@ -2087,7 +2089,7 @@ public sealed class TradePlanRuntimeTests
   public async Task TransientRejectionPersistenceFailureLeavesCursorForRetry()
   {
     var store = new FakeV7Store();
-    store.EnqueuePlan("""{"version":7,"plan_id":"v7:broken","targets":[]}""");
+    store.EnqueuePlan("""{"version": 8,"plan_id":"v8:broken","targets":[]}""");
     store.FailSetOnce("execution:plan_rejection:1-0");
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
@@ -2146,7 +2148,7 @@ public sealed class TradePlanRuntimeTests
         stream,
         [new NameValueEntry(
           "payload",
-          """{"version":7,"plan_id":"v7:bad"}"""
+          """{"version": 8,"plan_id":"v8:bad"}"""
         )]
       );
       var payload = PythonContractFixture("market_watch_buy");

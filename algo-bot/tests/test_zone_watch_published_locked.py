@@ -40,22 +40,22 @@ async def _seed(client, zone_id: str = "zone-lock-1") -> str:
 async def test_successful_handoff_locks_published(client):
   zone_id = await _seed(client)
   locked = await zw.lock_zone_watch_published(
-    client, zone_id, plan_id="v7:plan-1",
+    client, zone_id, plan_id="v8:plan-1",
   )
   assert locked.state == zw.PUBLISHED_LOCKED
-  assert locked.last_plan_id == "v7:plan-1"
+  assert locked.last_plan_id == "v8:plan-1"
   assert not zw.is_actively_watchable(locked)
 
 
 @pytest.mark.asyncio
 async def test_broker_reject_rearms_valid_structure(client):
   zone_id = await _seed(client)
-  await zw.lock_zone_watch_published(client, zone_id, plan_id="v7:plan-1")
+  await zw.lock_zone_watch_published(client, zone_id, plan_id="v8:plan-1")
   rearmed = await zw.rearm_zone_watch(
     client, zone_id, reason_code="broker_reject_before_fill",
   )
   assert rearmed.state == zw.WATCHING_RETEST
-  assert rearmed.last_plan_id == "v7:plan-1"
+  assert rearmed.last_plan_id == "v8:plan-1"
   assert rearmed.last_rearm_reason == "broker_reject_before_fill"
   assert zw.is_actively_watchable(rearmed)
 
@@ -63,7 +63,7 @@ async def test_broker_reject_rearms_valid_structure(client):
 @pytest.mark.asyncio
 async def test_plan_expiry_rearms_via_outcome_helper(client):
   zone_id = await _seed(client)
-  await zw.lock_zone_watch_published(client, zone_id, plan_id="v7:plan-2")
+  await zw.lock_zone_watch_published(client, zone_id, plan_id="v8:plan-2")
   updated = await zw.apply_zone_watch_plan_outcome(
     client, zone_id, outcome="expired", reason_code="no_fill_expiry",
   )
@@ -75,7 +75,7 @@ async def test_plan_expiry_rearms_via_outcome_helper(client):
 @pytest.mark.asyncio
 async def test_first_fill_consumes_thesis(client):
   zone_id = await _seed(client)
-  await zw.lock_zone_watch_published(client, zone_id, plan_id="v7:plan-3")
+  await zw.lock_zone_watch_published(client, zone_id, plan_id="v8:plan-3")
   consumed = await zw.apply_zone_watch_plan_outcome(
     client, zone_id, outcome="fill", reason_code="broker_fill",
   )

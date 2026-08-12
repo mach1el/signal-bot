@@ -159,7 +159,7 @@ def _patch_common(monkeypatch, pub, *, status, thesis_id="thesis-1"):
   monkeypatch.setattr(pub, "_persist_hfs_match", persist)
   publish = AsyncMock(return_value=worker.PublishResult(
     status=status,
-    plan_id="v7:setup-1",
+    plan_id="v8:setup-1",
     reason_code="candidate_published",
     zone_id="ep1",
     setup_id="setup-1",

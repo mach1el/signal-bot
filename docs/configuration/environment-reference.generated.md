@@ -44,7 +44,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_CANDIDATE_STORAGE_TTL_SECONDS` | `lifecycle.candidate.storage_ttl_seconds` | `int` | no | yes | `AUTO_TRADE_CANDIDATE_TTL` | `86400` |
 | `AUTO_TRADE_CANDIDATE_STREAM` | `contract.streams.candidates` | `str` | no | yes | `AUTO_TRADE_STREAM` | `auto_trade:candidates` |
 | `AUTO_TRADE_CANONICAL_SYMBOL` | `contract.instrument.canonical_symbol` | `str` | no | yes | — | `XAU` |
-| `AUTO_TRADE_CONTRACT_MODE` | `contract.mode` | `str` | no | yes | — | `v7_only` |
+| `AUTO_TRADE_CONTRACT_MODE` | `contract.mode` | `str` | no | yes | — | `v8_only` |
 | `AUTO_TRADE_DEMAND_REACTION_ENABLED` | `strategies.reaction.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `strategies.zone.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DIRECT_PUBLISH_ENABLED` | `runtime.auto_trade.direct_publish_enabled` | `bool` | no | no | — | `True` |

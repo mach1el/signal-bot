@@ -13,7 +13,7 @@ from app.signals.reports import build_stats
 async def test_no_tp_archived_without_price_records_stop_distance_loss():
   """Bare 'no TP archived' closes used to vanish from /trade_stats."""
   await store.init_db()
-  gid = "v7:loss-no-price"
+  gid = "v8:loss-no-price"
   await store.record_auto_trade_event({
     "type": "order_filled",
     "timestamp": 10,
@@ -47,7 +47,7 @@ async def test_no_tp_archived_without_price_records_stop_distance_loss():
 @pytest.mark.asyncio
 async def test_no_tp_archived_parses_losing_pips_from_message():
   await store.init_db()
-  gid = "v7:loss-from-message"
+  gid = "v8:loss-from-message"
   await store.record_auto_trade_event({
     "type": "order_filled",
     "timestamp": 30,
@@ -81,7 +81,7 @@ async def test_no_tp_archived_parses_losing_pips_from_message():
 async def test_highest_tp_then_be_exit_is_not_a_loss():
   """TP booked then residual SL/BE must stay a win (highest TP archived)."""
   await store.init_db()
-  gid = "v7:tp-then-be"
+  gid = "v8:tp-then-be"
   await store.record_auto_trade_event({
     "type": "order_filled",
     "timestamp": 50,
@@ -125,8 +125,8 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
     "type": "order_filled",
     "timestamp": 100,
     "position_id": 7001,
-    "group_id": "v7:stats-recovery",
-    "candidate_id": "v7:stats-recovery",
+    "group_id": "v8:stats-recovery",
+    "candidate_id": "v8:stats-recovery",
     "stream": "algo_auto",
     "symbol": "XAU",
     "setup": "Key Level Reaction",
@@ -139,8 +139,8 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
     "type": "position_closed",
     "timestamp": 200,
     "position_id": 7001,
-    "group_id": "v7:stats-recovery",
-    "candidate_id": "v7:stats-recovery",
+    "group_id": "v8:stats-recovery",
+    "candidate_id": "v8:stats-recovery",
     "stream": "algo_auto",
     "symbol": "XAU",
     "direction": "BUY",
@@ -172,8 +172,8 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
     **fill,
     "timestamp": 300,
     "position_id": 7002,
-    "group_id": "v7:stats-recovery-2",
-    "candidate_id": "v7:stats-recovery-2",
+    "group_id": "v8:stats-recovery-2",
+    "candidate_id": "v8:stats-recovery-2",
     "direction": "SELL",
     "price": 4060.0,
     "stop_loss": 4065.0,
@@ -182,8 +182,8 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
     **closed,
     "timestamp": 400,
     "position_id": 7002,
-    "group_id": "v7:stats-recovery-2",
-    "candidate_id": "v7:stats-recovery-2",
+    "group_id": "v8:stats-recovery-2",
+    "candidate_id": "v8:stats-recovery-2",
     "direction": "SELL",
     "target_pips": 60,
     "message": "PLAN CLOSED · highest TP archived TP2",

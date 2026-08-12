@@ -47,8 +47,8 @@ def test_autonomous_cycle_never_calls_v6_publish_functions(forbidden_call):
   assert forbidden_call not in source
 
 
-def test_publish_trade_plan_v7_no_longer_gates_on_contract_mode():
-  source = inspect.getsource(worker._publish_trade_plan_v7)
+def test_publish_trade_plan_v8_no_longer_gates_on_contract_mode():
+  source = inspect.getsource(worker._publish_trade_plan_v8)
   assert "contract_mode" not in source
   assert "auto_trade_contract_mode" not in source
 

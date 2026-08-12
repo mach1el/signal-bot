@@ -106,7 +106,7 @@ def test_build_uses_explicit_max_spread_ticks_when_provided():
 def test_builds_valid_plan_with_real_bias_kind_and_regime():
   plan = _build(_match())
 
-  assert plan.version == 7
+  assert plan.version == 8
   assert plan.plan_id == "plan-1"
   assert plan.thesis_id == "thesis-1"
   assert plan.symbol == "XAU"
@@ -449,4 +449,4 @@ def test_stop_inside_opposing_zone_surfaces_precise_reason_and_evidence():
   assert measured.get("planned_base_stop_price")
   assert measured.get("planned_pushed_stop_price")
   assert measured.get("pushed_over_envelope_pips")
-  assert measured["stop_max_envelope_pips"] == 40
+  assert measured["stop_max_envelope_pips"] == 60

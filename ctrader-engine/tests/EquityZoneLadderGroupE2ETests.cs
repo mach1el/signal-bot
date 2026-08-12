@@ -43,8 +43,8 @@ public sealed class EquityZoneLadderGroupE2ETests
   // Quote ~4098.46 makes L1 (4097.07) marketable for SELL and L2 (4101.03) pending.
   private const string PlanJson = """
   {
-    "version": 7,
-    "plan_id": "v7:klr-e2e-1",
+    "version": 8,
+    "plan_id": "v8:klr-e2e-1",
     "thesis_id": "thesis-klr-e2e",
     "setup_id": "setup-klr-e2e",
     "symbol": "XAU",

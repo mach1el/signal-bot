@@ -338,7 +338,7 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
   # candidate is ever written to the candidate stream, regime confirmation
   # or not. This match has no thesis_id/confirmed setup_lifecycle record
   # (out of scope for this test), so V7 also does not publish here;
-  # test_publish_trade_plan_v7.py covers the V7-publishes-given-a-confirmed-
+  # test_publish_trade_plan_v8.py covers the V7-publishes-given-a-confirmed-
   # setup case directly.
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0, await client.get(
@@ -425,7 +425,7 @@ async def test_worker_routes_m1_market_map_reaction_as_its_own_strategy(
   # Scanner-routed matches (Market Map reaction included) publish only
   # TradePlan V7 now - no V6 candidate is ever written. This match has no
   # thesis_id/confirmed setup_lifecycle record (out of scope for this
-  # test), so V7 also does not publish here; test_publish_trade_plan_v7.py
+  # test), so V7 also does not publish here; test_publish_trade_plan_v8.py
   # covers the V7-publishes-given-a-confirmed-setup case directly.
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0, await client.get(
