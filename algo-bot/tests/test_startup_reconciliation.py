@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 import time
-from types import SimpleNamespace
 
 import pytest
-from aiogram.exceptions import TelegramRetryAfter
 
 from app.autotrade.route_outcome import route_outcome_key
 from app.autotrade.setup_card import (
@@ -26,7 +24,6 @@ from app.autotrade.setup_lifecycle import (
   setup_expiry_index_key,
   transition_setup,
 )
-from app.autotrade import startup_reconciliation
 from app.autotrade.startup_reconciliation import reconcile_startup_state
 from app.persistence import redis_state
 
@@ -53,19 +50,9 @@ async def test_reconcile_repairs_un_indexed_active_setup():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_retains_card_for_missing_canonical_setup(monkeypatch):
+async def test_reconcile_clears_redis_for_missing_canonical_setup():
+  # Startup must not touch Telegram (flood source). Redis forming keys only.
   client = redis_state.get_client()
-  deleted = []
-  edited = []
-
-  async def delete_card(chat_id, message_id):
-    deleted.append((chat_id, message_id))
-
-  async def edit_card(chat_id, message_id, text):
-    edited.append((chat_id, message_id, text))
-
-  monkeypatch.setattr(startup_reconciliation, "delete_scanner_message", delete_card)
-  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
   await client.set(
     forming_message_key("startup-ghost"),
     json.dumps({"chat_id": 1, "message_id": 2, "text": "x"}),
@@ -74,28 +61,14 @@ async def test_reconcile_retains_card_for_missing_canonical_setup(monkeypatch):
 
   await reconcile_startup_state(client)
 
-  assert deleted == []
-  assert edited and edited[0][:2] == (1, 2)
-  card = await load_forming_card(client, "startup-ghost")
-  assert card is not None
+  assert await load_forming_card(client, "startup-ghost") is None
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("missing_canonical_setup_projection_removed", 0)) >= 1
 
 
 @pytest.mark.asyncio
-async def test_reconcile_retains_orphan_card_for_terminal_setup(monkeypatch):
+async def test_reconcile_clears_redis_orphan_card_for_terminal_setup():
   client = redis_state.get_client()
-  deleted = []
-  edited = []
-
-  async def delete_card(chat_id, message_id):
-    deleted.append((chat_id, message_id))
-
-  async def edit_card(chat_id, message_id, text):
-    edited.append((chat_id, message_id, text))
-
-  monkeypatch.setattr(startup_reconciliation, "delete_scanner_message", delete_card)
-  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
   await create_setup(
     client, setup_id="startup-terminal", thesis_id="t1", symbol="XAU",
   )
@@ -108,9 +81,7 @@ async def test_reconcile_retains_orphan_card_for_terminal_setup(monkeypatch):
 
   await reconcile_startup_state(client)
 
-  assert deleted == []
-  assert edited and edited[0][:2] == (1, 2)
-  assert await load_forming_card(client, "startup-terminal") is not None
+  assert await load_forming_card(client, "startup-terminal") is None
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("orphan_forming_card_removed", 0)) >= 1
 
@@ -159,43 +130,6 @@ async def test_reconcile_repairs_stale_route_outcome_for_terminal_setup():
   assert repaired["status"] == "blocked"
   metrics = await client.hgetall("auto_trade:metrics:XAU")
   assert int(metrics.get("route_projection_repaired", 0)) >= 1
-
-
-@pytest.mark.asyncio
-async def test_reconcile_stops_scanning_once_telegram_flood_limits(monkeypatch):
-  # Live incident 2026-08-07: Telegram flood-banned the chat for ~11 hours,
-  # and this scan kept marching into every remaining stale card, each one
-  # immediately re-hitting the same wall - a wall of near-identical
-  # tracebacks doing nothing but confirming what the first failure already
-  # proved. Once Telegram says "not for N seconds," every other card in
-  # this scan is going to get the same answer - the fix aborts the rest of
-  # the pass on the first TelegramRetryAfter instead of ploughing through.
-  client = redis_state.get_client()
-  edited = []
-
-  async def edit_card(chat_id, message_id, text):
-    edited.append((chat_id, message_id, text))
-    if len(edited) == 1:
-      raise TelegramRetryAfter(
-        method=SimpleNamespace(chat_id=chat_id),
-        message="Too Many Requests: retry after 39856",
-        retry_after=39856,
-      )
-
-  monkeypatch.setattr(startup_reconciliation, "edit_scanner_message_text", edit_card)
-  for setup_id in ("startup-flood-1", "startup-flood-2"):
-    await create_setup(client, setup_id=setup_id, thesis_id="t1", symbol="XAU")
-    await transition_setup(client, setup_id, INVALIDATED)
-    await client.set(
-      forming_message_key(setup_id),
-      json.dumps({"chat_id": 1, "message_id": 2, "text": "x"}),
-      ex=60,
-    )
-
-  await reconcile_startup_state(client)
-
-  # The second card was never attempted once the first hit flood control.
-  assert len(edited) == 1
 
 
 @pytest.mark.asyncio
