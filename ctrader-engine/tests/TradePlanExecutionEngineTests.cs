@@ -478,6 +478,30 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
+  public void SellWholeNumberTargetGetsVipHandleCushion()
+  {
+    // Mirror algo-bot watcher._tp_hit: whole handle 4408 books when ask is
+    // still a few ticks above (spread), but not a full point above.
+    Assert.True(
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4408.86m, 4408.00m)
+    );
+    Assert.False(
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4409.00m, 4408.00m)
+    );
+  }
+
+  [Fact]
+  public void SellDecimalTargetStaysExact()
+  {
+    Assert.True(
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4408.50m, 4408.50m)
+    );
+    Assert.False(
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4408.51m, 4408.50m)
+    );
+  }
+
+  [Fact]
   public void BreakEvenMatchesWorkedXauExampleForBuy()
   {
     var plan = MarketWatchPlan(direction: "BUY");

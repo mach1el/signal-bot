@@ -2998,6 +2998,53 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoSellWholeHandleBooksWhenAskIsAbovePostedTp()
+  {
+    // Prod 2026-08-12 #6: VIP posts whole TPs (4408); bid tagged the handle
+    // but ask sat a few ticks above, so strict ask<=tp missed the book.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var ownerTargets = new[] { 4425.00m, 4422.00m, 4418.00m, 4415.00m, 4408.00m };
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "SELL",
+      entryLow: 4428.0m,
+      entryHigh: 4433.0m,
+      manualStopLoss: 4436.0m,
+      targetsPips: new[] { 30, 60, 100, 130, 200 },
+      manualTakeProfits: ownerTargets
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4428.0m, 4428.1m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    client.FillPendingOrder(Assert.Single(client.PendingOrders).OrderId);
+    now = Now.AddSeconds(16);
+    await WaitForEventAsync(store, "manual_opened");
+
+    // Ask still above TP5 handle; bid already through — must book.
+    now = Now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4408.77m, 4408.86m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.True(
+      client.Closes.Count >= 1,
+      "expected sell whole-handle TP to book with ask above posted TP"
+    );
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "take_profit"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoPendingExposureAndDuplicateRemainCandidateScoped()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
