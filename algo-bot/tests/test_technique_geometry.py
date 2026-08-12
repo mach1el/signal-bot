@@ -124,3 +124,73 @@ def test_single_technique_does_not_form_confluence_band():
     instances, symbol="XAU", atr=2.0, pip_size=0.1, min_overlap=0.5,
   )
   assert bands == []
+
+
+def test_optimize_imbalance_entry_clips_sell_fvg_to_five_price():
+  from app.analysis.technique_geometry import optimize_imbalance_entry_zone
+
+  zone = Zone(
+    4420.9, 4430.5, "supply", origin_index=2, source="bearish_fvg",
+  )
+  clipped, changed = optimize_imbalance_entry_zone(
+    zone, direction="SELL", max_width_price=5.0,
+  )
+  assert changed is True
+  assert clipped.low == pytest.approx(4420.9)
+  assert clipped.high == pytest.approx(4425.9)
+  assert clipped.high - clipped.low == pytest.approx(5.0)
+
+
+def test_optimize_imbalance_entry_clips_buy_fvg_to_five_price():
+  from app.analysis.technique_geometry import optimize_imbalance_entry_zone
+
+  zone = Zone(
+    4410.0, 4420.0, "demand", origin_index=2, source="bullish_fvg",
+  )
+  clipped, changed = optimize_imbalance_entry_zone(
+    zone, direction="BUY", max_width_price=5.0,
+  )
+  assert changed is True
+  assert clipped.low == pytest.approx(4415.0)
+  assert clipped.high == pytest.approx(4420.0)
+
+
+def test_optimize_imbalance_leaves_non_fvg_zone_alone():
+  from app.analysis.technique_geometry import optimize_imbalance_entry_zone
+
+  zone = Zone(
+    4420.9, 4430.5, "supply", origin_index=2, source="supply_demand",
+  )
+  same, changed = optimize_imbalance_entry_zone(
+    zone, direction="SELL", max_width_price=5.0,
+  )
+  assert changed is False
+  assert same.low == zone.low
+  assert same.high == zone.high
+
+
+def test_optimize_imbalance_confluence_tags_trigger_clip():
+  from app.analysis.technique_geometry import optimize_imbalance_entry_zone
+
+  zone = Zone(
+    4420.9, 4430.5, "supply", origin_index=2, source="confluence",
+    sources=["fvg_ifvg"],
+  )
+  clipped, changed = optimize_imbalance_entry_zone(
+    zone, direction="SELL", max_width_price=5.0, tags=("fvg_ifvg",),
+  )
+  assert changed is True
+  assert clipped.high - clipped.low == pytest.approx(5.0)
+
+
+def test_optimize_imbalance_skips_already_narrow_band():
+  from app.analysis.technique_geometry import optimize_imbalance_entry_zone
+
+  zone = Zone(
+    4420.0, 4423.0, "supply", origin_index=2, source="bearish_fvg",
+  )
+  same, changed = optimize_imbalance_entry_zone(
+    zone, direction="SELL", max_width_price=5.0,
+  )
+  assert changed is False
+  assert same is zone
