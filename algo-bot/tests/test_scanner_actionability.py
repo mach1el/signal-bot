@@ -1398,6 +1398,30 @@ def test_v8_shared_boundary_keeps_deep_penetration_barrier():
   assert len(kept) == 1
 
 
+def test_v8_glued_wall_at_planned_price_is_not_opposing_structure():
+  """Live 2026-08-12: Flip/Key SELL planned_entry sat on demand high
+  (4405.1188 vs 4405.1188). Map stacking is not a wall ahead — publish.
+  """
+  planned = 4405.118839286714
+  opposing = _entry("buy", 4397.391696428572, 4405.118839285714, tier="zone")
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=planned,
+    candidate_entry_low=4404.50,
+    candidate_entry_high=4409.20,
+    configured_target_pips=(30, 60, 90, 120, 200),
+    actionable_entries=(opposing,),
+    atr=4.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+  )
+  assert decision.allowed is True
+  assert decision.hard_block is False
+  assert decision.reason_code == "no_opposing_barrier"
+  assert decision.measured["shared_boundary_state"]["shared_boundary_excluded"] == 1
+
+
 def test_v8_resolve_actionability_allows_glued_sell_wall():
   sell = _result(
     "SELL",
