@@ -259,6 +259,25 @@ async def test_htf_evidence_prevents_invalidation_from_a_decisive_break(client):
   assert broke.state != zw.INVALIDATED
 
 
+@pytest.mark.asyncio
+async def test_list_active_uses_membership_index_not_keyspace_scan(client):
+  zone_id = _zone_id()
+  await zw.discover_zone_watch(
+    client, zone_id=zone_id, symbol="XAU", direction="SELL",
+    low=4113.0, high=4116.0, source_timeframe="M5",
+    structural_sources=("supply_demand",), confluence_tags=("supply",),
+    grade=zw.GRADE_A,
+  )
+  assert await client.sismember(zw.ZONE_WATCH_INDEX_KEY, zone_id)
+
+  listed = await zw.list_active_zone_watches(client, symbol="XAU")
+  assert [item.zone_id for item in listed] == [zone_id]
+
+  await zw.transition_zone_watch(client, zone_id, zw.INVALIDATED)
+  assert not await client.sismember(zw.ZONE_WATCH_INDEX_KEY, zone_id)
+  assert await zw.list_active_zone_watches(client) == []
+
+
 def test_only_a_and_b_grades_are_actively_watchable():
   record = zw.ZoneWatch(
     version=1, zone_id="z", symbol="XAU", direction="SELL",

@@ -244,6 +244,37 @@ async def test_edit_forming_card_price_skips_tiny_move():
 
 
 @pytest.mark.asyncio
+async def test_in_flight_forming_reservation_skips_price_track_and_index():
+  """message_id=0 reserves Redis during Telegram send — never edit Telegram."""
+  client = redis_state.get_client()
+  setup_id = "setup-inflight-reserve"
+  await _confirmed_setup(client, setup_id)
+  text = "🔎 <b>XAU M5 · SETUP FORMING</b>\n• <b>Price now:</b> <b>4,268.10</b>"
+  await setup_card.save_forming_card(
+    client, setup_id, chat_id=123, message_id=0, text=text,
+  )
+  members = await client.smembers(setup_card.FORMING_ACTIVE_INDEX_KEY)
+  normalized = {
+    (m.decode() if isinstance(m, bytes) else m) for m in (members or ())
+  }
+  assert setup_id not in normalized
+
+  edits: list[tuple[int, int, str]] = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edits.append((chat_id, message_id, text))
+
+  assert await setup_card.edit_forming_card_price(
+    client, setup_id, 4268.50, edit_fn=edit_fn, min_move=0.1,
+  ) is False
+  assert edits == []
+  assert await setup_card.refresh_forming_card_prices(
+    client, edit_fn=edit_fn, min_move=0.1,
+  ) == 0
+  assert edits == []
+
+
+@pytest.mark.asyncio
 async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-stop")
