@@ -229,8 +229,26 @@ public sealed class TradePlanExecutionEngineTests
   [Fact]
   public void CalculateVolumeScalesEquityTableByRiskMultiplier()
   {
-    // Owner: scalp stamps risk_multiplier=2 → 2× equity-table lots.
-    // Stop geometry is unchanged; volume only.
+    // Owner: scalp stamps risk_multiplier=2 → 2× equity-table lots when
+    // equity is at/above $2k. Stop geometry is unchanged; volume only.
+    var plan = MarketWatchPlan() with
+    {
+      Risk = new TradePlanRisk(1.0m, 2.0m, 100_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(2_500m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    // LotsForEquity(2500)=0.15 → ×2 = 0.30 lots → 3000 volume units.
+    Assert.Equal(3_000, result.TotalVolume);
+    Assert.Empty(result.Slices);
+  }
+
+  [Fact]
+  public void CalculateVolumeHalvesScalpBoostBelowTwoThousandEquity()
+  {
+    // Owner 2026-08-12: below $2k, scalp ×2 stamp becomes ×0.5 table lots.
     var plan = MarketWatchPlan() with
     {
       Risk = new TradePlanRisk(1.0m, 2.0m, 100_000, 2.0m),
@@ -240,9 +258,26 @@ public sealed class TradePlanExecutionEngineTests
       plan, Account(800m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    // LotsForEquity(800)=0.10 → ×2 = 0.20 lots → 2000 volume units.
-    Assert.Equal(2_000, result.TotalVolume);
+    // LotsForEquity(800)=0.10 → ×0.5 = 0.05 lots → 500 volume units.
+    Assert.Equal(500, result.TotalVolume);
     Assert.Empty(result.Slices);
+  }
+
+  [Fact]
+  public void CalculateVolumeKeepsUnitMultiplierBelowTwoThousandEquity()
+  {
+    // Reaction / non-scalp stamps 1.0 — do not force the low-equity scalp cut.
+    var plan = MarketWatchPlan() with
+    {
+      Risk = new TradePlanRisk(1.0m, 1.0m, 100_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(800m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    // LotsForEquity(800)=0.10 → ×1 = 0.10 lots → 1000 volume units.
+    Assert.Equal(1_000, result.TotalVolume);
   }
 
   [Fact]
@@ -371,9 +406,9 @@ public sealed class TradePlanExecutionEngineTests
       plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    Assert.Equal(1_100, result.TotalVolume);
+    Assert.Equal(1_200, result.TotalVolume);
     Assert.Equal(800, result.Slices.Single(s => s.TargetId == "L1").Volume);
-    Assert.Equal(300, result.Slices.Single(s => s.TargetId == "L2").Volume);
+    Assert.Equal(400, result.Slices.Single(s => s.TargetId == "L2").Volume);
   }
 
   [Fact]
@@ -411,14 +446,14 @@ public sealed class TradePlanExecutionEngineTests
       plan, Account(1_300m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
     );
 
-    Assert.Equal(1_100, result.TotalVolume);
+    Assert.Equal(1_200, result.TotalVolume);
     Assert.Equal(2, result.Slices.Count);
     Assert.Equal(result.TotalVolume, result.Slices.Sum(slice => slice.Volume));
     var l1 = result.Slices.Single(slice => slice.TargetId == "L1").Volume;
     var l2 = result.Slices.Single(slice => slice.TargetId == "L2").Volume;
-    // SplitEntryVolume 70/30 on 0.11 lots → 0.08 + 0.03, not SplitWeighted's 0.07+0.04.
+    // SplitEntryVolume step-aligns 70/30 on 0.12 lots → 0.08 + 0.04.
     Assert.Equal(800, l1);
-    Assert.Equal(300, l2);
+    Assert.Equal(400, l2);
   }
 
   [Fact]
