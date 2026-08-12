@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `255a32b9588b6c661c8466fa29e1b1c2b3a249e9bb6a483337169cb03ed170ce`
-- Document fingerprint: `eb1d4b52b8a137ea7bcd0a218e8da3c3d82c59332aba5e22b70ce43d5a376f79`
-- Items: `490`
+- Contract fingerprint: `d2307f717e28786b1e333ff34eca1b6cb9e3248f452cead4fd2e4596ba18219f`
+- Document fingerprint: `b9a5ff68e5f4f690ac49f89c38cc670b93bd85a60c503551599ff921952a882b`
+- Items: `499`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -240,7 +240,7 @@
 | `execution.entry.inside_zone_market_entry_enabled` | `AUTO_TRADE_INSIDE_ZONE_MARKET_ENTRY_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.entry.max_spread_pips` | `AUTO_TRADE_MAX_SPREAD_PIPS` | `int` | `pips` | `configurable` | `5` |
 | `execution.entry.maximum_chase_distance_pips` | `AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS` | `float` | `pips` | `configurable` | `40.0` |
-| `execution.entry.poll_ms` | `AUTO_TRADE_POLL_MS` | `int` | `milliseconds` | `configurable` | `1000` |
+| `execution.entry.poll_ms` | `AUTO_TRADE_POLL_MS` | `int` | `milliseconds` | `configurable` | `250` |
 | `execution.mapped_zone.counter_bias_min_score` | `AUTO_TRADE_MAP_COUNTER_BIAS_MIN_SCORE` | `float` | `score` | `configurable` | `6.0` |
 | `execution.mapped_zone.execute_distance_atr` | `AUTO_TRADE_MAP_EXECUTE_DISTANCE_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `execution.mapped_zone.execute_tolerance_atr` | `AUTO_TRADE_MAP_EXECUTE_TOLERANCE_ATR` | `float` | `atr` | `configurable` | `0.15` |
@@ -305,6 +305,14 @@
 | `execution.targeting.range_ladder_pips` | `AUTO_TRADE_RANGE_TARGETS_PIPS` | `str` | `pips` | `configurable` | `"15,20,30,40,50,70"` |
 | `execution.targeting.tp_weights` | `AUTO_TRADE_TP_WEIGHTS` | `list[int]` | `count` | `configurable` | `[20, 20, 20, 20, 20]` |
 | `execution.targeting.unfilled_leg_after_tp_policy` | `AUTO_TRADE_UNFILLED_LEG_AFTER_TP_POLICY` | `str` | `enum` | `configurable` | `"cancel"` |
+| `execution.technique.enforce` | `AUTO_TRADE_TECHNIQUE_ENFORCE` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.hfs_require_killzone` | `AUTO_TRADE_TECHNIQUE_HFS_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.include_late_ny` | `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.london_window_hours` | `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
+| `execution.technique.ny_window_hours` | `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
+| `execution.technique.reaction_require_killzone` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.require_sweep_body` | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.strict_premium_discount` | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.trend.hard_entry_drift_pips` | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `execution.trend.max_entry_drift_atr` | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `float` | `atr` | `configurable` | `0.85` |
 | `execution.trend.min_entry_drift_pips` | `AUTO_TRADE_TREND_MIN_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `15.0` |
@@ -428,7 +436,7 @@
 | `risk.sizing.range_max_risk_multiplier` | `AUTO_TRADE_RANGE_MAX_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `2.0` |
 | `risk.sizing.risk_pct` | `AUTO_TRADE_RISK_PCT` | `decimal` | `percent` | `configurable` | `"2"` |
 | `risk.tiers.a_multiplier` | `AUTO_TRADE_TIER_A_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.0` |
-| `risk.tiers.b_multiplier` | `AUTO_TRADE_TIER_B_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `0.5` |
+| `risk.tiers.b_multiplier` | `AUTO_TRADE_TIER_B_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.0` |
 
 ## runtime
 
@@ -469,18 +477,19 @@
 | `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
 | `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
 | `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
-| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `100.0` |
+| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `40.0` |
 | `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.archetypes.momentum_chase_enabled` | `HFS_MOMENTUM_CHASE_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `3600` |
 | `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
 | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `HFS_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |
 | `strategies.high_frequency_scalp.context.maximum_m5_age_seconds` | `HFS_MAXIMUM_M5_AGE_SECONDS` | `int` | `seconds` | `configurable` | `420` |
-| `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `HFS_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.75` |
-| `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `HFS_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.25` |
+| `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `HFS_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
+| `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `HFS_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
 | `strategies.high_frequency_scalp.location.range_buy_maximum_position` | `HFS_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
 | `strategies.high_frequency_scalp.location.range_sell_minimum_position` | `HFS_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.65` |
 | `strategies.high_frequency_scalp.mode` | `HFS_MODE` | `str` | `enum` | `configurable` | `"live"` |
@@ -498,7 +507,7 @@
 | `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `HFS_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
 | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `HFS_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
 | `strategies.high_frequency_scalp.stop.buffer_atr` | `HFS_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
-| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
+| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `22.0` |
 | `strategies.high_frequency_scalp.stop.minimum_pips` | `HFS_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
 | `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `HFS_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
 | `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `HFS_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |

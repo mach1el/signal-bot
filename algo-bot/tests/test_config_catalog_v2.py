@@ -44,13 +44,13 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 490,
-  "configurable": 423,
+  "entries": 499,
+  "configurable": 432,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 345, "shared": 95, "ctrader": 50},
-  "projection": 440,
-  "env": 423,
+  "owners": {"python": 354, "shared": 95, "ctrader": 50},
+  "projection": 449,
+  "env": 432,
   "deprecated_aliases": 21,
 }
 
@@ -301,6 +301,19 @@ _INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
   # touch (max_touches=2), letting a SELL through with no real room-check
   # against it - see analysis.py's max_touches config_field description.
   "analysis.market_map.max_touches",
+  # Pre-existing live defaults already shipped before HFS quality work.
+  "execution.entry.poll_ms",
+  "execution.reaction.market_fraction",
+  "execution.reaction.scale_fraction",
+  "execution.stops.reaction.room_floor_pips",
+  "execution.zone_scaling.first_leg_fraction",
+  "risk.tiers.b_multiplier",
+  # 12 Aug 2026 HFS quality dig: Impulse bleed on late chase / wide stops /
+  # mid-range location; Momentum Chase disabled by schema default.
+  "strategies.high_frequency_scalp.activation.maximum_chase_pips",
+  "strategies.high_frequency_scalp.stop.maximum_pips",
+  "strategies.high_frequency_scalp.location.pullback_buy_maximum_position",
+  "strategies.high_frequency_scalp.location.pullback_sell_minimum_position",
 }
 
 

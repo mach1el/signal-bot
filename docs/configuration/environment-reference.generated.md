@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `255a32b9588b6c661c8466fa29e1b1c2b3a249e9bb6a483337169cb03ed170ce`
-- Environment-bound fields: `423`
+- Contract fingerprint: `d2307f717e28786b1e333ff34eca1b6cb9e3248f452cead4fd2e4596ba18219f`
+- Environment-bound fields: `432`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -105,7 +105,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_OPPOSING_BARRIER_VETO_ENABLED` | `actionability.gates.opposing_barrier_veto_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_OVERLAP_VETO_ENABLED` | `actionability.overlapping_zones.veto_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_PIP_VALUE_PER_LOT` | `execution.policy.pip_value_per_lot` | `decimal` | no | no | — | `10` |
-| `AUTO_TRADE_POLL_MS` | `execution.entry.poll_ms` | `int` | no | no | — | `1000` |
+| `AUTO_TRADE_POLL_MS` | `execution.entry.poll_ms` | `int` | no | no | — | `250` |
 | `AUTO_TRADE_POSITION_MISSING_CONFIRMATIONS` | `lifecycle.reconciliation.missing_confirmations` | `int` | no | no | — | `2` |
 | `AUTO_TRADE_POSITION_MISSING_RECHECK_SECONDS` | `lifecycle.reconciliation.missing_recheck_seconds` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_POST_FILL_TARGET_FALLBACK` | `execution.targeting.post_fill_target_fallback` | `str` | no | yes | — | `fill_relative` |
@@ -166,10 +166,18 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_SUPPLY_ZONE_ENABLED` | `strategies.zone.supply.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_SYMBOLS` | `contract.instrument.symbols` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_TARGET_PLANS_PIPS` | `execution.targeting.default_ladder_pips` | `str` | no | yes | `AUTO_TRADE_TP_PIPS` | `30,60,90,120,200` |
+| `AUTO_TRADE_TECHNIQUE_ENFORCE` | `execution.technique.enforce` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_HFS_REQUIRE_KILLZONE` | `execution.technique.hfs_require_killzone` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `execution.technique.include_late_ny` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `execution.technique.london_window_hours` | `int` | no | no | — | `3` |
+| `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `execution.technique.ny_window_hours` | `int` | no | no | — | `3` |
+| `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `execution.technique.reaction_require_killzone` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `execution.technique.require_sweep_body` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `execution.technique.strict_premium_discount` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TELEGRAM_DELETE_ROOT_ON_TERMINAL` | `delivery.telegram.delete_root_on_terminal` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_TELEGRAM_SINGLE_ROOT_CARD` | `delivery.telegram.single_root_card` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TIER_A_RISK_MULTIPLIER` | `risk.tiers.a_multiplier` | `float` | no | no | — | `1.0` |
-| `AUTO_TRADE_TIER_B_RISK_MULTIPLIER` | `risk.tiers.b_multiplier` | `float` | no | no | — | `0.5` |
+| `AUTO_TRADE_TIER_B_RISK_MULTIPLIER` | `risk.tiers.b_multiplier` | `float` | no | no | — | `1.0` |
 | `AUTO_TRADE_TP_WEIGHTS` | `execution.targeting.tp_weights` | `list[int]` | no | no | — | `[20, 20, 20, 20, 20]` |
 | `AUTO_TRADE_TRACK_ALL_STRUCTURAL_MATCHES` | `strategies.matching.track_all_structural_matches` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_TRADE_PLAN_STREAM` | `contract.streams.trade_plans` | `str` | no | yes | — | `execution:trade_plans` |
@@ -267,7 +275,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
-| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `100.0` |
+| `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `40.0` |
 | `HFS_MAXIMUM_CONCURRENT_POSITIONS` | `strategies.high_frequency_scalp.risk.maximum_concurrent_positions` | `int` | no | no | — | `1` |
 | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `int` | no | no | — | `3` |
 | `HFS_MAXIMUM_DAILY_TRADES` | `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `int` | no | no | — | `30` |
@@ -278,9 +286,10 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_MINIMUM_NET_TARGET_PIPS` | `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `float` | no | no | — | `15.0` |
 | `HFS_MINIMUM_REWARD_RISK` | `strategies.high_frequency_scalp.policy.minimum_reward_risk` | `float` | no | no | — | `1.1` |
 | `HFS_MODE` | `strategies.high_frequency_scalp.mode` | `str` | no | no | — | `live` |
+| `HFS_MOMENTUM_CHASE_ENABLED` | `strategies.high_frequency_scalp.archetypes.momentum_chase_enabled` | `bool` | no | no | — | `False` |
 | `HFS_PREFERRED_LADDER_PIPS` | `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `str` | no | no | — | `20,25,30` |
-| `HFS_PULLBACK_BUY_MAX_POSITION` | `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.75` |
-| `HFS_PULLBACK_SELL_MIN_POSITION` | `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `float` | no | no | — | `0.25` |
+| `HFS_PULLBACK_BUY_MAX_POSITION` | `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.6` |
+| `HFS_PULLBACK_SELL_MIN_POSITION` | `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `float` | no | no | — | `0.4` |
 | `HFS_RANGE_BUY_MAX_POSITION` | `strategies.high_frequency_scalp.location.range_buy_maximum_position` | `float` | no | no | — | `0.35` |
 | `HFS_RANGE_SELL_MIN_POSITION` | `strategies.high_frequency_scalp.location.range_sell_minimum_position` | `float` | no | no | — | `0.65` |
 | `HFS_RANGE_SWEEP_ENABLED` | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `bool` | no | no | — | `True` |
@@ -289,7 +298,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_RISK_MODE` | `strategies.high_frequency_scalp.risk.mode` | `str` | no | no | — | `live` |
 | `HFS_SESSION_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
 | `HFS_STOP_BUFFER_ATR` | `strategies.high_frequency_scalp.stop.buffer_atr` | `float` | no | no | — | `0.1` |
-| `HFS_STOP_MAXIMUM_PIPS` | `strategies.high_frequency_scalp.stop.maximum_pips` | `float` | no | no | — | `30.0` |
+| `HFS_STOP_MAXIMUM_PIPS` | `strategies.high_frequency_scalp.stop.maximum_pips` | `float` | no | no | — | `22.0` |
 | `HFS_STOP_MINIMUM_PIPS` | `strategies.high_frequency_scalp.stop.minimum_pips` | `float` | no | no | — | `12.0` |
 | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `int` | no | no | — | `2` |
 | `HOSTNAME` | `bootstrap.process.hostname` | `string` | no | no | — | `algo-worker` |

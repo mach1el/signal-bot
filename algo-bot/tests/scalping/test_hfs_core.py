@@ -52,6 +52,7 @@ def _cfg(**overrides):
       range_sweep_enabled=True,
       impulse_pullback_enabled=True,
       breakout_retest_enabled=True,
+      momentum_chase_enabled=False,
     ),
     context=SimpleNamespace(
       maximum_m5_age_seconds=420,
@@ -270,6 +271,85 @@ def test_risk_daily_cap_and_no_martingale():
   decision = evaluate_risk(state, cfg, session="london", now=1_780_000_000)
   assert decision.allowed is False
   assert decision.reason_code == "scalp_daily_trade_cap"
+
+
+def test_risk_loss_streak_blocks_after_cooldown_until_reset():
+  from app.scalping.risk import (
+    apply_loss_streak_cooldown_reset,
+    record_scalp_outcome,
+  )
+
+  cfg = _cfg()
+  now = 1_780_000_000
+  state = ScalpRiskState(consecutive_losses=3, last_loss_ts=now - 60)
+  during = evaluate_risk(state, cfg, session="london", now=now)
+  assert during.allowed is False
+  assert during.reason_code == "scalp_loss_streak_cooldown"
+
+  after_cooldown = evaluate_risk(
+    state, cfg, session="london", now=now + 10 * 60,
+  )
+  assert after_cooldown.allowed is False
+  assert after_cooldown.reason_code == "scalp_loss_streak_active"
+
+  cleared = apply_loss_streak_cooldown_reset(
+    state, cfg, now=now + 10 * 60,
+  )
+  assert cleared.consecutive_losses == 0
+  allowed = evaluate_risk(cleared, cfg, session="london", now=now + 10 * 60)
+  assert allowed.allowed is True
+
+  winning = record_scalp_outcome(
+    ScalpRiskState(consecutive_losses=2, last_loss_ts=now),
+    result_pips=20.0,
+    stop_pips=20.0,
+    now=now,
+    closed=True,
+  )
+  assert winning.consecutive_losses == 0
+
+
+def test_momentum_chase_disabled_by_default():
+  from app.scalping.strategies import discover_momentum_chase
+
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-momentum-off",
+    symbol="XAU",
+    created_at=1_780_000_300,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_000_300,
+    htf_bias="down",
+    m5_structure="bearish",
+    regime="trend",
+    dealing_range_low=4000.0,
+    dealing_range_high=4200.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=None,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=("momentum_chase",),
+    atr=1.0,
+  )
+  idx = pd.date_range("2026-07-01 10:00", periods=6, freq="1min", tz="UTC")
+  df = pd.DataFrame({
+    "open": [4100, 4098, 4095, 4092, 4088, 4085],
+    "high": [4101, 4099, 4096, 4093, 4089, 4086],
+    "low": [4097, 4094, 4091, 4087, 4084, 4080],
+    "close": [4098, 4095, 4092, 4088, 4085, 4082],
+    "volume": [1] * 6,
+  }, index=idx)
+  assert discover_momentum_chase(
+    ctx, None, df, _cfg(), pip_size=0.1, now=1_780_000_300,
+  ) == []
 
 
 def test_lifecycle_explicit_transitions():
@@ -763,7 +843,12 @@ def test_discover_momentum_chase_builds_1to2_opportunity_when_room_allows():
     atr=1.0,
   )
   opps = discover_momentum_chase(
-    ctx, None, df, _cfg(), pip_size=0.1, now=1_780_000_300,
+    ctx, None, df, _cfg(archetypes=SimpleNamespace(
+      range_sweep_enabled=True,
+      impulse_pullback_enabled=True,
+      breakout_retest_enabled=True,
+      momentum_chase_enabled=True,
+    )), pip_size=0.1, now=1_780_000_300,
   )
   assert len(opps) == 1
   opp = opps[0]

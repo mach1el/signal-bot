@@ -22,6 +22,21 @@ def test_funnel_bucket_splits_scalp_and_reaction():
   assert funnel_bucket("Range Edge Scalp") == BUCKET_SCALP
 
 
+def test_normalize_setup_type_aliases():
+  from app.autotrade.reaction_funnel import (
+    archetype_from_strategy,
+    normalize_setup_type,
+  )
+
+  assert normalize_setup_type("momentum") == "HFS Momentum Chase"
+  assert normalize_setup_type("key-level") == "Key Level Reaction"
+  assert normalize_setup_type("HFS Impulse Pullback · add_momentum") == (
+    "HFS Impulse Pullback · add_momentum"
+  )
+  assert archetype_from_strategy("HFS Impulse Pullback") == "impulse_pullback"
+  assert archetype_from_strategy("momentum") == "momentum_chase"
+
+
 @pytest.mark.parametrize(
   ("event", "expected"),
   [
