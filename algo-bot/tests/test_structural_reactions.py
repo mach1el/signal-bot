@@ -8,6 +8,9 @@ import pandas as pd
 import pytest
 
 from app.analysis import detectors
+from app.analysis.engine import AnalysisContext, TimeframeAnalysis
+from app.analysis.technique_geometry import TECHNIQUE_SD, TechniqueInstance
+from app.analysis.technique_detectors import supply_demand_technique_reaction
 from app.analysis.structural_reaction_support import (
   STRUCTURAL_SETUPS,
   engulfing_on_bar,
@@ -100,17 +103,69 @@ def _ctx(
   )
 
 
+def _with_technique_instances(
+  ctx: detectors.DetectionContext,
+  instances: list[TechniqueInstance],
+) -> detectors.DetectionContext:
+  tf = ctx.tf.upper()
+  df = ctx.frames[tf]
+  analysis = AnalysisContext(
+    frames=ctx.frames,
+    per_tf={
+      tf: TimeframeAnalysis(
+        df=df,
+        atr=ctx.indicators[tf].atr,
+        swings=[],
+        structure="trend",
+        breaks=[],
+        key_levels=[],
+        legs=[],
+        supply_demand_zones=[],
+        order_blocks=[],
+        flip_zones=[],
+        fvg_zones=[],
+        zones=ctx.structures[tf].zones,
+        liquidity_pools=[],
+        liquidity_grabs=[],
+        momentum="neutral",
+        technique_instances=instances,
+      ),
+    },
+    htf_bias=ctx.htf_bias,
+  )
+  return replace(ctx, analysis=analysis)
+
+
+def _sd_instance(zone: Zone) -> TechniqueInstance:
+  return TechniqueInstance(
+    technique=TECHNIQUE_SD,
+    side="buy" if zone.side == "demand" else "sell",
+    low=float(zone.low),
+    high=float(zone.high),
+    origin_ts=zone.created_ts,
+    sources=tuple(zone.sources or [zone.source or "supply_demand"]),
+    measured={"touches": zone.touches, "mitigated": zone.mitigated, "score": zone.score},
+    origin_index=int(zone.origin_index),
+  )
+
+
 def test_default_detectors_exclude_zone_reaction():
   names = [item.__name__ for item in detectors.DEFAULT_DETECTORS]
   assert "zone_reaction" not in names
   for required in (
     "key_level_reaction",
-    "demand_zone_reaction",
-    "supply_zone_reaction",
+    "confluence_zone_reaction",
+    "supply_demand_technique_reaction",
+    "order_block_technique_reaction",
+    "fvg_technique_reaction",
+    "ifvg_technique_reaction",
+    "crt_technique_reaction",
     "flip_demand_zone_reaction",
     "flip_supply_zone_reaction",
   ):
     assert required in names
+  assert "demand_zone_reaction" not in names
+  assert "supply_zone_reaction" not in names
 
 
 def test_live_registry_matches_detector_settings_defaults():
@@ -122,8 +177,12 @@ def test_live_registry_matches_detector_settings_defaults():
 
   assert names == {
     "key_level_reaction",
-    "demand_zone_reaction",
-    "supply_zone_reaction",
+    "confluence_zone_reaction",
+    "supply_demand_technique_reaction",
+    "order_block_technique_reaction",
+    "fvg_technique_reaction",
+    "ifvg_technique_reaction",
+    "crt_technique_reaction",
     "flip_demand_zone_reaction",
     "flip_supply_zone_reaction",
     "session_level_reaction",
@@ -138,6 +197,8 @@ def test_live_registry_matches_detector_settings_defaults():
     "box_breakout",
     "break_retest",
     "zone_reaction",
+    "demand_zone_reaction",
+    "supply_zone_reaction",
   ):
     assert disabled not in names, f"{disabled} must not be in the live registry"
 
@@ -160,12 +221,19 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     momentum_ride_enabled=True,
     snap_back_enabled=True,
     fade_scalp_enabled=True,
+    zone_reaction_fallback_enabled=True,
   )
   names = {
     item.__name__ for item in detectors.build_default_detectors(all_on)
   }
   assert names == {
     "key_level_reaction",
+    "confluence_zone_reaction",
+    "supply_demand_technique_reaction",
+    "order_block_technique_reaction",
+    "fvg_technique_reaction",
+    "ifvg_technique_reaction",
+    "crt_technique_reaction",
     "demand_zone_reaction",
     "supply_zone_reaction",
     "flip_demand_zone_reaction",
@@ -193,6 +261,12 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     momentum_ride_enabled=False,
     snap_back_enabled=False,
     fade_scalp_enabled=False,
+    technique_sd_enabled=False,
+    technique_ob_enabled=False,
+    technique_fvg_enabled=False,
+    technique_ifvg_enabled=False,
+    technique_crt_enabled=False,
+    confluence_zone_enabled=False,
   )
   assert detectors.build_default_detectors(all_off) == ()
 
@@ -207,15 +281,19 @@ def test_live_detector_report_lists_every_registration_with_a_reason():
   assert by_name["box_breakout"]["replay_only_reason"]
 
 
-def test_demand_zone_reaction_buy():
+def test_supply_demand_technique_reaction_buy():
   df = _buy_rejection_df()
   zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
-  result = detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[zone]))
+  ctx = _with_technique_instances(
+    _ctx(df, bias="down", zones=[zone]),
+    [_sd_instance(zone)],
+  )
+  result = supply_demand_technique_reaction(ctx)
   assert result is not None
-  assert result.setup == "Zone Reaction"
+  assert result.setup == "Supply Demand Reaction"
   assert result.direction == "BUY"
-  assert result.structural_source == "supply_demand"
-  assert result.structural_kind == "demand"
+  assert result.structural_source == "technique"
+  assert result.structural_kind == TECHNIQUE_SD
   assert result.structural_id
   assert result.bias_relationship == "counter_bias"
   assert result.confirmation_type in {
@@ -223,10 +301,33 @@ def test_demand_zone_reaction_buy():
   }
 
 
+def test_demand_zone_reaction_buy_legacy_fallback():
+  df = _buy_rejection_df()
+  zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  ctx = replace(
+    _ctx(df, bias="down", zones=[zone]),
+    settings=detectors.DetectorSettings(
+      confluence_floor=2,
+      zone_reaction_fallback_enabled=True,
+    ),
+  )
+  result = detectors.demand_zone_reaction(ctx)
+  assert result is not None
+  assert result.setup == "Zone Reaction"
+  assert result.direction == "BUY"
+
+
 def test_supply_zone_reaction_sell():
   df = _sell_rejection_df()
   zone = Zone(107, 112, "supply", source="supply_demand", score=10, touches=0)
-  result = detectors.supply_zone_reaction(_ctx(df, bias="up", zones=[zone]))
+  ctx = replace(
+    _ctx(df, bias="up", zones=[zone]),
+    settings=detectors.DetectorSettings(
+      confluence_floor=2,
+      zone_reaction_fallback_enabled=True,
+    ),
+  )
+  result = detectors.supply_zone_reaction(ctx)
   assert result is not None
   assert result.setup == "Zone Reaction"
   assert result.direction == "SELL"
@@ -261,10 +362,17 @@ def test_flip_supply_zone_reaction_sell():
 def test_demand_zone_reaction_skips_flip_source():
   df = _buy_rejection_df()
   flip = Zone(101, 106, "demand", source="flip_zone", score=10, touches=0)
-  assert detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[flip])) is None
-  # Non-flip demand still owned by Zone Reaction.
+  fallback = detectors.DetectorSettings(
+    confluence_floor=2,
+    zone_reaction_fallback_enabled=True,
+  )
+  assert detectors.demand_zone_reaction(
+    replace(_ctx(df, bias="down", zones=[flip]), settings=fallback),
+  ) is None
   demand = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
-  assert detectors.demand_zone_reaction(_ctx(df, bias="down", zones=[demand])) is not None
+  assert detectors.demand_zone_reaction(
+    replace(_ctx(df, bias="down", zones=[demand]), settings=fallback),
+  ) is not None
 
 
 def test_flip_zone_ignores_non_flip_source():
@@ -429,9 +537,10 @@ def test_touch_prior_bar_confirmation_within_lookback():
     for idx in range(max(0, len(df) - 3), len(df))
   )
   zone = Zone(100, 106, "demand", source="supply_demand", score=10)
-  result = detectors.demand_zone_reaction(
+  instance = _sd_instance(zone)
+  result = supply_demand_technique_reaction(
     replace(
-      _ctx(df, zones=[zone]),
+      _with_technique_instances(_ctx(df, zones=[zone]), [instance]),
       settings=detectors.DetectorSettings(
         confluence_floor=2,
         structural_reaction_lookback_bars=3,
@@ -440,7 +549,7 @@ def test_touch_prior_bar_confirmation_within_lookback():
     )
   )
   assert result is not None
-  assert result.setup == "Zone Reaction"
+  assert result.setup == "Supply Demand Reaction"
 
 
 def test_confirmation_older_than_lookback_rejected():
