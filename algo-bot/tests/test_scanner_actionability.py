@@ -32,6 +32,8 @@ from app.autotrade.execution_policy import (
 from app.autotrade.structural_target_room import (
   evaluate_structural_target_room,
   filter_displaced_opposing_entries,
+  filter_shared_boundary_opposing_entries,
+  zone_proximal_room_reference,
 )
 from app.autotrade.strategy_match import (
   strategy_match_key,
@@ -1293,6 +1295,133 @@ def test_true_planned_entry_containment_hard_rejects():
   assert decision.measured["planned_entry_contained"] is True
   assert decision.measured["market_price_contained"] is False
 
+
+def test_v8_shared_boundary_sell_glued_demand_does_not_block():
+  """Live silence shape: demand hi glued to sell proximal; spot on the wall.
+  V8 drops the shared-boundary map entry so publish is not killed by
+  opposing_entry_contained / below_cost on raw_room≈0.
+  """
+  candidate_low = 4393.45
+  candidate_high = 4396.20
+  # Live reject used ~4393.655; keep within epsilon=max(pip, 0.05*atr).
+  opposing = _entry("buy", 4388.0, 4393.55, tier="zone")
+  atr = 4.0
+  pip_size = 0.1
+  kept, state = filter_shared_boundary_opposing_entries(
+    [opposing],
+    direction="SELL",
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    pip_size=pip_size,
+    atr=atr,
+  )
+  assert state["shared_boundary_excluded"] == 1
+  assert kept == []
+  spot = 4393.50
+  room_planned, source = zone_proximal_room_reference(
+    direction="SELL",
+    spot_price=spot,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    pip_size=pip_size,
+    atr=atr,
+  )
+  assert source == "v8_zone_proximal"
+  assert room_planned == candidate_low
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=room_planned,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    configured_target_pips=(30, 60, 90, 120, 200),
+    actionable_entries=kept,
+    atr=atr,
+    pip_size=pip_size,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+    room_reference_source=source,
+    executable_entry_price=spot,
+    shared_boundary_state=state,
+  )
+  assert decision.allowed is True
+  assert decision.hard_block is False
+  assert decision.reason_code == "no_opposing_barrier"
+  assert decision.measured["room_reference_source"] == "v8_zone_proximal"
+  assert decision.measured["shared_boundary_state"]["shared_boundary_excluded"] == 1
+
+
+def test_v8_shared_boundary_buy_glued_supply_does_not_block():
+  candidate_low = 4100.0
+  candidate_high = 4103.0
+  opposing = _entry("sell", 4103.05, 4108.0, tier="zone")
+  atr = 2.0
+  pip_size = 0.1
+  kept, state = filter_shared_boundary_opposing_entries(
+    [opposing],
+    direction="BUY",
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    pip_size=pip_size,
+    atr=atr,
+  )
+  assert state["shared_boundary_excluded"] == 1
+  assert kept == []
+  decision = evaluate_structural_target_room(
+    direction="BUY",
+    planned_entry_price=candidate_high,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    configured_target_pips=(30, 50, 70),
+    actionable_entries=kept,
+    atr=atr,
+    pip_size=pip_size,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+    room_reference_source="v8_zone_proximal",
+    shared_boundary_state=state,
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "no_opposing_barrier"
+
+
+def test_v8_shared_boundary_keeps_deep_penetration_barrier():
+  """fe023-like: demand high penetrates into sell zone beyond epsilon."""
+  kept, state = filter_shared_boundary_opposing_entries(
+    [_entry("buy", 4263.765714285714, 4267.8, tier="major")],
+    direction="SELL",
+    candidate_entry_low=4267.44782,
+    candidate_entry_high=4270.39503,
+    pip_size=0.1,
+    atr=4.53,
+  )
+  assert state["shared_boundary_excluded"] == 0
+  assert len(kept) == 1
+
+
+def test_v8_resolve_actionability_allows_glued_sell_wall():
+  sell = _result(
+    "SELL",
+    4393.45,
+    4396.20,
+    quality=3,
+    current_price=4393.50,
+    setup="Key Level Reaction",
+  )
+  market_map = _map(
+    _entry("buy", 4388.0, 4393.55, tier="zone"),
+    price=4393.50,
+  )
+  resolution = resolve_actionability(
+    symbol="XAU",
+    observed_results=[sell],
+    market_map=market_map,
+    context=SimpleNamespace(htf_bias="up"),
+    atr=4.0,
+    pip_size=0.1,
+    cfg=_cfg(actionability_gate=True),
+  )
+  assert len(resolution.actionable) == 1
+  assert resolution.gated == ()
 
 def test_band_overlap_alone_remains_executable_with_cap():
   decision = evaluate_structural_target_room(
