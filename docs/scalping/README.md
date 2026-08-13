@@ -1,11 +1,11 @@
-"""
 # High-Frequency M1 Scalping Engine
 
-Shadow/paper event-driven XAU scalping on closed M1 bars with immutable M5 context.
+Shadow/paper/live event-driven XAU scalping on closed M1 bars with immutable
+M5 context. Separate lane from technique ZoneWatch publishers.
 
 ## Architecture
 
-```
+```text
 H1/M15 refresh on closed bars
         ↓
 M5 ScalpContextSnapshot (immutable, Redis-pinned)
@@ -14,8 +14,12 @@ M1 microstructure + archetypes
         ↓
 EntryLocation (enforce inside HFS) + activation + cost + risk
         ↓
-shadow/paper ScalpSignal (never auto_trade:candidates)
+shadow / paper / live ScalpSignal
 ```
+
+Live mode publishes TradePlan V8 via `worker.try_publish_executable_signal`
+when gates pass. Requires `runtime.auto_trade.enabled=true` and a live
+cTrader consumer on the trade-plan stream.
 
 ## Modes
 
@@ -24,9 +28,7 @@ shadow/paper ScalpSignal (never auto_trade:candidates)
 | `off` | Loop exits immediately |
 | `shadow` | Discover/evaluate/record only |
 | `paper` | Paper TradePlan-like records, no broker |
-| **live** (default) | Publishes TradePlan V7 via `worker.try_publish_executable_signal` when gates pass |
-
-Requires `runtime.auto_trade.enabled=true` and a live cTrader consumer on `execution:trade_plans`.
+| `live` | Publishes TradePlan V8 when gates pass |
 
 ## Archetypes
 
@@ -45,6 +47,6 @@ Requires `runtime.auto_trade.enabled=true` and a live cTrader consumer on `execu
 ## Replay
 
 ```bash
-python -m app.scalping.replay --fixture path.jsonl --output artifacts/scalp-replay.json
+cd algo-bot
+PYTHONPATH=. python -m app.scalping.replay --fixture path.jsonl --output artifacts/scalp-replay.json
 ```
-"""
