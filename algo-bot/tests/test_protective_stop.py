@@ -469,6 +469,71 @@ def test_stop_bounds_for_reaction_room_pins_and_caps():
     cfg=cfg,
   )[:2] == (60, 60)
 
+
+def test_stop_bounds_for_reaction_room_keeps_band_for_group_stop():
+  # Live 2026-08-06: a wide room (primary_tp_pips=90) collapsed [min, max]
+  # to (60, 60) for a Supply/Demand multi-leg group stop. A single
+  # absolute stop price is a different pip distance from every leg by
+  # construction, so a single-point band made every group stop with any
+  # real leg spread mathematically unsatisfiable
+  # (stop_exceeds_envelope_furthest_leg on every live candidate).
+  # for_group_stop=True must keep the floor at floor_pips regardless of
+  # how wide the room is, so [min, max] always has real width.
+  from app.autotrade.protective_stop import stop_bounds_for_reaction_room
+
+  cfg = execution_cfg(
+    auto_trade_trend_stop_min_pips=40,
+    auto_trade_trend_stop_max_pips=60,
+    auto_trade_reaction_stop_min_pips=40,
+    auto_trade_reaction_stop_max_pips=60,
+    auto_trade_reaction_room_stop_min_rr=1.0,
+    auto_trade_reaction_room_stop_floor_pips=20,
+  )
+  minimum, maximum, measured = stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=90,
+    pip_size=0.1,
+    cfg=cfg,
+    for_group_stop=True,
+  )
+  assert (minimum, maximum) == (40, 60)
+  assert measured["stop_bounds_for_group_stop"] is True
+  # Single-leg (default) at the same inputs is unaffected -- still (60, 60).
+  assert stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=90,
+    pip_size=0.1,
+    cfg=cfg,
+  )[:2] == (60, 60)
+
+
+def test_group_stop_survives_realistic_leg_spread_after_bounds_fix():
+  # End-to-end, live 2026-08-06 shape (Supply/Demand SELL, zone
+  # 4388.07-4393.07): a 15-pip leg spread fits the restored 40-60 band
+  # (nearest leg lands on the 40p floor, furthest on the 60p cap) and must
+  # now build a real stop instead of stop_exceeds_envelope_furthest_leg.
+  from app.autotrade.protective_stop import plan_group_protective_stop
+
+  plan = plan_group_protective_stop(
+    direction="SELL",
+    entry_zone_low="4388.07",
+    entry_zone_high="4393.07",
+    planned_leg_prices=("4388.50", "4390.00"),
+    resolved_leg_volumes=("0.7", "0.3"),
+    structure_swing="4394.5",
+    atr="1.0",
+    structure_buffer_atr="0.3",
+    sweep_extreme=None,
+    wick_buffer_atr="0.15",
+    minimum_stop_pips=40,
+    maximum_stop_pips=60,
+    pip_size="0.1",
+    digits=2,
+  )
+  assert plan.final_stop_price == Decimal("4394.50")
+  assert plan.final_stop_pips == Decimal("60")
+
+
 def test_scalp_room_synced_stop_allows_thin_targets():
   scalp = evaluate_execution_policy(
     _policy_subject(
