@@ -114,7 +114,8 @@ def test_hfs_strategies_bypass_opposing_when_room_fits():
 
   for name in HFS_STRATEGIES:
     assert is_hfs_strategy(name)
-    assert not bypasses_opposing_structure_gates(name)
+    # HFS always bypasses — map opposing must not silence the scalp loop.
+    assert bypasses_opposing_structure_gates(name)
     assert bypasses_opposing_structure_gates(name, full_take_profit_pips=20)
     assert canonical_family(name) == CANONICAL_FAMILY_HFS
   assert is_hfs_strategy("HFS Custom Archetype")
@@ -124,15 +125,18 @@ def test_hfs_strategies_bypass_opposing_when_room_fits():
     family="hfs",
     strategy_mode="hfs_scalp",
   )
-  # family/mode alone must still require fitted room
-  assert not bypasses_opposing_structure_gates(
+  # family/mode alone is enough for HFS; range still needs fitted room.
+  assert bypasses_opposing_structure_gates(
     "Unknown", family="hfs", strategy_mode="hfs_scalp",
   )
+  assert not bypasses_opposing_structure_gates(
+    "Range Edge Scalp", family="range", strategy_mode="range_scalp",
+  )
   assert bypasses_opposing_structure_gates(
-    "Unknown",
+    "Range Edge Scalp",
     full_take_profit_pips=20,
-    family="hfs",
-    strategy_mode="hfs_scalp",
+    family="range",
+    strategy_mode="range_scalp",
   )
 
   class _Match:
@@ -142,7 +146,7 @@ def test_hfs_strategies_bypass_opposing_when_room_fits():
     strategy_mode = "hfs_scalp"
 
   assert match_bypasses_opposing_structure(_Match())
-  assert not match_bypasses_opposing_structure(
+  assert match_bypasses_opposing_structure(
     type("M", (), {
       "strategy": "HFS Impulse Pullback",
       "full_take_profit_pips": None,

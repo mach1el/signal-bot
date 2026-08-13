@@ -1068,3 +1068,219 @@ def test_format_detection_cutover_suppresses_the_card_before_publication(
   assert "PLAN PUBLISHED" not in published_text
   assert "QUEUED" in published_text
   assert "Executor owns mechanical entry" in published_text
+
+
+def _eligibility_with_stop_error(
+  *,
+  planned_stop_error: str,
+  allowed: bool = True,
+):
+  from app.analysis.execution_eligibility import (
+    ANALYSIS_ONLY,
+    EXECUTION_ELIGIBILITY_VERSION,
+    STATIC_ELIGIBLE,
+    ExecutionEligibility,
+  )
+
+  return ExecutionEligibility(
+    version=EXECUTION_ELIGIBILITY_VERSION,
+    allowed=allowed,
+    state=STATIC_ELIGIBLE if allowed else ANALYSIS_ONLY,
+    reason_code="ok" if allowed else planned_stop_error,
+    message="",
+    hard_block=not allowed,
+    direction="SELL",
+    entry_low=4113.0,
+    entry_high=4116.0,
+    planned_entry_price=4114.5,
+    measured={"planned_stop_error": planned_stop_error},
+  )
+
+
+def test_match_planned_stop_hard_error_reads_measured_even_when_allowed():
+  from dataclasses import replace
+
+  match = replace(
+    _match(),
+    execution_eligibility=_eligibility_with_stop_error(
+      planned_stop_error="stop_exceeds_envelope_furthest_leg",
+      allowed=True,
+    ),
+  )
+  assert (
+    cutover._match_planned_stop_hard_error(match)
+    == "stop_exceeds_envelope_furthest_leg"
+  )
+  assert cutover._publish_should_terminalize_zone_watch(
+    status=worker.PUBLISH_STATUS_INVALIDATED,
+    reason_code="structure_invalidated",
+  )
+  assert cutover._publish_should_terminalize_zone_watch(
+    status=worker.PUBLISH_STATUS_REJECTED,
+    reason_code="v8_protective_stop_unavailable",
+  )
+  assert not cutover._publish_should_terminalize_zone_watch(
+    status=worker.PUBLISH_STATUS_REMAINED_WATCHING,
+    reason_code="waiting_retest_entry_zone",
+  )
+
+
+@pytest.mark.asyncio
+async def test_prepare_activation_preblocks_planned_stop_envelope_error(
+  monkeypatch,
+):
+  from dataclasses import replace
+
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "actionability.entry_location.mode": "shadow",
+    },
+  )
+  record = zw.ZoneWatch(
+    version=zw.ZONE_WATCH_VERSION,
+    zone_id="zone-stop",
+    symbol="XAU",
+    direction="SELL",
+    low=4113.0,
+    high=4116.0,
+    width=3.0,
+    source_timeframe="M15",
+    structural_sources=("session_level",),
+    confluence_tags=("session_level",),
+    technique_tags=(),
+    grade=zw.GRADE_A,
+    score=1.0,
+    freshness=0,
+    touch_count=0,
+    discovered_at=1_785_390_000,
+    last_confirmed_at=1_785_390_000,
+    last_touch_at=None,
+    invalidation_price=None,
+    state=zw.WATCHING_RETEST,
+    market_map_id="",
+    structure_signature="",
+    updated_at=1_785_390_000,
+  )
+  match = replace(
+    _match(strategy="iFVG"),
+    match_id="setup-stop",
+    confluence_zone_id="zone-stop",
+    structural_zone_id="zone-stop",
+    execution_eligibility=_eligibility_with_stop_error(
+      planned_stop_error="stop_exceeds_envelope_furthest_leg",
+    ),
+  )
+  terminalize = AsyncMock()
+  monkeypatch.setattr(cutover, "_terminalize_zone_watch", terminalize)
+  monkeypatch.setattr(cutover, "_record_policy_telemetry", AsyncMock())
+  prepared = await cutover._prepare_activation(
+    SimpleNamespace(),
+    record=record,
+    match=match,
+    quote=(4114.4, 4114.6, 1_785_390_200),
+    evidence=SimpleNamespace(executable_quote=4114.4, inside=True),
+  )
+  assert prepared is None
+  terminalize.assert_awaited_once()
+  assert terminalize.await_args.kwargs["reason_code"] == (
+    "stop_exceeds_envelope_furthest_leg"
+  )
+
+
+@pytest.mark.asyncio
+async def test_activate_match_terminalizes_zone_on_v8_stop_invalidate(
+  monkeypatch,
+):
+  from dataclasses import replace
+
+  record = zw.ZoneWatch(
+    version=zw.ZONE_WATCH_VERSION,
+    zone_id="zone-thrash",
+    symbol="XAU",
+    direction="SELL",
+    low=4113.0,
+    high=4116.0,
+    width=3.0,
+    source_timeframe="M15",
+    structural_sources=("session_level",),
+    confluence_tags=("session_level",),
+    technique_tags=(),
+    grade=zw.GRADE_A,
+    score=1.0,
+    freshness=0,
+    touch_count=0,
+    discovered_at=1_785_390_000,
+    last_confirmed_at=1_785_390_000,
+    last_touch_at=None,
+    invalidation_price=None,
+    state=zw.WATCHING_RETEST,
+    market_map_id="",
+    structure_signature="",
+    updated_at=1_785_390_000,
+  )
+  match = replace(_match(strategy="Session Level"), match_id="setup-thrash")
+  monkeypatch.setattr(
+    cutover,
+    "_load_quote",
+    AsyncMock(return_value=(4114.4, 4114.6, 1_785_390_200)),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_scalp_access",
+    lambda *_a, **_k: SimpleNamespace(
+      executable=True,
+      status="inside",
+      chase_pips=0.0,
+      maximum_chase_pips=40.0,
+      evidence=SimpleNamespace(
+        executable_quote=4114.4,
+        inside=True,
+        distance_pips=0.0,
+      ),
+    ),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_persist_match",
+    AsyncMock(side_effect=lambda _client, m: m),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_safe_direct_publish",
+    AsyncMock(
+      return_value=worker.PublishResult(
+        status=worker.PUBLISH_STATUS_INVALIDATED,
+        plan_id="",
+        reason_code="v8_protective_stop_unavailable",
+        zone_id="zone-thrash",
+        setup_id="setup-thrash",
+      ),
+    ),
+  )
+  terminalize = AsyncMock()
+  monkeypatch.setattr(cutover, "_terminalize_zone_watch", terminalize)
+  presence = AsyncMock()
+  monkeypatch.setattr(cutover, "record_zone_presence", presence)
+
+  async def _no_setup(*_a, **_k):
+    return None
+
+  monkeypatch.setattr(
+    "app.autotrade.setup_lifecycle.load_setup",
+    _no_setup,
+  )
+
+  published = await cutover._activate_match(
+    SimpleNamespace(),
+    record,
+    match,
+    event_ts="2026-07-30T06:02:00+00:00",
+  )
+  assert published is None
+  terminalize.assert_awaited_once()
+  assert terminalize.await_args.kwargs["reason_code"] == (
+    "v8_protective_stop_unavailable"
+  )
+  presence.assert_not_awaited()
