@@ -1420,6 +1420,29 @@ def test_v8_overlap_keeps_clear_opposing_barrier_ahead():
   assert decision.opposing_entry is not None
 
 
+def test_weak_map_level_containment_does_not_hard_block():
+  """Weak map 'level' containing planned entry must not hard-kill analysis."""
+  # Candidate band clear of the level; planned price still sits inside level.
+  candidate_low = 4102.0
+  candidate_high = 4105.0
+  opposing = _entry("buy", 4098.0, 4100.5, tier="level")
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=4100.0,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    configured_target_pips=(30, 60, 90),
+    actionable_entries=(opposing,),
+    atr=4.0,
+    pip_size=0.1,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+  )
+  assert decision.allowed is True
+  assert decision.hard_block is False
+  assert decision.measured.get("weak_opposing_level_ignored") is True
+
+
 def test_v8_shared_boundary_buy_glued_supply_does_not_block():
   candidate_low = 4100.0
   candidate_high = 4103.0

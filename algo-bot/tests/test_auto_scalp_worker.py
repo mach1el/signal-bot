@@ -1167,6 +1167,7 @@ def test_htf_veto_ignores_already_tested_zones():
   assert worker._htf_veto_reason("SELL", 4127.18, tested_zone) is None
 
 
+@pytest.mark.no_database
 def test_nearest_directional_zone_picks_supply_for_sell_demand_for_buy():
   supply = Zone(4131.0, 4133.0, "supply", touches=0)
   demand = Zone(4100.0, 4102.0, "demand", touches=0)
@@ -1174,6 +1175,37 @@ def test_nearest_directional_zone_picks_supply_for_sell_demand_for_buy():
 
   assert worker._nearest_directional_zone("SELL", 4127.18, zones) is supply
   assert worker._nearest_directional_zone("BUY", 4105.0, zones) is demand
+
+
+@pytest.mark.no_database
+def test_nearest_directional_zone_skips_entry_structure_same_wall():
+  """SELL inside supply must not treat that supply as stop-side opposing."""
+  entry_supply = Zone(4125.0, 4130.0, "supply", touches=1)
+  higher_supply = Zone(4140.0, 4142.0, "supply", touches=0)
+  zones = [entry_supply, higher_supply]
+
+  assert worker._nearest_directional_zone(
+    "SELL", 4127.5, zones,
+  ) is higher_supply
+  assert worker._nearest_directional_zone(
+    "SELL",
+    4127.5,
+    zones,
+    candidate_entry_low=4125.0,
+    candidate_entry_high=4130.0,
+    atr=4.0,
+    pip_size=0.1,
+  ) is higher_supply
+  # Only the entry wall present → no opposing attachment.
+  assert worker._nearest_directional_zone(
+    "SELL",
+    4127.5,
+    [entry_supply],
+    candidate_entry_low=4125.0,
+    candidate_entry_high=4130.0,
+    atr=4.0,
+    pip_size=0.1,
+  ) is None
 
 
 @pytest.mark.asyncio
