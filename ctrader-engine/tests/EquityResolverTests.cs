@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ApexVoid.CTraderFeed;
 
 namespace CTraderFeed.Tests;
@@ -104,5 +105,45 @@ public sealed class EquityResolverTests
       )
     );
     Assert.Equal(EquityResolver.UnavailableWithOpenExposure, error.Message);
+  }
+
+  [Fact]
+  public void ExecutorSnapshotSerializesResolvedEquityInSnakeCase()
+  {
+    // /algo_status has no account balance/equity to show: AutoTradeEngine's
+    // executor_snapshot publish never carried them. Feeds EquityResolver's
+    // output into AutoTradeExecutorSnapshot the same way the publish call
+    // site now does, and checks the exact wire shape Python's
+    // auto_trade_status_text() reads (snake_case field names, decimal
+    // values, not the raw unresolved account figures).
+    var resolved = EquityResolver.Resolve(
+      Account(1_000m, 1_300m, "test"),
+      openPositionCount: 0,
+      pendingOrderCount: 0
+    );
+    var snapshot = new AutoTradeExecutorSnapshot(
+      "XAU", "demo_eval", "HedgedConcurrent",
+      Demo: true, Hedged: true, Ready: true,
+      PositionIds: [], PendingOrderIds: [], GroupIds: [],
+      UpdatedAt: 1_720_000_100,
+      AccountBalance: resolved.AccountBalance,
+      AccountEquity: resolved.Equity,
+      AccountEquitySource: resolved.EquitySource
+    );
+
+    var json = JsonSerializer.Serialize(
+      snapshot, RedisJsonContext.Default.AutoTradeExecutorSnapshot
+    );
+    using var doc = JsonDocument.Parse(json);
+    var root = doc.RootElement;
+
+    Assert.Equal(1_000m, root.GetProperty("account_balance").GetDecimal());
+    Assert.Equal(1_300m, root.GetProperty("account_equity").GetDecimal());
+    // EquityResolver normalizes to its own canonical source tag, not an
+    // echo of the account's raw (test-only) EquitySource input.
+    Assert.Equal(
+      EquityResolver.SourceAccountEquity,
+      root.GetProperty("account_equity_source").GetString()
+    );
   }
 }
