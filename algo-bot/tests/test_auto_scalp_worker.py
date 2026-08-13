@@ -1532,6 +1532,36 @@ def test_opposing_barrier_reason_vetoes_sell_inside_opposing_demand():
   assert worker._opposing_barrier_condition(reason) == "entry_inside_opposing_zone"
 
 
+def test_opposing_barrier_side_unclear_zone_containment_is_telemetry_only():
+  # Bug since classify_barrier_relationship's introduction (13414b7): both
+  # branches of "overlapping_ambiguous" if barrier.side == "neutral" or not
+  # opposing else "overlapping_ambiguous" returned the identical literal,
+  # so a zone whose side couldn't be cleanly classified as opposing this
+  # direction was hard-blocked exactly like a confirmed, unambiguous one
+  # (test_opposing_barrier_reason_vetoes_buy_inside_opposing_supply, still
+  # unchanged below). Live 2026-08-13: this was the dominant blocker in
+  # production (entry_inside_opposing_zone, ~58% of all v8 plan rejections
+  # over 12h) on zones logged as "supply_demand" -- a side that matches
+  # neither {supply,resistance} nor {demand,support} for any direction.
+  neutral = [Zone(4116.0, 4127.0, "neutral", touches=8)]
+  source = worker._structural_source_identity(
+    strategy="legacy", family="", structural_source="legacy",
+    low=4200.0, high=4200.0, key_level=None,
+  )
+  decision = worker._opposing_barrier_decision(
+    "BUY", 4116.25, None, 1.2, neutral, [], 0.5,
+    source=source, guard_mode=worker.GUARD_MODE_STRICT,
+  )
+  assert decision.hard_block is False
+  assert decision.reason_code == "entry_inside_ambiguous_zone"
+  assert decision.measured["relationship"] == "overlapping_neutral"
+
+  reason = worker._opposing_barrier_reason(
+    "BUY", 4116.25, 1.2, neutral, [], 0.5,
+  )
+  assert reason is None  # hard_block-only wrapper: nothing to veto on
+
+
 def test_opposing_barrier_ahead_distance_math_unchanged_when_not_contained():
   # Regression guard: an entry genuinely ahead of (not inside) the barrier
   # still uses the pre-existing ATR/buffer tolerance logic to DETECT the
