@@ -35,7 +35,8 @@ redesign of the Python-owns-plan / C#-executes boundary.
 ## Unchanged
 
 - Entry / stop / target ownership (Python declares, C# executes).
-- V8 opposing-room geometry (shared-boundary filter + zone-proximal room
-  reference) on the non-scalp publish path.
+- V8 opposing-room geometry on the non-scalp publish path:
+  shared-boundary filter, **overlap filter** for stacked map vs candidate
+  bands, and zone-proximal room reference.
 - Scalp opposing bypass via `match_bypasses_opposing_structure`.
 - V6 retained only for legacy open-position manage and manual `/algo`.

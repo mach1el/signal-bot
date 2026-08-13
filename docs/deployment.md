@@ -1,19 +1,14 @@
 # Deployment Guide
 
-The bot runs as a single long-polling container. It makes only **outbound**
+The stack runs as Docker Compose services. It makes only **outbound**
 connections, so there is **no DNS, no TLS certificate, no reverse proxy, and no
-inbound firewall port** to configure. Any small Linux host with Docker works —
-a $5 VPS, a home server, or a Raspberry Pi.
+inbound firewall port** for the bot. Any small Linux host with Docker works.
 
-Compose startup order is: postgres + redis → **config-compiler** →
+Compose startup order: postgres + redis → **config-compiler** →
 ctrader-engine → bot. The compiler writes the secret-safe
-`ResolvedRuntimeManifest` for shadow ENV/manifest parity. Live cTrader
-authority remains ENV in this generation of the stack.
+`ResolvedRuntimeManifest` to `/runtime/resolved-runtime.json`.
 
-PR3 introduces symbol-routed multi-instrument runtime support while keeping
-**XAU as the only production live instrument**.
-
-**PR4** flips cTrader authority to the resolved runtime manifest:
+Production cTrader authority:
 
 ```text
 CTRADER_CONFIGURATION_SOURCE=manifest
@@ -22,6 +17,9 @@ CTRADER_MANIFEST_PARITY_MODE=off
 
 ENV retains secrets and bootstrap only. See
 `docs/configuration/manifest-authority-cutover.md`.
+
+Multi-symbol activation remains a separate programme; production live
+instruments stay XAU-only. See `docs/runtime/multi-symbol-routing.md`.
 
 ## Prerequisites
 
@@ -75,30 +73,41 @@ chmod 600 .env
 nano .env
 ```
 
-Fill in:
+Fill in at minimum (see `.env.example` for the full generated contract):
 
-```
+```text
 TELEGRAM_BOT_TOKEN=<from @BotFather>
-TELEGRAM_CHAT_ID=-100xxxxxxxxxx
+SIGNAL_VIP_CHANNEL_ID=-100xxxxxxxxxx
 TELEGRAM_OWNER_ID=<your numeric user id>
+POSTGRES_PASSWORD=<secret>
+DATABASE_URL=postgresql://apexvoid:<secret>@postgres:5432/signals
+REDIS_URL=redis://redis:6379/0
+CTRADER_CLIENT_ID=
+CTRADER_CLIENT_SECRET=
+CTRADER_ACCESS_TOKEN=
+CTRADER_REFRESH_TOKEN=
+CTRADER_ACCOUNT_ID=
 ANTHROPIC_API_KEY=sk-ant-...                 # chart analysis (optional)
-DB_PATH=/data/signals.db
-LOG_LEVEL=INFO
 ```
+
+Non-secret strategy / actionability / execution tuning belongs in
+`config/trading-bot.yml`, not duplicated as ad-hoc ENV.
 
 ## 4. Launch
 
 ```bash
 docker compose up -d --build
-docker compose ps                 # 'bot' is Up
+docker compose ps                 # postgres, redis, engine, bot Up; compiler Exited 0
 docker compose logs -f bot
+docker compose logs -f ctrader-engine
 ```
 
-Expected startup lines:
+Expected shape:
 
-```
-bot: DB ready at /data/signals.db
-bot: Starting Telegram polling
+```text
+config-compiler: wrote /runtime/resolved-runtime.json (exit 0)
+ctrader-engine: feed heartbeat / bars writing
+bot: Starting Telegram polling + scanner / ZoneWatch loops
 ```
 
 For autonomous execution on the broker-confirmed demo account, use the
@@ -106,10 +115,10 @@ For autonomous execution on the broker-confirmed demo account, use the
 profile contract, live-account fail-closed behavior, and Redis evidence
 commands.
 
-## Technique pack (killzone + sweep/body + HTF PD + SL hard-cap)
+## Technique pack + ZoneWatch publish
 
-After shipping an image that includes `execution.technique`, host
-`config/trading-bot.yml` (Ansible `apexvoid_trading_bot_config`) should keep:
+After shipping images that include technique publishers and
+`execution.technique`, keep host `config/trading-bot.yml` aligned with:
 
 ```yaml
 actionability:
@@ -127,12 +136,17 @@ execution:
     mode: enforce
 ```
 
+Technique publisher flags (`AUTO_TRADE_TECHNIQUE_*`,
+`AUTO_TRADE_CONFLUENCE_ZONE_ENABLED`) default on in schema. Operator guide:
+[technique-zonewatch-publish.md](technique-zonewatch-publish.md).
+
 Smoke after deploy:
 
-- HFS discovery outside killzone (UTC 01/03/05/…) logs empty permits / no Impulse spam.
-- Key Level inside London/NY/late-NY killzone with `sweep_reclaim`/`body_close` still publishes.
-- Ladder stops that would soft-max past 60 furthest log
-  `stop_exceeds_envelope_furthest_leg`.
+- Technique ZoneWatches show non-zero chase and survive spot wicks (closed-bar
+  invalidate only).
+- HFS discovery outside killzone stays quiet when technique.enforce is on.
+- Key Level inside London/NY/late-NY with accepted confirmation still publishes.
+- Ladder stops past furthest envelope log `stop_exceeds_envelope_furthest_leg`.
 
 ## 5. Smoke test
 
