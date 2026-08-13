@@ -32,6 +32,7 @@ from app.autotrade.execution_policy import (
 from app.autotrade.structural_target_room import (
   evaluate_structural_target_room,
   filter_displaced_opposing_entries,
+  filter_overlapping_opposing_entries,
   filter_shared_boundary_opposing_entries,
   zone_proximal_room_reference,
 )
@@ -1348,6 +1349,75 @@ def test_v8_shared_boundary_sell_glued_demand_does_not_block():
   assert decision.reason_code == "no_opposing_barrier"
   assert decision.measured["room_reference_source"] == "v8_zone_proximal"
   assert decision.measured["shared_boundary_state"]["shared_boundary_excluded"] == 1
+
+
+def test_v8_overlap_opposing_band_does_not_block_technique_candidate():
+  """FVG candidate overlapping a stacked Market Map demand is not opposing."""
+  candidate_low = 4100.0
+  candidate_high = 4104.0
+  # Substantial overlap with candidate — same wall, not structure ahead.
+  opposing = _entry("buy", 4099.0, 4103.5, tier="zone")
+  atr = 4.0
+  pip_size = 0.1
+  kept, state = filter_overlapping_opposing_entries(
+    [opposing],
+    direction="SELL",
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    pip_size=pip_size,
+    atr=atr,
+  )
+  assert state["overlap_excluded"] == 1
+  assert kept == []
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=candidate_low,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    configured_target_pips=(30, 60, 90),
+    actionable_entries=(opposing,),
+    atr=atr,
+    pip_size=pip_size,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "no_opposing_barrier"
+  assert decision.measured["shared_boundary_state"]["overlap_excluded"] == 1
+
+
+def test_v8_overlap_keeps_clear_opposing_barrier_ahead():
+  candidate_low = 4100.0
+  candidate_high = 4102.0
+  # Clear demand well below the SELL band — must still count as opposing.
+  opposing = _entry("buy", 4080.0, 4085.0, tier="zone")
+  atr = 4.0
+  pip_size = 0.1
+  kept, state = filter_overlapping_opposing_entries(
+    [opposing],
+    direction="SELL",
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    pip_size=pip_size,
+    atr=atr,
+  )
+  assert state["overlap_excluded"] == 0
+  assert len(kept) == 1
+  decision = evaluate_structural_target_room(
+    direction="SELL",
+    planned_entry_price=candidate_low,
+    candidate_entry_low=candidate_low,
+    candidate_entry_high=candidate_high,
+    configured_target_pips=(30, 60, 90),
+    actionable_entries=(opposing,),
+    atr=atr,
+    pip_size=pip_size,
+    barrier_buffer_atr=0.5,
+    execution_cost_pips=1.0,
+  )
+  # Room to 4085 from 4100 is 150 pips — ladder may fit, but barrier remains.
+  assert decision.reason_code != "no_opposing_barrier"
+  assert decision.opposing_entry is not None
 
 
 def test_v8_shared_boundary_buy_glued_supply_does_not_block():
