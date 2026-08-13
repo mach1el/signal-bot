@@ -801,4 +801,10 @@ def test_structural_setups_constant():
     "Supply Zone Reaction",
     "Session Level Reaction",
     "Trendline Reaction",
+    "Supply Demand",
+    "Order Block",
+    "FVG",
+    "iFVG",
+    "CRT",
+    "Confluence Zone",
   }

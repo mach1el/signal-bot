@@ -263,3 +263,39 @@ def test_shadow_mode_allows_with_would_block():
   assert decision.hard_block is False
   assert decision.would_block is True
   assert decision.reason_code == "buy_in_premium"
+
+
+def test_technique_sell_at_extreme_is_allowed():
+  # FVG/CRT often sit at dealing-range extremes — skip extreme_* hard block.
+  decision = _eval(
+    strategy="FVG",
+    direction="SELL",
+    price=4020.0,
+    mode="enforce",
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "entry_location_allowed"
+  assert decision.would_block is False
+
+
+def test_technique_sell_in_discount_still_blocked():
+  decision = _eval(
+    strategy="CRT",
+    direction="SELL",
+    price=4040.0,
+    mode="enforce",
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "sell_in_discount"
+  assert decision.would_block is True
+
+
+def test_confluence_buy_at_extreme_is_allowed():
+  decision = _eval(
+    strategy="Confluence Zone",
+    direction="BUY",
+    price=4070.0,
+    mode="enforce",
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "entry_location_allowed"
