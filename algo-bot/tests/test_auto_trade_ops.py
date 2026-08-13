@@ -2124,6 +2124,79 @@ async def test_status_includes_compact_profile_regime_groups_and_route(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_status_shows_equity_and_balance_when_they_differ(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({
+      "symbol": "XAU",
+      "profile": "demo_eval",
+      "group_ids": [],
+      "position_ids": [],
+      "ready": True,
+      "account_balance": 10000.0,
+      "account_equity": 10123.45,
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "💰 Equity <b>$10,123.45</b> · Balance <b>$10,000.00</b>" in text
+
+
+@pytest.mark.asyncio
+async def test_status_omits_balance_when_equal_to_equity(monkeypatch):
+  # Flat account, no open exposure -- equity == balance is the common case
+  # and a redundant "Balance $X · Balance $X" line would just be noise.
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({
+      "symbol": "XAU",
+      "profile": "demo_eval",
+      "group_ids": [],
+      "position_ids": [],
+      "ready": True,
+      "account_balance": 10000.0,
+      "account_equity": 10000.0,
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "💰 Equity <b>$10,000.00</b>" in text
+  assert "Balance" not in text
+
+
+@pytest.mark.asyncio
+async def test_status_omits_equity_line_before_first_account_snapshot(monkeypatch):
+  # AutoTradeExecutorSnapshot defaults account_balance/account_equity to 0
+  # until the engine's first broker account snapshot arrives -- must not
+  # render a misleading "$0.00".
+  install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
+  client = redis_state.get_client()
+  await client.set(
+    "auto_trade:executor_snapshot:XAU",
+    json.dumps({
+      "symbol": "XAU",
+      "profile": "demo_eval",
+      "group_ids": [],
+      "position_ids": [],
+      "ready": True,
+      "account_balance": 0.0,
+      "account_equity": 0.0,
+    }),
+  )
+
+  text = await delivery.auto_trade_status_text()
+
+  assert "Equity" not in text
+  assert "Balance" not in text
+
+
+@pytest.mark.asyncio
 async def test_status_shows_manual_algo_pending_count(monkeypatch):
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
