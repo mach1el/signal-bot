@@ -309,6 +309,99 @@ def test_risk_loss_streak_blocks_after_cooldown_until_reset():
   assert winning.consecutive_losses == 0
 
 
+def test_daily_loss_limit_unsticks_at_trading_day_rollover():
+  """Live 2026-08-13: daily_r sat at -3.75R from a loss on 2026-08-12,
+  scalp_daily_loss_limit stayed tripped over 24h later because day_key was
+  persisted but never compared against anything -- the reset never ran.
+  """
+  from app.scalping.risk import apply_daily_reset
+
+  cfg = _cfg()
+  # Matches the live redis snapshot: stale/never-set day_key, breached limit.
+  state = ScalpRiskState(daily_trades=7, daily_r=-3.75, day_key="")
+  now = 1_786_631_040  # 2026-08-13 14:24 UTC
+
+  stuck = evaluate_risk(state, cfg, session="london", now=now)
+  assert stuck.allowed is False
+  assert stuck.reason_code == "scalp_daily_loss_limit"
+
+  reset_state = apply_daily_reset(state, cfg, now=now, session="london")
+  assert reset_state.daily_r == 0.0
+  assert reset_state.daily_trades == 0
+  assert reset_state.day_key != ""
+
+  unstuck = evaluate_risk(reset_state, cfg, session="london", now=now)
+  assert unstuck.allowed is True
+
+
+def test_daily_reset_is_noop_within_same_trading_day():
+  from app.scalping.risk import apply_daily_reset
+
+  cfg = _cfg()
+  now = 1_786_631_040  # 2026-08-13 14:24 UTC
+  # Prime day_key for "now"'s trading day, as a real load->reset->accumulate
+  # cycle would, before asserting a later same-day call leaves counters alone.
+  primed = apply_daily_reset(ScalpRiskState(), cfg, now=now, session="london")
+  state = ScalpRiskState(
+    daily_trades=4, daily_r=-1.5,
+    day_key=primed.day_key, session_key=primed.session_key,
+  )
+
+  ten_minutes_later = apply_daily_reset(
+    state, cfg, now=now + 600, session="london"
+  )
+  assert ten_minutes_later.daily_trades == 4
+  assert ten_minutes_later.daily_r == -1.5
+
+
+def test_daily_reset_boundary_is_trading_rollover_not_utc_midnight():
+  from app.scalping.risk import apply_daily_reset
+
+  cfg = _cfg()
+  before_rollover = 1_786_568_340  # 2026-08-12 20:59 UTC
+  after_rollover = 1_786_568_460  # 2026-08-12 21:01 UTC
+  primed = apply_daily_reset(
+    ScalpRiskState(), cfg, now=before_rollover, session="late_ny"
+  )
+  state = ScalpRiskState(
+    daily_trades=5, daily_r=-2.0,
+    day_key=primed.day_key, session_key=primed.session_key,
+  )
+
+  state = apply_daily_reset(state, cfg, now=before_rollover, session="late_ny")
+  # Same trading day as before_rollover -- must not reset yet.
+  assert state.daily_trades == 5
+  assert state.daily_r == -2.0
+
+  state = apply_daily_reset(state, cfg, now=after_rollover, session="rollover")
+  # Crossed the 21:00 UTC trading-day boundary -- must reset.
+  assert state.daily_trades == 0
+  assert state.daily_r == 0.0
+
+
+def test_session_reset_clears_session_counters_on_session_change():
+  from app.scalping.risk import apply_daily_reset
+
+  cfg = _cfg()
+  now = 1_786_631_040  # 2026-08-13 14:24 UTC
+  state = ScalpRiskState(session_trades=6, session_r=-1.8, day_key="")
+  state = apply_daily_reset(state, cfg, now=now, session="london")
+  assert state.session_trades == 0
+  assert state.session_r == 0.0
+
+  state.session_trades = 6
+  state.session_r = -1.8
+  same_session = apply_daily_reset(state, cfg, now=now + 60, session="london")
+  assert same_session.session_trades == 6
+  assert same_session.session_r == -1.8
+
+  new_session = apply_daily_reset(
+    same_session, cfg, now=now + 120, session="new_york"
+  )
+  assert new_session.session_trades == 0
+  assert new_session.session_r == 0.0
+
+
 def test_momentum_chase_disabled_by_default():
   from app.scalping.strategies import discover_momentum_chase
 
