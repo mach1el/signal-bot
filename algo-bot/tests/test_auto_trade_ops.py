@@ -1129,8 +1129,8 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
   assert "🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
-  # Root SETUP FORMING card is left alone on close.
-  assert all(e[1] != 7001 for e in edited)
+  # Root card is edited to terminal so WAITING FILL does not linger.
+  assert any(e[1] == 7001 for e in edited)
   assert all(d[1] != 7001 for d in deleted)
 
 
@@ -1149,6 +1149,17 @@ async def test_position_closed_fallback_creates_manage_reply(monkeypatch):
     }),
     ex=60,
   )
+  edited = []
+  deleted = []
+
+  async def fake_edit(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  async def fake_delete(chat_id, message_id):
+    deleted.append((chat_id, message_id))
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
   calls = []
 
   async def sent(text, **kwargs):
@@ -1172,6 +1183,8 @@ async def test_position_closed_fallback_creates_manage_reply(monkeypatch):
 
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
+  assert any(e[1] == 7001 for e in edited)
+  assert deleted == []
   assert "🏁 POSITION CLOSED" in calls[0][0]
   assert "🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in calls[0][0]
   assert await client.get(delivery._manage_msg_key(setup_id)) == "9001"
