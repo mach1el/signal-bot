@@ -1099,6 +1099,51 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task LimitLadderConvertsL1ToMarketWhenQuoteTapsTheZone()
+  {
+    // Live miss: BUY limit sat at the proximal while M1 wicked into the
+    // published entry zone and left. Do not wait for the resting limit —
+    // cancel L1 and market-fill; L2 stays as the deeper clip.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient();
+    var logs = new List<string>();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, logs.Add
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4092.00m, 4092.20m, 1), CancellationToken.None
+    );
+    Assert.Equal(2, client.LimitOrders.Count);
+    Assert.Empty(client.MarketOrders);
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4088.40m, 4088.50m, 2), CancellationToken.None
+    );
+
+    Assert.Contains(logs, line => line.Contains("v8 zone tap"));
+    Assert.Contains(client.CancelledOrderIds, id => id > 0);
+    Assert.Single(client.MarketOrders);
+    Assert.Single(client.LimitOrders);
+    Assert.DoesNotContain(
+      client.LimitOrders, o => o.ClientOrderId.EndsWith(":L1", StringComparison.Ordinal)
+    );
+    Assert.Contains(
+      client.LimitOrders, o => o.ClientOrderId.EndsWith(":L2", StringComparison.Ordinal)
+    );
+    var open = Assert.Single(runtime.TrackedStates);
+    Assert.Contains(
+      open.Legs!,
+      leg => leg.LegId == "L1" && leg.BrokerPositionId is not null
+    );
+    Assert.Contains(
+      open.Legs!,
+      leg => leg.LegId == "L2" && leg.BrokerOrderId is not null && leg.BrokerPositionId is null
+    );
+  }
+
+  [Fact]
   public async Task RetryAfterALegFailureResumesWithoutResubmittingAnAcceptedLeg()
   {
     // P0 production bug: leg 2 erroring (duplicate ClientOrderId, or any
