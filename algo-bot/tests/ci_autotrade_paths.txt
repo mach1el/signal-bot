@@ -30,4 +30,5 @@ tests/test_legs_achieved_pips.py
 tests/test_telegram_single_root_card.py
 tests/test_worker_terminal_card_cleanup.py
 tests/test_candidate_execution_state.py
+tests/test_scalp_risk_reconcile.py
 tests/test_autotrade_units.py
