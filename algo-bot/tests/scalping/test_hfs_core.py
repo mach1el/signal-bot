@@ -177,7 +177,6 @@ def test_asia_empty_outside_killzone_under_technique_pack():
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
-    ARCHETYPE_MOMENTUM_CHASE,
   )
 
 
