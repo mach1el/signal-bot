@@ -299,3 +299,45 @@ def test_confluence_buy_at_extreme_is_allowed():
   )
   assert decision.allowed is True
   assert decision.reason_code == "entry_location_allowed"
+
+
+def test_strict_technique_pd_blocks_fvg_sell_in_discount():
+  cfg = _location_cfg("enforce")
+  cfg.execution = SimpleNamespace(
+    technique=SimpleNamespace(enforce=True, strict_premium_discount=True),
+  )
+  ctx = build_entry_location_context(
+    execution_price=4020.0,
+    direction="SELL",
+    m15_range_low=RANGE_LOW,
+    m15_range_high=RANGE_HIGH,
+  )
+  decision = evaluate_entry_location(
+    strategy="FVG",
+    direction="SELL",
+    context=ctx,
+    cfg=cfg,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "sell_in_discount"
+
+
+def test_strict_technique_pd_rejects_m5_only_range():
+  cfg = _location_cfg("enforce")
+  cfg.execution = SimpleNamespace(
+    technique=SimpleNamespace(enforce=True, strict_premium_discount=True),
+  )
+  ctx = build_entry_location_context(
+    execution_price=4040.0,
+    direction="BUY",
+    m5_range_low=RANGE_LOW,
+    m5_range_high=RANGE_HIGH,
+  )
+  decision = evaluate_entry_location(
+    strategy="Key Level Reaction",
+    direction="BUY",
+    context=ctx,
+    cfg=cfg,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "entry_location_htf_range_missing"

@@ -66,6 +66,16 @@ def _technique_cfg(
       ),
       reaction=SimpleNamespace(stop_min_pips=40, stop_max_pips=60),
     ),
+    strategies=SimpleNamespace(
+      high_frequency_scalp=SimpleNamespace(
+        archetypes=SimpleNamespace(
+          range_sweep_enabled=True,
+          impulse_pullback_enabled=True,
+          breakout_retest_enabled=True,
+          momentum_chase_enabled=False,
+        ),
+      ),
+    ),
   )
 
 
@@ -102,12 +112,8 @@ def test_killzone_hour_matrix(hour: int, allowed: bool):
 
 def test_hfs_permitted_archetypes_empty_outside_killzone():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
-  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == ()
   assert permitted_archetypes_for_session("rollover", hour=21, cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session(
@@ -118,9 +124,7 @@ def test_hfs_permitted_archetypes_empty_outside_killzone():
 
 def test_hfs_session_fallback_asia_empty_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
 
 
@@ -154,10 +158,10 @@ def _location_ok() -> EntryLocationDecision:
   )
 
 
-def test_activation_blocks_wick_only_under_technique():
+def test_activation_blocks_pin_bar_under_technique():
   now = 1_700_000_000
   trigger = M1TriggerResult(
-    "wick_rejection", "BUY", 4080.0, now - 60, "wick only",
+    "pin_bar", "BUY", 4080.0, now - 60, "pin only",
   )
   decision = evaluate_entry_activation(
     strategy="Key Level Reaction",
