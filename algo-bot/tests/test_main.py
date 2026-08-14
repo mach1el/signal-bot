@@ -31,7 +31,6 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   calendar = AsyncMock()
   weekly = AsyncMock()
   scanner = AsyncMock()
-  auto_scalp = AsyncMock()
   market_map = AsyncMock()
   stats_backfill = AsyncMock(return_value="0-0")
   stats_ingestion = AsyncMock()
@@ -44,8 +43,7 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   monkeypatch.setattr(main, "watcher_loop", watcher)
   monkeypatch.setattr(main, "calendar_sync_loop", calendar)
   monkeypatch.setattr(main, "weekly_report_loop", weekly)
-  monkeypatch.setattr(main, "scanner_loop", scanner)
-  monkeypatch.setattr(main, "auto_scalp_loop", auto_scalp)
+  monkeypatch.setattr(main, "bar_event_dispatcher_loop", scanner)
   monkeypatch.setattr(main, "market_map_scan_loop", market_map)
   monkeypatch.setattr(
     main, "backfill_retained_auto_trade_stats", stats_backfill,
@@ -70,7 +68,6 @@ async def test_startup_warns_when_owner_id_is_unset(monkeypatch, caplog):
   calendar.assert_awaited_once()
   weekly.assert_awaited_once()
   scanner.assert_awaited_once()
-  auto_scalp.assert_awaited_once()
   market_map.assert_awaited_once()
   stats_backfill.assert_awaited_once()
   stats_ingestion.assert_awaited_once()

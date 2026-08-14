@@ -13,6 +13,7 @@ tests/test_auto_trade_ops.py
 tests/test_autotrade_delivery.py
 tests/test_delivery_owner_loop.py
 tests/test_telegram_actor.py
+tests/test_bar_event_dispatcher.py
 tests/test_active_exposure.py
 tests/test_zone_watch.py
 tests/test_zone_watch_published_locked.py
