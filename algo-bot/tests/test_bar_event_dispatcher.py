@@ -124,3 +124,46 @@ async def test_m5_bar_skips_zone_watch(monkeypatch):
 
   assert ran == ["hfs", "scanner", "worker"]
   zone.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_prefetches_after_zone_watch_and_clears_cache(monkeypatch):
+  _enable_handlers(monkeypatch)
+  order: list[str] = []
+
+  async def zone(*args, **kwargs):
+    order.append("zone_watch")
+
+  async def window(*args, **kwargs):
+    order.append("prefetch")
+
+  async def hfs(*args, **kwargs):
+    order.append("hfs")
+
+  source = SimpleNamespace(
+    begin_closed_bar_cache=lambda: order.append("begin"),
+    end_closed_bar_cache=lambda: order.append("end"),
+    window=window,
+  )
+  monkeypatch.setattr(
+    "app.autotrade.zone_execution_cutover.evaluate_active_zone_watches",
+    zone,
+    raising=False,
+  )
+  monkeypatch.setattr("app.scalping.runtime.handle_closed_bar", hfs, raising=False)
+  monkeypatch.setattr("app.analysis.scanner._handle_event", AsyncMock(), raising=False)
+  monkeypatch.setattr("app.autotrade.worker._handle_event", AsyncMock(), raising=False)
+  monkeypatch.setattr(
+    dispatcher,
+    "prefetch_closed_bar_windows",
+    window,
+  )
+
+  await dispatcher.dispatch_closed_bar(
+    "XAU:M1:1700000000",
+    client=SimpleNamespace(),
+    source=source,
+  )
+
+  assert order[:4] == ["begin", "zone_watch", "prefetch", "hfs"]
+  assert order[-1] == "end"
