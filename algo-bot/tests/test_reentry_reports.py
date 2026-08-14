@@ -258,7 +258,7 @@ async def test_linked_accounting_stats_and_cluster_review(tmp_path, monkeypatch)
   assert "📦 Trades" in report
   assert "💰 Net" in report
   assert "+60p" in report
-  assert "⚖ Expectancy" in report
+  assert "CHART / SIGNAL" in report
   assert "+30p" in report
   assert "zone 4100–4105 BUY" in report
   assert "2r · 1W/1L" in report
@@ -359,10 +359,17 @@ def test_stats_split_algo_manual_and_all_unique_without_double_count():
   assert stats["by_stream"]["all_unique"]["total_pips"] == 28
   assert stats["by_stream"]["algo_manual"]["win_rate"] == 100
   assert stats["by_stream"]["algo_auto"]["mean_r"] == -1
-  assert "Algo auto" in report
-  assert "Algo manual" in report
-  assert "Manual signal" in report
-  assert "All unique" in report
+  assert "AUTO TRADE" in report
+  assert "ALGO MANUAL" in report
+  assert "CHART / SIGNAL" in report
+  assert "COMBINED UNIQUE" in report
+  assert "same ticket counted once" in report
+  auto_idx = report.index("AUTO TRADE")
+  manual_idx = report.index("ALGO MANUAL")
+  combined_idx = report.index("COMBINED UNIQUE")
+  assert auto_idx < manual_idx < combined_idx
+  assert stats["by_setup_by_stream"]["algo_auto"][0]["net"] == -30
+  assert stats["by_setup_by_stream"]["algo_manual"][0]["net"] == 58
 
 
 def test_review_map_renders_all_tp_tiers_and_last_branch():
