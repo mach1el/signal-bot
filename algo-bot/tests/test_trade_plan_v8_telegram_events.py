@@ -44,11 +44,12 @@ def test_v7_order_submitted_event_renders_without_crashing():
   assert silent is None
 
   text = delivery.render_auto_trade_event({
-    "type": "v7_order_submitted",
+    "type": "v8_order_submitted",
     "message": "ORDERS SUBMITTED BUY L1=800 L2=300 (pending=1)",
   })
 
   assert text is None
+  assert "v8_order_submitted" in delivery.TELEGRAM_SILENT_LIFECYCLE_TYPES
   assert "v7_order_submitted" in delivery.TELEGRAM_SILENT_LIFECYCLE_TYPES
 
 
@@ -333,7 +334,7 @@ def test_plan_expired_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "plan_expired",
     "message": (
-      "TradePlan V7 expired SELL · price left the entry zone without a "
+      "TradePlan V8 expired SELL · price left the entry zone without a "
       "fill (outside_zone)"
     ),
   })
@@ -346,7 +347,7 @@ def test_plan_expired_spread_limit_event_renders_without_crashing():
   text = delivery.render_auto_trade_event({
     "type": "plan_expired",
     "message": (
-      "TradePlan V7 expired BUY · spread stayed above the plan limit "
+      "TradePlan V8 expired BUY · spread stayed above the plan limit "
       "while waiting (spread_exceeds_declared_limit)"
     ),
   })

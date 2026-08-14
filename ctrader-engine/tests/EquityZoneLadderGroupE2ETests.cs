@@ -253,7 +253,7 @@ public sealed class EquityZoneLadderGroupE2ETests
     );
 
     // Dedup: restart must not republish orders_submitted / tp / plan_closed
-    var submittedBefore = store.Events.Count(item => item.Type == "v7_order_submitted");
+    var submittedBefore = store.Events.Count(item => item.Type == "v8_order_submitted");
     var closedBefore = store.Events.Count(
       item => item.Type == "position_closed" && item.Message.Contains("PLAN CLOSED")
     );
@@ -264,7 +264,7 @@ public sealed class EquityZoneLadderGroupE2ETests
     await restarted.PollAsync(client, Symbol, quoteInside, CancellationToken.None);
     Assert.Equal(
       submittedBefore,
-      store.Events.Count(item => item.Type == "v7_order_submitted")
+      store.Events.Count(item => item.Type == "v8_order_submitted")
     );
     Assert.Equal(
       closedBefore,

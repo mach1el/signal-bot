@@ -203,7 +203,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.Contains(
-      logs, line => line.Contains("v7 plan expired")
+      logs, line => line.Contains("v8 plan expired")
         && line.Contains("last_wait_reason=outside_zone")
     );
     // Live incident: this branch used to log-and-forget with no
@@ -276,7 +276,7 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
     );
 
-    Assert.Contains(logs, line => line.Contains("v7 zone catch-up"));
+    Assert.Contains(logs, line => line.Contains("v8 zone catch-up"));
     Assert.Single(client.MarketOrders);
   }
 
@@ -302,7 +302,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     Assert.Contains(
-      logs, line => line.Contains("v7 plan expired")
+      logs, line => line.Contains("v8 plan expired")
         && line.Contains("last_wait_reason=never_evaluated")
     );
     Assert.Contains(
@@ -593,7 +593,7 @@ public sealed class TradePlanRuntimeTests
     Assert.Contains(
       store.Events, e => e.Type == "plan_rejected" && e.CandidateId == "v8:plan-1"
     );
-    Assert.Contains(logs, line => line.Contains("v7 plan sizing rejected"));
+    Assert.Contains(logs, line => line.Contains("v8 plan sizing rejected"));
 
     // The consumer must not be stuck retrying this plan - a further poll
     // is harmless (nothing left to submit) instead of throwing again.
@@ -926,7 +926,7 @@ public sealed class TradePlanRuntimeTests
       store.Events, e => e.Type == "plan_cancelled"
         && e.Message.Contains("owner cancelled")
     );
-    Assert.Contains(logs, line => line.Contains("v7 plan cancelled"));
+    Assert.Contains(logs, line => line.Contains("v8 plan cancelled"));
   }
 
   [Fact]
@@ -996,11 +996,20 @@ public sealed class TradePlanRuntimeTests
     Assert.DoesNotContain(
       logs, line => line.Contains("cannot reconstruct", StringComparison.Ordinal)
     );
-    Assert.Contains(logs, line => line.Contains("v7 adopt:", StringComparison.Ordinal));
+    Assert.Contains(logs, line => line.Contains("v8 adopt:", StringComparison.Ordinal));
     var after = Assert.Single(runtime.TrackedStates);
     Assert.Contains(
       after.Legs!,
       leg => leg.LegId == "L2" && leg.BrokerPositionId == orphan.PositionId
+    );
+
+    logs.Clear();
+    var adoptedAgain = await runtime.TryAdoptV7BrokerPositionAsync(
+      client, Symbol, orphan, CancellationToken.None
+    );
+    Assert.True(adoptedAgain);
+    Assert.DoesNotContain(
+      logs, line => line.Contains("v8 adopt:", StringComparison.Ordinal)
     );
   }
 
@@ -1532,7 +1541,7 @@ public sealed class TradePlanRuntimeTests
     Assert.Equal(200, afterTp1.RemainingVolume);
     Assert.Equal(-1, afterTp1.HighestBookedTargetIndex);
     Assert.Contains(
-      logs, line => line.Contains("v7 target partial deferred")
+      logs, line => line.Contains("v8 target partial deferred")
         && line.Contains("target=TP1")
         && line.Contains("reason=share_below_minimum_meaningful_close")
     );
@@ -1802,9 +1811,9 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 2), CancellationToken.None
     );
 
-    Assert.DoesNotContain(logs, line => line.Contains("v7 plan expired"));
+    Assert.DoesNotContain(logs, line => line.Contains("v8 plan expired"));
     Assert.Contains(
-      logs, line => line.Contains("v7 restore: granted")
+      logs, line => line.Contains("v8 restore: granted")
         && line.Contains("recovery grace")
     );
     Assert.Single(client.MarketOrders);
@@ -1855,7 +1864,7 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 3), CancellationToken.None
     );
 
-    Assert.Contains(logs, line => line.Contains("v7 plan expired"));
+    Assert.Contains(logs, line => line.Contains("v8 plan expired"));
     Assert.Empty(client.MarketOrders);
   }
 
@@ -1900,7 +1909,7 @@ public sealed class TradePlanRuntimeTests
       client, Symbol, new SpotPrice("XAU", 4090.35m, 4090.40m, 2), CancellationToken.None
     );
 
-    Assert.Contains(logs, line => line.Contains("v7 zone catch-up"));
+    Assert.Contains(logs, line => line.Contains("v8 zone catch-up"));
     var order = Assert.Single(client.MarketOrders);
     // Executed at the CURRENT quote (ask, since this is a BUY), never at
     // the stale historical bar price - the one real tradeoff this feature
