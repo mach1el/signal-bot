@@ -131,9 +131,10 @@ public sealed partial class AutoTradeEngineTests
     store.AbsenceClockSeconds += Options().BrokerAbsenceRecheckSeconds;
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-    Assert.Contains("broker_recovery_absence_confirmed", store.Metrics);
-    Assert.Contains("broker_outcome_confirmed_absent", store.Metrics);
-    Assert.Contains("candidate_retry_reclaimed", store.Metrics);
+    var metrics = store.MetricsSnapshot();
+    Assert.Contains("broker_recovery_absence_confirmed", metrics);
+    Assert.Contains("broker_outcome_confirmed_absent", metrics);
+    Assert.Contains("candidate_retry_reclaimed", metrics);
     Assert.Single(client.Orders);
 
     cts.Cancel();
