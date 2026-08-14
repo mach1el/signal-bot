@@ -5,6 +5,7 @@ tests/test_trade_plan_v8_telegram_events.py
 tests/test_trade_plan_v8_contract.py
 tests/test_trade_plan_v8_migration_mode.py
 tests/test_trade_plan_builder.py
+tests/test_scalp_micro_grid.py
 tests/test_trade_plan_stream.py
 tests/test_publish_trade_plan_v8.py
 tests/test_worker_v8_only_autonomous_boundary.py
