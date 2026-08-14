@@ -59,10 +59,7 @@ async def test_dispatch_runs_isolated_handlers(monkeypatch):
     source=SimpleNamespace(),
   )
 
-  assert "scanner" in ran
-  assert "worker" in ran
-  assert "zone_watch" in ran
-  assert "hfs" in ran
+  assert ran == ["zone_watch", "hfs", "scanner", "worker"]
   scanner.assert_awaited_once()
   worker.assert_awaited_once()
   zone.assert_awaited_once()
@@ -97,7 +94,33 @@ async def test_dispatch_keeps_later_handlers_if_scanner_raises(monkeypatch):
     source=SimpleNamespace(),
   )
 
-  assert "scanner" not in ran
-  assert ran == ["worker", "zone_watch", "hfs"]
+  assert ran == ["zone_watch", "hfs", "worker"]
   worker.assert_awaited_once()
   hfs.assert_awaited_once()
+  zone.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_m5_bar_skips_zone_watch(monkeypatch):
+  _enable_handlers(monkeypatch)
+  scanner = AsyncMock()
+  worker = AsyncMock()
+  zone = AsyncMock()
+  hfs = AsyncMock()
+  monkeypatch.setattr("app.analysis.scanner._handle_event", scanner, raising=False)
+  monkeypatch.setattr("app.autotrade.worker._handle_event", worker, raising=False)
+  monkeypatch.setattr(
+    "app.autotrade.zone_execution_cutover.evaluate_active_zone_watches",
+    zone,
+    raising=False,
+  )
+  monkeypatch.setattr("app.scalping.runtime.handle_closed_bar", hfs, raising=False)
+
+  ran = await dispatcher.dispatch_closed_bar(
+    "XAU:M5:1700000000",
+    client=SimpleNamespace(),
+    source=SimpleNamespace(),
+  )
+
+  assert ran == ["hfs", "scanner", "worker"]
+  zone.assert_not_awaited()
