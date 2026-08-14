@@ -227,6 +227,8 @@ def test_zone_split_route_produces_limit_ladder_with_two_legs():
   plan = _build(match, cfg=cfg, spot_price=4089.0, executable_quote=4089.0)
 
   assert plan.entry.type == "limit_ladder"
+  assert plan.entry.zone_low == Decimal("4088.10")
+  assert plan.entry.zone_high == Decimal("4090.00")
   assert len(plan.entry.legs) == 2
   total_ratio = sum(leg.volume_ratio for leg in plan.entry.legs)
   assert total_ratio == Decimal("1")
