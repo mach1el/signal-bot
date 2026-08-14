@@ -88,8 +88,8 @@ public sealed class DealListWindowTests
     // position - for 60s after every SL/BE close. Both legs together must
     // stay far below the 30s default so a slow/unresponsive broker fails
     // this diagnostic lookup fast instead of stalling the whole client.
-    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout <= TimeSpan.FromSeconds(10));
-    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout * 2 < TimeSpan.FromSeconds(30));
+    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout <= TimeSpan.FromSeconds(3));
+    Assert.True(CTraderOpenApiFeedClient.DealListLookupTimeout * 2 < TimeSpan.FromSeconds(10));
   }
 
   [Fact]
