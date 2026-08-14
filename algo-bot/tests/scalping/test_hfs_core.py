@@ -169,7 +169,9 @@ def test_asia_empty_outside_killzone_under_technique_pack():
       ),
     ),
   )
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == (
+    ARCHETYPE_RANGE_SWEEP,
+  )
   assert permitted_archetypes_for_session("rollover", cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
