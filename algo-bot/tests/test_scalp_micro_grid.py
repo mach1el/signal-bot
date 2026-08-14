@@ -58,8 +58,8 @@ def test_hfs_route_is_five_equal_clips_not_one_market():
   )
 
 
-def test_technique_fvg_uses_scalp_micro_grid():
-  plan = resolve_execution_route_plan(
+def test_technique_fvg_does_not_use_scalp_micro_grid():
+  market = resolve_execution_route_plan(
     direction="BUY",
     order_type_preference="market",
     entry_distribution="single",
@@ -71,13 +71,26 @@ def test_technique_fvg_uses_scalp_micro_grid():
     strategy="FVG",
     strategy_family="zone",
   )
-  assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert len(plan.planned_leg_entry_prices) == SCALP_MICRO_CLIPS
-  assert all(
-    pytest.approx(ratio, abs=1e-4) == 0.2
-    for ratio in plan.planned_leg_volume_ratios
+  assert market.valid is True
+  assert market.route == "market"
+  assert market.planned_leg_entry_prices == ()
+
+  scaled = resolve_execution_route_plan(
+    direction="BUY",
+    order_type_preference="limit",
+    entry_distribution="zone_scale",
+    executable_quote=4004.0,
+    zone_low=4000.0,
+    zone_high=4005.0,
+    atr=4.0,
+    zone_fill_enabled=True,
+    zone_fill_min_atr=0.5,
+    strategy="FVG",
+    strategy_family="supply_demand",
   )
+  assert scaled.valid is True
+  assert "micro-grid" not in scaled.routing_reason
+  assert len(scaled.planned_leg_entry_prices) == 2
 
 
 def test_key_level_reaction_is_not_forced_onto_scalp_grid():
