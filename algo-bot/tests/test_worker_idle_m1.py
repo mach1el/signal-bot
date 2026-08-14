@@ -1,16 +1,15 @@
-"""Idle M1 worker ticks skip leftover TradePlan routing when there is no match."""
+"""Idle M1 worker ticks skip leftover analysis when Redis has no match."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pandas as pd
 import pytest
 
 from app.autotrade import worker
-from app.autotrade.gate import AutoScalpDecision
-from app.autotrade.trend import RegimeInfo, TrendDecision
 from app.persistence import redis_state
 from tests.configuration.canonical_fixtures import install_runtime_overrides
 
@@ -30,12 +29,16 @@ def _frame() -> pd.DataFrame:
 
 
 @pytest.mark.asyncio
-async def test_idle_m1_skips_v8_publish_and_still_writes_last_gate(monkeypatch):
+async def test_idle_m1_skips_pandas_gates_and_writes_thin_last_gate(monkeypatch):
   client = redis_state.get_client()
   now = int(datetime.now(timezone.utc).timestamp())
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_symbols": "XAU"})
   publish = AsyncMock(return_value=None)
+  gate = Mock()
+  map_fn = Mock()
+  trend_fn = Mock()
+  regime_fn = Mock()
   monkeypatch.setattr(worker, "_publish_trade_plan_v8", publish)
   monkeypatch.setattr(worker, "event_in_window", AsyncMock(return_value=None))
   source = AsyncMock()
@@ -45,34 +48,23 @@ async def test_idle_m1_skips_v8_publish_and_still_writes_last_gate(monkeypatch):
     "_load_spot",
     AsyncMock(return_value=worker.AutoTradeSpot(4017.2, now, True)),
   )
-  monkeypatch.setattr(
-    worker,
-    "evaluate_auto_scalp_gate",
-    lambda *args, **kwargs: AutoScalpDecision("waiting_for_box"),
-  )
-  monkeypatch.setattr(
-    worker,
-    "evaluate_market_map_strategy",
-    lambda *args, **kwargs: worker.MarketMapStrategyDecision("disabled"),
-  )
-  monkeypatch.setattr(
-    worker,
-    "evaluate_trend_gate",
-    lambda *args, **kwargs: TrendDecision("no_setup"),
-  )
-  monkeypatch.setattr(
-    worker,
-    "classify_regime",
-    lambda *args, **kwargs: RegimeInfo(
-      "chop", None, 0, 1.0, False, None, ("idle",),
-    ),
-  )
+  monkeypatch.setattr(worker, "evaluate_auto_scalp_gate", gate)
+  monkeypatch.setattr(worker, "evaluate_market_map_strategy", map_fn)
+  monkeypatch.setattr(worker, "evaluate_trend_gate", trend_fn)
+  monkeypatch.setattr(worker, "classify_regime", regime_fn)
 
   result = await worker._handle_event(
     f"XAU:M1:{now}", source=source, client=client,
   )
 
-  assert result is not None
+  assert result is None
   publish.assert_not_awaited()
-  status = await client.get("auto_trade:last_gate:XAU")
-  assert status is not None
+  gate.assert_not_called()
+  map_fn.assert_not_called()
+  trend_fn.assert_not_called()
+  regime_fn.assert_not_called()
+  source.window.assert_awaited_once()
+  assert source.window.await_args.args[1] == "M1"
+  status = json.loads(await client.get("auto_trade:last_gate:XAU"))
+  assert status["state"] == "idle_no_match"
+  assert status["gate_source"] == "idle_no_match"

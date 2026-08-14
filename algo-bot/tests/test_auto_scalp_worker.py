@@ -271,18 +271,12 @@ async def test_worker_handles_m1_without_calling_scanner(monkeypatch):
     client=client,
   )
 
-  assert result == _decision()
+  assert result is None
   forming.assert_not_awaited()
-  # The private M1 range gate has no V7 equivalent and no longer publishes
-  # an autonomous V6 candidate at all - see docs/adr-trade-plan-v7-boundary.md
-  # "Legacy autonomous removal".
   assert await client.xlen("auto_trade:test") == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
-  assert status["state"] == "candidate"
-  assert status["rail"]["role"] == "support"
-  assert status["rail"]["timeframes"] == ["M5", "M15"]
-  assert status["box"]["id"] == "xau-8034-8050"
-  assert status["full_tp_pips"] == 50
+  assert status["state"] == "idle_no_match"
+  assert status["gate_source"] == "idle_no_match"
 
 
 @pytest.mark.asyncio
@@ -422,18 +416,15 @@ async def test_worker_routes_m1_market_map_reaction_as_its_own_strategy(
     f"XAU:M1:{now}", source=source, client=client,
   )
 
-  # Scanner-routed matches (Market Map reaction included) publish only
-  # TradePlan V7 now - no V6 candidate is ever written. This match has no
-  # thesis_id/confirmed setup_lifecycle record (out of scope for this
-  # test), so V7 also does not publish here; test_publish_trade_plan_v8.py
-  # covers the V7-publishes-given-a-confirmed-setup case directly.
+  # Market Map no longer originates a leftover match. Idle M1 skips pandas
+  # gates and does not publish.
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0, await client.get(
     "auto_trade:last_route_outcome:XAU"
   )
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
-  assert status["gate_source"] == "market_map_strategy"
-  assert status["market_map_state"] == "candidate"
+  assert status["state"] == "idle_no_match"
+  assert status["gate_source"] == "idle_no_match"
 
 
 @pytest.mark.asyncio
@@ -773,29 +764,11 @@ async def test_box_scalp_does_not_fire_outside_chop_regime(
     "XAU:M1:1784552400", source=source, client=client,
   )
 
-  assert result == _decision()
-  # Neither box nor trend publishes a V6 candidate anymore - the private M1
-  # detectors have no V7 equivalent (see docs/adr-trade-plan-v7-boundary.md
-  # "Legacy autonomous removal"). The regression this test guards against
-  # (box must not out-rank trend once regime has left chop) is now visible
-  # in arbitration order, not publish content.
+  assert result is None
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
-  assert status["regime"] == "trend"
-  assert status["box_state"] == "candidate"
-  assert status["trend_state"] == "candidate"
-  assert status["trend_mode"] == "pullback"
-  assert status["direction"] == "BUY"
-  # This is the actual regression guard now that publish no longer happens
-  # for either candidate: box must lose eligibility once regime has left
-  # chop. Arbitration itself never ranks either candidate any more, box or
-  # trend - private M1 intents (no routed StrategyMatch) are unconditionally
-  # excluded from `arbitrable` (see worker.py's "Private intents ... kept
-  # out of arbitration; the V6 candidate path is retired" branch), so
-  # `arbitration.reason_code` is always "no_intent" here regardless of which
-  # candidate regime favors.
-  assert status["box_eligibility"]["eligible"] is False
+  assert status["state"] == "idle_no_match"
   assert status["arbitration"]["reason_code"] == "no_intent"
 
 
@@ -857,18 +830,11 @@ async def test_box_scalp_fires_in_chop_even_when_trend_also_candidate(
     "XAU:M1:1784552400", source=source, client=client,
   )
 
-  assert result == _decision()
-  # Neither box nor trend publishes a V6 candidate anymore - see
-  # docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal". The
-  # actual regression guard is that box_eligibility still reports eligible
-  # during genuine chop even though trend is also a candidate - and that the
-  # private range gate (retired as a setup source, P2) never contributes an
-  # intent to arbitration regardless.
+  assert result is None
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
-  assert status["regime"] == "chop"
-  assert status["box_eligibility"]["eligible"] is True
+  assert status["state"] == "idle_no_match"
   assert not any(
     intent_id.startswith("range:")
     for intent_id in status["arbitration"]["ordered_intent_ids"]
