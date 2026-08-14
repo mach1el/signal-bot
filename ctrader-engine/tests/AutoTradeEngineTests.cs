@@ -3025,10 +3025,10 @@ public sealed partial class AutoTradeEngineTests
     now = Now.AddSeconds(16);
     await WaitForEventAsync(store, "manual_opened");
 
-    // Ask still above TP5 handle; bid already through — must book.
+    // Ask a few ticks above TP5 handle; bid already through — must book.
     now = Now.AddSeconds(30);
     await engine.ObserveSpotAsync(
-      new SpotPrice("XAU", 4408.77m, 4408.86m, now.ToUnixTimeSeconds()),
+      new SpotPrice("XAU", 4408.00m, 4408.05m, now.ToUnixTimeSeconds()),
       cts.Token
     );
     Assert.True(
