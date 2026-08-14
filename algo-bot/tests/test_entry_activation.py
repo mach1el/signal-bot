@@ -324,3 +324,88 @@ def test_apply_trigger_to_match_stamps_fields():
   assert updated.entry_activation_trigger == "wick_rejection"
   assert updated.entry_activation_trigger_ts == str(NOW - 30)
   assert updated.confirmation_bar_ts == str(NOW - 30)
+
+
+def test_m5_authoritative_blocked_under_technique_enforce():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  decision = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=None,
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    m5_authoritative=True,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "reaction_trigger_missing"
+
+
+def test_reaction_requires_sweep_body_even_when_yaml_flag_false():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  decision = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="wick_rejection"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "confirmation_requires_sweep_body"
+
+
+def test_impulse_against_blocks_sell_into_expanding_highs():
+  from app.autotrade.entry_activation import detect_impulse_against
+
+  bars = [
+    {"h": 4386.0, "l": 4384.0, "c": 4385.0},
+    {"h": 4387.9, "l": 4383.6, "c": 4387.4},
+    {"h": 4389.3, "l": 4385.6, "c": 4387.6},
+  ]
+  assert detect_impulse_against(
+    direction="SELL", bars=bars, zone_low=4388.0, zone_high=4391.0,
+  ) is False
+  bars[-1]["c"] = 4388.5
+  assert detect_impulse_against(
+    direction="SELL", bars=bars, zone_low=4388.0, zone_high=4391.0,
+  ) is True
+
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  decision = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="SELL",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="sweep_reclaim", direction="SELL"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    impulse_bars=bars,
+    zone_low=4388.0,
+    zone_high=4391.0,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "impulse_against_block"

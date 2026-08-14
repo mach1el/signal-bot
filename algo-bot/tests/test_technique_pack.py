@@ -66,6 +66,16 @@ def _technique_cfg(
       ),
       reaction=SimpleNamespace(stop_min_pips=40, stop_max_pips=60),
     ),
+    strategies=SimpleNamespace(
+      high_frequency_scalp=SimpleNamespace(
+        archetypes=SimpleNamespace(
+          range_sweep_enabled=True,
+          impulse_pullback_enabled=True,
+          breakout_retest_enabled=True,
+          momentum_chase_enabled=False,
+        ),
+      ),
+    ),
   )
 
 
@@ -102,12 +112,8 @@ def test_killzone_hour_matrix(hour: int, allowed: bool):
 
 def test_hfs_permitted_archetypes_empty_outside_killzone():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
-  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == ()
   assert permitted_archetypes_for_session("rollover", hour=21, cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session(
@@ -118,9 +124,7 @@ def test_hfs_permitted_archetypes_empty_outside_killzone():
 
 def test_hfs_session_fallback_asia_empty_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == (
-    ARCHETYPE_RANGE_SWEEP,
-  )
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
 
 
@@ -309,3 +313,14 @@ def test_strict_pd_gate_buy_only_discount():
   assert detectors._pd_gate(discount, "BUY", strict) is True
   assert detectors._pd_gate(discount, "SELL", strict) is False
   assert detectors._pd_gate(premium, "SELL", strict) is True
+
+
+def test_reaction_publish_window_blocks_asia_and_allows_london_ny():
+  from app.autotrade.killzone import evaluate_reaction_publish_window
+
+  cfg = _technique_cfg()
+  assert evaluate_reaction_publish_window(hour=3, cfg=cfg, require=True).allowed is False
+  assert evaluate_reaction_publish_window(hour=8, cfg=cfg, require=True).allowed is True
+  assert evaluate_reaction_publish_window(hour=11, cfg=cfg, require=True).allowed is False
+  assert evaluate_reaction_publish_window(hour=14, cfg=cfg, require=True).allowed is True
+  assert evaluate_reaction_publish_window(hour=22, cfg=cfg, require=True).allowed is False
