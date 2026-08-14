@@ -1002,6 +1002,12 @@ public sealed class TradePlanRuntimeTests
       after.Legs!,
       leg => leg.LegId == "L2" && leg.BrokerPositionId == orphan.PositionId
     );
+    Assert.Equal(TradePlanRuntimeStage.FullyOpen, after.Stage);
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "order_filled"
+        && item.Message.Contains("ENTRY GROUP FULLY FILLED", StringComparison.Ordinal)
+    );
 
     logs.Clear();
     var adoptedAgain = await runtime.TryAdoptV7BrokerPositionAsync(
