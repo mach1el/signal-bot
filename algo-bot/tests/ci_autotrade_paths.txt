@@ -1,0 +1,26 @@
+# Paths consumed by .github/workflows/autotrade-integrity.yml
+# Live V8 publish / execute / manage / Telegram. Not catalog or scanner
+# characterization suites that still encode retired product.
+tests/test_trade_plan_v8_telegram_events.py
+tests/test_trade_plan_v8_contract.py
+tests/test_trade_plan_v8_migration_mode.py
+tests/test_trade_plan_builder.py
+tests/test_trade_plan_stream.py
+tests/test_publish_trade_plan_v8.py
+tests/test_worker_v8_only_autonomous_boundary.py
+tests/test_watcher.py
+tests/test_auto_trade_ops.py
+tests/test_autotrade_delivery.py
+tests/test_delivery_owner_loop.py
+tests/test_active_exposure.py
+tests/test_zone_watch.py
+tests/test_zone_watch_published_locked.py
+tests/test_setup_card.py
+tests/test_execution_confirmation.py
+tests/test_auto_trade_stats_ingestion.py
+tests/test_protective_stop.py
+tests/test_legs_achieved_pips.py
+tests/test_telegram_single_root_card.py
+tests/test_worker_terminal_card_cleanup.py
+tests/test_candidate_execution_state.py
+tests/test_autotrade_units.py

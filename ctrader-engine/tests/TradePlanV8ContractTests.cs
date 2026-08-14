@@ -129,7 +129,7 @@ public sealed class TradePlanV8ContractTests
     );
 
     Assert.NotNull(plan);
-    Assert.Equal(7, plan!.Version);
+    Assert.Equal(8, plan!.Version);
     TradePlanValidator.Validate(plan);
   }
 
@@ -143,13 +143,13 @@ public sealed class TradePlanV8ContractTests
     );
 
     Assert.NotNull(plan);
-    Assert.Equal(7, plan!.Version);
+    Assert.Equal(8, plan!.Version);
     Assert.NotEmpty(plan.Targets);
     TradePlanValidator.Validate(plan);
   }
 
   [Fact]
-  public void ProductionV7ContractSelfTestPasses()
+  public void ProductionV8ContractSelfTestPasses()
   {
     TradePlanJson.AssertContractAvailable();
   }

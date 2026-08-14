@@ -1956,7 +1956,7 @@ async def test_v7_order_filled_and_position_closed_feed_trade_stats():
   assert len(records) == 1
   row = records[0]
   assert row["stream"] == "algo_auto"
-  assert row["trade_key"] == "algo:v7:17ab03ca932a19b11d374d2ae9de8f30"
+  assert row["trade_key"] == "algo:v8:17ab03ca932a19b11d374d2ae9de8f30"
   assert row["sign"] == "+"
   assert row["pips"] == 90  # highest archived TP, not the residual close
   assert row["stop_pips"] == pytest.approx(43.0)  # (4060.85 - 4056.55) / 0.1
@@ -2332,7 +2332,7 @@ async def test_status_warns_when_component_is_fatal(monkeypatch):
 
   monkeypatch.setattr(redis_state, "list_fatal_components", fake_fatals)
   monkeypatch.setattr(delivery, "_today_algo_scorecard_line", fake_scorecard)
-  monkeypatch.setattr(delivery, "_open_v7_book_lines", fake_book)
+  monkeypatch.setattr(delivery, "_open_trade_plan_book_lines", fake_book)
 
   text = await delivery.auto_trade_status_text()
 
@@ -2358,7 +2358,7 @@ async def test_status_is_silent_when_no_fatal_components(monkeypatch):
 
   monkeypatch.setattr(redis_state, "list_fatal_components", fake_fatals)
   monkeypatch.setattr(delivery, "_today_algo_scorecard_line", fake_scorecard)
-  monkeypatch.setattr(delivery, "_open_v7_book_lines", fake_book)
+  monkeypatch.setattr(delivery, "_open_trade_plan_book_lines", fake_book)
 
   text = await delivery.auto_trade_status_text()
 
