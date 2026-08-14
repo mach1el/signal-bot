@@ -196,6 +196,32 @@ def test_should_stop_forming_price_track_after_activation():
   assert setup_card.should_stop_forming_price_track(
     waiting, status_state="order_filled",
   ) is True
+  expired = "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>\n⌛ PLAN EXPIRED"
+  assert setup_card.should_stop_forming_price_track(expired) is True
+
+
+def test_waiting_fill_header_rewrites_on_terminal_status():
+  waiting = "\n".join([
+    "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
+    "⏳ <b>IN ZONE</b> · waiting market fill",
+    "🔴 <b>SELL · HFS Impulse Pullback</b>",
+  ])
+  text = setup_card.apply_forming_card_status(
+    waiting, "❌ <b>TERMINAL</b> · outside zone",
+  )
+  assert text.splitlines()[0] == "❌ <b>TERMINAL · XAU M1</b>"
+  assert "WAITING FILL" not in text.splitlines()[0]
+
+
+def test_event_recovery_root_card_is_activated_on_fill():
+  text = setup_card.format_event_recovery_root_card({
+    "type": "order_filled",
+    "symbol": "XAU",
+    "message": "SELL 0.10 lots filled 4334.47",
+    "strategy": "HFS Impulse Pullback",
+  })
+  assert text.splitlines()[0] == "✅ <b>POSITION ACTIVATED · XAU M1</b>"
+  assert "SELL · HFS Impulse Pullback" in text
 
 
 @pytest.mark.asyncio

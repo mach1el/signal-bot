@@ -14,6 +14,8 @@ assumed:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.analysis.scanner import clear_active_setup_tracking
@@ -254,3 +256,203 @@ async def test_mark_forming_card_position_activated_rewrites_head_and_stop(
   assert card["text"].count("POSITION ACTIVATED") == 1
   assert "• <b>Stop:</b> <b>3,395.50</b>" in card["text"]
   assert "SL</b>" not in card["text"]
+
+
+def _waiting_fill_card_text() -> str:
+  return "\n".join([
+    "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
+    "⏳ <b>IN ZONE</b> · waiting market fill",
+    "🔴 <b>SELL · HFS Impulse Pullback</b> · ⭐⭐",
+    "• <b>Price now:</b> <b>4,334.10</b> <i>(live)</i>",
+  ])
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_order_filled_rewrites_waiting_fill_root(monkeypatch):
+  client = redis_state.get_client()
+  match_id = "c22db147waitingfill"
+  await _confirmed_setup(client, match_id)
+  await setup_card.save_forming_card(
+    client, match_id, chat_id=123, message_id=4582, text=_waiting_fill_card_text(),
+  )
+  await client.sadd(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+
+  async def fake_stop_price(_client, _match_id):
+    return 4320.0
+
+  async def fake_edit(chat_id, message_id, text):
+    return None
+
+  async def sent(text, **kwargs):
+    return SimpleNamespace(message_id=9001)
+
+  monkeypatch.setattr(delivery, "published_plan_stop_price", fake_stop_price)
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": match_id,
+      "candidate_id": f"v8:{match_id}",
+      "message": "SELL 0.10 lots filled 4334.47",
+      "position_id": 40398863,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  card = await setup_card.load_forming_card(client, match_id)
+  assert card is not None
+  assert "WAITING FILL" not in card["text"]
+  assert "POSITION ACTIVATED" in card["text"]
+  assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_plan_expired_rewrites_waiting_fill_root(monkeypatch):
+  client = redis_state.get_client()
+  match_id = "11c1d02cexpired"
+  await _confirmed_setup(client, match_id)
+  await setup_card.save_forming_card(
+    client, match_id, chat_id=123, message_id=4583, text=_waiting_fill_card_text(),
+  )
+  await client.sadd(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+  sent = []
+
+  async def fake_edit(chat_id, message_id, text):
+    return None
+
+  async def fake_delete(chat_id, message_id):
+    raise AssertionError("expire must edit root, not delete")
+
+  async def send_fn(text, **kwargs):
+    sent.append(text)
+    return SimpleNamespace(message_id=9002)
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "delete_scanner_message", fake_delete)
+
+  delivered = await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "plan_expired",
+      "match_id": match_id,
+      "candidate_id": f"v8:{match_id}",
+      "message": "price never entered the entry zone",
+      "reason_code": "outside_zone",
+    },
+    profile="internal",
+    chat_id=123,
+    send=send_fn,
+  )
+
+  assert delivered is True
+  assert sent == []
+  card = await setup_card.load_forming_card(client, match_id)
+  assert card is not None
+  assert "WAITING FILL" not in card["text"] or "TERMINAL" in card["text"]
+  assert "TERMINAL" in card["text"]
+  assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_position_closed_rewrites_waiting_fill_root(monkeypatch):
+  client = redis_state.get_client()
+  match_id = "03bb3092closed"
+  await _confirmed_setup(client, match_id)
+  await setup_card.save_forming_card(
+    client, match_id, chat_id=123, message_id=4584, text=_waiting_fill_card_text(),
+  )
+  await client.sadd(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+
+  async def fake_edit(chat_id, message_id, text):
+    return None
+
+  async def sent(text, **kwargs):
+    return SimpleNamespace(message_id=9003)
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "position_closed",
+      "match_id": match_id,
+      "candidate_id": f"v8:{match_id}",
+      "message": "SELL position is closed · -26.0 pips",
+      "position_id": 40398674,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  card = await setup_card.load_forming_card(client, match_id)
+  assert card is not None
+  assert "TERMINAL" in card["text"]
+  assert "WAITING FILL" not in card["text"].splitlines()[0]
+  assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_order_filled_creates_root_when_publish_never_posted(monkeypatch):
+  """Fast fills can beat the publish card; still thread under a recovered root."""
+  client = redis_state.get_client()
+  match_id = "norootfill03bb"
+  await _confirmed_setup(client, match_id)
+  sent_roots: list[str] = []
+  replies: list[tuple[str, dict]] = []
+
+  async def fake_send_root(text, **kwargs):
+    sent_roots.append(text)
+    return SimpleNamespace(message_id=6100)
+
+  async def fake_edit(chat_id, message_id, text):
+    return None
+
+  async def sent(text, **kwargs):
+    replies.append((text, kwargs))
+    return SimpleNamespace(message_id=6101)
+
+  async def no_wait():
+    return None
+
+  monkeypatch.setattr(
+    "app.bot.client.send_scanner_root_card_with_retry", fake_send_root,
+  )
+  monkeypatch.setattr("app.bot.client.wait_out_scanner_flood", no_wait)
+  monkeypatch.setattr("app.bot.client.note_scanner_flood", lambda *_a, **_k: None)
+  async def fake_stop(*_a, **_k):
+    return None
+
+  monkeypatch.setattr(delivery, "edit_scanner_message_text", fake_edit)
+  monkeypatch.setattr(delivery, "published_plan_stop_price", fake_stop)
+
+  await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "order_filled",
+      "match_id": match_id,
+      "candidate_id": f"v8:{match_id}",
+      "symbol": "XAU",
+      "message": "BUY 0.10 lots filled 4332.51",
+      "position_id": 40398674,
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  )
+
+  card = await setup_card.load_forming_card(client, match_id)
+  assert card is not None
+  assert card["message_id"] == 6100
+  assert "POSITION ACTIVATED" in card["text"]
+  assert replies
+  assert replies[0][1].get("reply_to") == 6100
+  assert "ORDER FILLED" in replies[0][0]
