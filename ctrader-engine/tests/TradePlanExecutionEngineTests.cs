@@ -480,13 +480,17 @@ public sealed class TradePlanExecutionEngineTests
   [Fact]
   public void SellWholeNumberTargetGetsVipHandleCushion()
   {
-    // Mirror algo-bot watcher._tp_hit: whole handle 4408 books when ask is
-    // still a few ticks above (spread), but not a full point above.
+    // Mirror algo-bot watcher._tp_hit: whole handle 4323 books when ask is
+    // a pip-tick above (spread), not a full point above (that clipped #3
+    // TP1 to +22 instead of +30).
     Assert.True(
-      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4408.86m, 4408.00m)
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4323.05m, 4323.00m)
     );
     Assert.False(
-      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4409.00m, 4408.00m)
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4323.87m, 4323.00m)
+    );
+    Assert.False(
+      TradePlanExecutionEngine.HasReachedExitTarget("SELL", 4324.00m, 4323.00m)
     );
   }
 

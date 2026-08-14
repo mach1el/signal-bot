@@ -126,6 +126,7 @@ async def test_tp_hit_notify_and_deduplicated(monkeypatch):
   assert (await redis_state.get_progress(3))["tp"] == 1
 
 
+@pytest.mark.no_database
 @pytest.mark.asyncio
 async def test_sell_whole_price_tp_hits_on_same_price_handle(monkeypatch):
   await redis_state.set_cursor("XAU", "2026-07-08T09:59:00.000Z")
@@ -135,22 +136,23 @@ async def test_sell_whole_price_tp_hits_on_same_price_handle(monkeypatch):
     sl=4035.0,
     tps=[4017.0],
   )
-  bar = _bar("2026-07-08T10:00:00.000Z", 4023, 4024, 4017.82, 4018.1)
+  bar = _bar("2026-07-08T10:00:00.000Z", 4023, 4024, 4017.05, 4018.1)
   fanout = _feed(monkeypatch, sig, [bar])
 
   await watcher._watcher_tick(object())
 
   fanout.assert_awaited_once()
   _, render = fanout.await_args.args
-  assert (
-    "Fill: <b>4,017</b> (TP1) · ran to <b>4,017.82</b>"
-    in render("vip")
-  )
+  vip = render("vip")
+  assert "Fill: <b>4,017</b> (TP1)" in vip
+  assert "Profit: <b>+100 pips</b>" in vip
   assert (await redis_state.get_progress(3))["tp"] == 1
 
 
+@pytest.mark.no_database
 def test_sell_decimal_tp_keeps_exact_threshold():
-  assert watcher._tp_hit(4017.82, 4017.0, is_buy=False)
+  assert watcher._tp_hit(4017.05, 4017.0, is_buy=False)
+  assert not watcher._tp_hit(4017.82, 4017.0, is_buy=False)
   assert not watcher._tp_hit(4017.82, 4017.5, is_buy=False)
 
 
@@ -615,6 +617,7 @@ async def test_tp_gap_books_at_configured_level(monkeypatch, sig, bar, fill, pip
   )
 
 
+@pytest.mark.no_database
 @pytest.mark.asyncio
 async def test_sell_tp_incident_books_tp_pips_not_far_overshoot(monkeypatch):
   fanout = AsyncMock()
