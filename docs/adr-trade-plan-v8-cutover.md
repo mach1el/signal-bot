@@ -30,6 +30,9 @@ redesign of the Python-owns-plan / C#-executes boundary.
   `v7` and `v8` so in-flight V7 plans can manage to TP/SL.
 - Python readers (Telegram, exposure, setup cards) dual-read `v7:` / `v8:`
   until the live book is flat of `v7:` plans.
+- Operator logs, Telegram event types, and notify-dedup keys use the `v8`
+  prefix. Drain still dual-claims `auto_trade:v7_notify:*` so a mixed
+  deploy does not double-fire lifecycle events.
 - After drain: drop V7 accept paths and dual-read aliases.
 
 ## Unchanged
