@@ -362,7 +362,7 @@ def test_reaction_requires_sweep_body_even_when_yaml_flag_false():
     zone_entered_at=ZONE_ENTERED,
     quote_inside=True,
     decisive_break=False,
-    trigger=_trigger(pattern="wick_rejection"),
+    trigger=_trigger(pattern="pin_bar"),
     location_decision=_location_allowed(),
     now=NOW,
     cfg=cfg,
@@ -409,3 +409,126 @@ def test_impulse_against_blocks_sell_into_expanding_highs():
   )
   assert decision.allowed is False
   assert decision.reason_code == "impulse_against_block"
+
+
+def test_demand_buy_requires_sweep_reclaim():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  trigger = _trigger(pattern="body_close", direction="BUY")
+  no_sweep = [
+    {"h": 4342.0, "l": 4338.0, "c": 4339.5},
+    {"h": 4341.0, "l": 4338.5, "c": 4339.0},
+    {"h": 4341.3, "l": 4338.4, "c": 4340.0},
+  ]
+  decision = evaluate_entry_activation(
+    strategy="Demand Zone",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=trigger,
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    impulse_bars=no_sweep,
+    zone_low=4337.0,
+    zone_high=4340.0,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "demand_requires_sweep_reclaim"
+
+  swept = [
+    {"h": 4342.0, "l": 4338.0, "c": 4339.5},
+    {"h": 4341.0, "l": 4337.36, "c": 4339.38},
+    {"h": 4341.3, "l": 4338.4, "c": 4340.08},
+  ]
+  ok = evaluate_entry_activation(
+    strategy="Demand Zone",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="sweep_reclaim", direction="BUY"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    impulse_bars=swept,
+    zone_low=4337.0,
+    zone_high=4340.0,
+  )
+  assert ok.allowed is True
+
+
+def test_key_sell_rejects_distal_quote():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  decision = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="SELL",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="wick_rejection", direction="SELL"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    zone_low=4383.0,
+    zone_high=4386.0,
+    execution_price=4385.8,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "sell_not_proximal"
+
+  proximal = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="SELL",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="wick_rejection", direction="SELL"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    zone_low=4383.0,
+    zone_high=4386.0,
+    execution_price=4383.2,
+  )
+  assert proximal.allowed is True
+
+
+def test_key_buy_blocked_into_expanding_bid():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  bars = [
+    {"h": 4376.0, "l": 4374.0, "c": 4375.0},
+    {"h": 4378.0, "l": 4375.0, "c": 4377.5},
+    {"h": 4381.0, "l": 4377.0, "c": 4380.0},
+  ]
+  decision = evaluate_entry_activation(
+    strategy="Key Level Reaction",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=_trigger(pattern="sweep_reclaim", direction="BUY"),
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    impulse_bars=bars,
+    zone_low=4376.0,
+    zone_high=4379.0,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "key_buy_into_impulse"

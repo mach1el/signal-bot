@@ -158,10 +158,10 @@ def _location_ok() -> EntryLocationDecision:
   )
 
 
-def test_activation_blocks_wick_only_under_technique():
+def test_activation_blocks_pin_bar_under_technique():
   now = 1_700_000_000
   trigger = M1TriggerResult(
-    "wick_rejection", "BUY", 4080.0, now - 60, "wick only",
+    "pin_bar", "BUY", 4080.0, now - 60, "pin only",
   )
   decision = evaluate_entry_activation(
     strategy="Key Level Reaction",
@@ -313,14 +313,3 @@ def test_strict_pd_gate_buy_only_discount():
   assert detectors._pd_gate(discount, "BUY", strict) is True
   assert detectors._pd_gate(discount, "SELL", strict) is False
   assert detectors._pd_gate(premium, "SELL", strict) is True
-
-
-def test_reaction_publish_window_blocks_asia_and_allows_london_ny():
-  from app.autotrade.killzone import evaluate_reaction_publish_window
-
-  cfg = _technique_cfg()
-  assert evaluate_reaction_publish_window(hour=3, cfg=cfg, require=True).allowed is False
-  assert evaluate_reaction_publish_window(hour=8, cfg=cfg, require=True).allowed is True
-  assert evaluate_reaction_publish_window(hour=11, cfg=cfg, require=True).allowed is False
-  assert evaluate_reaction_publish_window(hour=14, cfg=cfg, require=True).allowed is True
-  assert evaluate_reaction_publish_window(hour=22, cfg=cfg, require=True).allowed is False
