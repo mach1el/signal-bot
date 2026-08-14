@@ -53,10 +53,12 @@ async def test_dispatch_runs_isolated_handlers(monkeypatch):
     "app.scalping.runtime.handle_closed_bar", hfs, raising=False,
   )
 
+  client = SimpleNamespace()
+  source = SimpleNamespace()
   ran = await dispatcher.dispatch_closed_bar(
     "XAU:M1:1700000000",
-    client=SimpleNamespace(),
-    source=SimpleNamespace(),
+    client=client,
+    source=source,
   )
 
   assert ran == ["zone_watch", "hfs", "scanner", "worker"]
@@ -64,6 +66,8 @@ async def test_dispatch_runs_isolated_handlers(monkeypatch):
   worker.assert_awaited_once()
   zone.assert_awaited_once()
   hfs.assert_awaited_once()
+  assert zone.await_args.args[0] is client
+  assert zone.await_args.kwargs["source"] is source
 
 
 @pytest.mark.asyncio

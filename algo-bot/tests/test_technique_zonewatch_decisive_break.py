@@ -99,3 +99,33 @@ async def test_closed_bar_wick_without_close_beyond_is_not_break(monkeypatch):
     _Source,
   )
   assert await _closed_bar_decisive_break(AsyncMock(), _record()) is False
+
+
+@pytest.mark.asyncio
+async def test_closed_bar_decisive_break_uses_injected_source(monkeypatch):
+  frame = pd.DataFrame(
+    {"open": [4101.0], "high": [4104.0], "low": [4100.5], "close": [4103.5], "volume": [1.0]},
+    index=pd.DatetimeIndex(["2026-08-13T12:00:00Z"]),
+  )
+  constructed = {"n": 0}
+
+  class _Default:
+    def __init__(self, client):
+      constructed["n"] += 1
+
+    async def window(self, symbol, tf, n):
+      raise AssertionError("should use injected source")
+
+  class _Injected:
+    async def window(self, symbol, tf, n):
+      assert tf == "M5"
+      return frame
+
+  monkeypatch.setattr(
+    "app.autotrade.zone_execution_cutover.RedisOHLCSource",
+    _Default,
+  )
+  assert await _closed_bar_decisive_break(
+    AsyncMock(), _record(), source=_Injected(),
+  ) is True
+  assert constructed["n"] == 0
