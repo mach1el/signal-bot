@@ -158,6 +158,9 @@ def test_weekly_uses_shared_stats_and_safe_format():
   assert "2W" not in recap
   assert "1W / 1L" in recap
   assert not re.search(r"\d+\s*pips?", recap, re.IGNORECASE)
+  spark = re.search(r"📈 Equity \(combined unique\)\n([▁▂▃▄▅▆▇]+)\n", recap)
+  assert spark is not None
+  assert len(spark.group(1)) <= 22
 
 
 def test_losing_and_empty_week_rendering():
