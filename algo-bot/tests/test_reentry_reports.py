@@ -325,6 +325,12 @@ def test_stats_groups_sessions_and_sparkline():
   assert "🌍 London" in report
   assert "🌎 NY" in report
   assert len(sparkline([70, 40, 60])) == 3
+  long_curve = list(range(1, 219))
+  spark = sparkline(long_curve)
+  assert len(spark) == 22
+  assert "█" not in spark
+  assert report.count("📈 Equity (combined unique)") == 1
+  assert "└─" in report
 
 
 def test_stats_split_algo_manual_and_all_unique_without_double_count():
