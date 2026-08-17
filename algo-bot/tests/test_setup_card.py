@@ -200,7 +200,7 @@ def test_should_stop_forming_price_track_after_activation():
   assert setup_card.should_stop_forming_price_track(expired) is True
 
 
-def test_waiting_fill_header_rewrites_on_terminal_status():
+def test_waiting_fill_header_stays_intact_on_terminal_status():
   waiting = "\n".join([
     "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
     "⏳ <b>IN ZONE</b> · waiting market fill",
@@ -209,12 +209,13 @@ def test_waiting_fill_header_rewrites_on_terminal_status():
   text = setup_card.apply_forming_card_status(
     waiting, "❌ <b>TERMINAL</b> · outside zone",
   )
-  assert text.splitlines()[0] == "❌ <b>TERMINAL · XAU M1</b>"
-  assert "WAITING FILL" not in text.splitlines()[0]
+  assert text.splitlines()[0] == "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>"
+  assert "TERMINAL" not in text
+  assert "WAITING FILL" in text.splitlines()[0]
 
 
-def test_activated_header_rewrites_on_terminal_status():
-  """Prod 2026-08-17: activated + terminal stacked on the same root card."""
+def test_activated_header_stays_intact_on_terminal_status():
+  """Close must not paint TERMINAL on the autotrade root card."""
   activated = "\n".join([
     "✅ <b>POSITION ACTIVATED · XAU M5</b>",
     "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐",
@@ -224,9 +225,8 @@ def test_activated_header_rewrites_on_terminal_status():
     activated, "❌ <b>TERMINAL</b> · stop loss or take profit",
   )
   lines = text.splitlines()
-  assert lines[0] == "❌ <b>TERMINAL · XAU M5</b>"
-  assert "POSITION ACTIVATED" not in text
-  assert lines[1] == "❌ <b>TERMINAL</b> · stop loss or take profit"
+  assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert "TERMINAL" not in text
   assert "SELL · Key Level Reaction" in text
   assert "(live)" not in text
 
@@ -685,37 +685,74 @@ async def test_terminal_setup_is_never_re_carded():
 
 
 @pytest.mark.asyncio
-async def test_kill_setup_card_treats_message_not_modified_as_success(caplog):
-  """Startup reconcile often re-edits an already-terminal card; Telegram
-  returns 'message is not modified' — that is success, not a failure."""
+async def test_kill_setup_card_leaves_root_body_intact(caplog):
+  """Close retains POSITION ACTIVATED body; no TERMINAL rewrite."""
   client = redis_state.get_client()
+  original = "\n".join([
+    "✅ <b>POSITION ACTIVATED · XAU M5</b>",
+    "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐",
+    "• <b>Price now:</b> <b>4,396.18</b> <i>(live)</i>",
+  ])
+  await setup_card.save_forming_card(
+    client, "setup-intact-kill", chat_id=123, message_id=7777,
+    text=original,
+  )
+  edited = []
+
+  async def delete_fn(chat_id, message_id):
+    raise AssertionError("delete should not run on retain path")
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  with caplog.at_level("INFO"):
+    await setup_card.kill_setup_card(
+      client,
+      "setup-intact-kill",
+      reason_code="stop_loss_or_take_profit",
+      delete_fn=delete_fn,
+      edit_fn=edit_fn,
+    )
+
+  assert "forming_card_left_intact" in caplog.text
+  card = await setup_card.load_forming_card(client, "setup-intact-kill")
+  assert card is not None
+  assert "TERMINAL" not in card["text"]
+  assert "POSITION ACTIVATED · XAU M5" in card["text"]
+  assert "(live)" not in card["text"]
+  assert edited and "(live)" not in edited[0][2]
+
+
+@pytest.mark.asyncio
+async def test_kill_setup_card_noop_edit_when_already_intact():
+  client = redis_state.get_client()
+  original = "\n".join([
+    "✅ <b>POSITION ACTIVATED · XAU M5</b>",
+    "🔴 <b>SELL · Key Level Reaction</b>",
+  ])
   await setup_card.save_forming_card(
     client, "setup-not-mod-kill", chat_id=123, message_id=7777,
-    text="🤖 <b>ApexVoid Algo</b>\n❌ <b>TERMINAL</b> · startup reconciliation missing setup",
+    text=original,
   )
 
   async def delete_fn(chat_id, message_id):
     raise AssertionError("delete should not run on retain path")
 
   async def edit_fn(chat_id, message_id, text):
-    raise TelegramBadRequest(
-      method=None,
-      message="Bad Request: message is not modified",
-    )
+    raise AssertionError("no Telegram edit when body already intact")
 
-  with caplog.at_level("INFO"):
-    await setup_card.kill_setup_card(
-      client,
-      "setup-not-mod-kill",
-      reason_code="startup_reconciliation_missing_setup",
-      delete_fn=delete_fn,
-      edit_fn=edit_fn,
-    )
+  await setup_card.kill_setup_card(
+    client,
+    "setup-not-mod-kill",
+    reason_code="startup_reconciliation_missing_setup",
+    delete_fn=delete_fn,
+    edit_fn=edit_fn,
+  )
 
-  assert "forming card terminal edit failed" not in caplog.text
   card = await setup_card.load_forming_card(client, "setup-not-mod-kill")
   assert card is not None
-  assert "TERMINAL" in card["text"]
+  assert card["text"] == original
+  assert "TERMINAL" not in card["text"]
 
 
 @pytest.mark.asyncio
@@ -803,9 +840,12 @@ async def test_kill_setup_card_is_a_noop_with_no_stored_card():
 
 
 @pytest.mark.asyncio
-async def test_delete_on_terminal_disabled_edits_and_retains_root(monkeypatch):
+async def test_delete_on_terminal_disabled_retains_root_intact(monkeypatch):
   client = redis_state.get_client()
-  await setup_card.save_forming_card(client, "setup-6", chat_id=123, message_id=4444)
+  await setup_card.save_forming_card(
+    client, "setup-6", chat_id=123, message_id=4444,
+    text="🔎 <b>XAU M5 · SETUP FORMING</b>\n🔴 <b>SELL · Key Level</b>",
+  )
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_delete_root_on_terminal": False,})
   calls = []
@@ -821,19 +861,23 @@ async def test_delete_on_terminal_disabled_edits_and_retains_root(monkeypatch):
     delete_fn=delete_fn, edit_fn=edit_fn,
   )
 
-  assert calls == ["edit"]
+  # Intact body (no live cue) → no Telegram rewrite; root mapping kept.
+  assert calls == []
   card = await setup_card.load_forming_card(client, "setup-6")
   assert card is not None
   assert int(card["message_id"]) == 4444
-  # Root mapping retained for late replies/audit under single-root-card.
+  assert "TERMINAL" not in card["text"]
   assert await setup_card.load_telegram_root_message_id(client, "setup-6") == 4444
 
 
 @pytest.mark.asyncio
 async def test_delete_root_flag_true_still_retains(monkeypatch):
-  """Config delete flags are ignored — reject/expire always edit+retain."""
+  """Config delete flags are ignored — reject/expire leave body intact."""
   client = redis_state.get_client()
-  await setup_card.save_forming_card(client, "setup-del", chat_id=123, message_id=3333)
+  await setup_card.save_forming_card(
+    client, "setup-del", chat_id=123, message_id=3333,
+    text="🔎 <b>XAU M5 · SETUP FORMING</b>\n🔴 <b>SELL · Key Level</b>",
+  )
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_single_root_card": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_telegram_delete_root_on_terminal": True,})
   calls = []
@@ -848,8 +892,11 @@ async def test_delete_root_flag_true_still_retains(monkeypatch):
     client, "setup-del", reason_code="expired",
     delete_fn=delete_fn, edit_fn=edit_fn,
   )
-  assert calls == ["edit"]
+  assert calls == []
   assert await setup_card.load_telegram_root_message_id(client, "setup-del") == 3333
+  card = await setup_card.load_forming_card(client, "setup-del")
+  assert card is not None
+  assert "TERMINAL" not in card["text"]
 
 
 @pytest.mark.asyncio

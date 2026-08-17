@@ -118,8 +118,9 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   )
 
   assert delivered is False
-  assert len(edited) == 1
-  assert edited[0][:2] == (4242, 9005)
+  # Close leaves the root body intact (no TERMINAL rewrite) when there is
+  # nothing to strip; mapping stays for threaded replies.
+  assert len(edited) == 0
   assert await client.get(forming_message_key(setup_id)) is not None
 
 
