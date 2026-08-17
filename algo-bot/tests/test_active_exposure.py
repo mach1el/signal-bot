@@ -187,6 +187,7 @@ async def test_load_trade_plan_exposures_reads_pascal_case_runtime_json():
         return json.dumps({
           "PlanId": "plan-sell-1",
           "SetupId": "setup-1",
+          "Symbol": "XAU",
           "Direction": "SELL",
           "Stage": "FullyOpen",
           "GroupStage": "fully_open",
@@ -206,6 +207,7 @@ async def test_load_trade_plan_exposures_reads_pascal_case_runtime_json():
   assert exposures[0].entry_price == pytest.approx(4054.2)
   assert exposures[0].source == "v8_plan"
   assert exposures[0].plan_id == "plan-sell-1"
+  assert exposures[0].symbol == "XAU"
   assert exposures[0].highest_booked_target_index == 1
 
 
@@ -219,6 +221,7 @@ async def test_load_pending_trade_plan_counts_as_exposure():
         return json.dumps({
           "PlanId": "v8:kl-dac0",
           "SetupId": "setup-dac0",
+          "Symbol": "GBPJPY",
           "Direction": "SELL",
           "Stage": "Received",
           "GroupStage": "received",
@@ -236,10 +239,99 @@ async def test_load_pending_trade_plan_counts_as_exposure():
   assert len(exposures) == 1
   assert exposures[0].direction == "SELL"
   assert exposures[0].entry_price == pytest.approx(215.91)
+  assert exposures[0].symbol == "GBPJPY"
   decision = evaluate_entry_against_exposure(
     direction="SELL",
     entry_price=215.92,
     exposures=exposures,
+    candidate_symbol="GBPJPY",
   )
   assert decision.block is True
   assert decision.reason_code == "same_direction_active_before_tp2"
+
+
+def _gbpjpy_sell() -> ActiveExposure:
+  return ActiveExposure(
+    direction="SELL",
+    entry_price=215.91,
+    source="v8_plan",
+    symbol="GBPJPY",
+    plan_id="v8:kl-dac0",
+    highest_booked_target_index=None,
+  )
+
+
+def _xau_sell() -> ActiveExposure:
+  return ActiveExposure(
+    direction="SELL",
+    entry_price=4414.11,
+    source="v8_plan",
+    symbol="XAU",
+    plan_id="v8:vip-4414",
+    highest_booked_target_index=None,
+  )
+
+
+def test_gbpjpy_sell_does_not_block_eurusd_sell():
+  """Live 2026-08-17 13:19 UTC: EURUSD Key Level SELL rejected @ 215.91."""
+  decision = evaluate_entry_against_exposure(
+    direction="SELL",
+    entry_price=1.1640,
+    exposures=[_gbpjpy_sell()],
+    candidate_symbol="EURUSD",
+  )
+  assert decision.block is False
+  assert decision.reason_code is None
+
+
+def test_xau_pending_sell_does_not_block_gbpjpy_sell():
+  """Live 2026-08-17 14:04 UTC: GBPJPY rejected because VIP gold @ 4414.11."""
+  decision = evaluate_entry_against_exposure(
+    direction="SELL",
+    entry_price=215.91,
+    exposures=[_xau_sell(), _gbpjpy_sell()],
+    candidate_symbol="GBPJPY",
+  )
+  assert decision.block is True
+  assert decision.reason_code == "same_direction_active_before_tp2"
+  assert decision.measured is not None
+  assert decision.measured["active_symbol"] == "GBPJPY"
+  assert decision.measured["active_entry_price"] == pytest.approx(215.91)
+
+
+def test_xauusd_alias_still_blocks_xau_same_direction():
+  decision = evaluate_entry_against_exposure(
+    direction="SELL",
+    entry_price=4396.10,
+    exposures=[
+      ActiveExposure(
+        direction="SELL",
+        entry_price=4414.11,
+        source="v8_plan",
+        symbol="XAUUSD",
+        plan_id="v8:xauusd-sell",
+      )
+    ],
+    candidate_symbol="XAU",
+  )
+  assert decision.block is True
+  assert decision.reason_code == "same_direction_active_before_tp2"
+
+
+def test_missing_symbol_exposure_does_not_lock_other_instruments():
+  """V6 rows without a string symbol must not become a global SELL lock."""
+  decision = evaluate_entry_against_exposure(
+    direction="SELL",
+    entry_price=1.1640,
+    exposures=[
+      ActiveExposure(
+        direction="SELL",
+        entry_price=215.91,
+        source="v6_position",
+        symbol=None,
+        position_id=40539792,
+      )
+    ],
+    candidate_symbol="EURUSD",
+  )
+  assert decision.block is False
