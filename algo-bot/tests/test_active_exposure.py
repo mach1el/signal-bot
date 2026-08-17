@@ -207,3 +207,39 @@ async def test_load_trade_plan_exposures_reads_pascal_case_runtime_json():
   assert exposures[0].source == "v8_plan"
   assert exposures[0].plan_id == "plan-sell-1"
   assert exposures[0].highest_booked_target_index == 1
+
+
+@pytest.mark.asyncio
+async def test_load_pending_trade_plan_counts_as_exposure():
+  class FakeRedis:
+    async def get(self, key: str):
+      if key == "execution:trade_plan_runtime_ids":
+        return b"v8:kl-dac0"
+      if key == "execution:plan_runtime:v8:kl-dac0":
+        return json.dumps({
+          "PlanId": "v8:kl-dac0",
+          "SetupId": "setup-dac0",
+          "Direction": "SELL",
+          "Stage": "Received",
+          "GroupStage": "received",
+          "IntendedEntryPrice": 215.91,
+          "TotalFilledVolume": 0,
+          "RemainingVolume": 0,
+          "HighestBookedTargetIndex": -1,
+        }).encode()
+      return None
+
+    async def smembers(self, key: str):
+      return set()
+
+  exposures = await load_active_exposures(FakeRedis())
+  assert len(exposures) == 1
+  assert exposures[0].direction == "SELL"
+  assert exposures[0].entry_price == pytest.approx(215.91)
+  decision = evaluate_entry_against_exposure(
+    direction="SELL",
+    entry_price=215.92,
+    exposures=exposures,
+  )
+  assert decision.block is True
+  assert decision.reason_code == "same_direction_active_before_tp2"

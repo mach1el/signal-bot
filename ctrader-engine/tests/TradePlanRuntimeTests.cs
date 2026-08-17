@@ -46,7 +46,9 @@ public sealed class TradePlanRuntimeTests
     decimal zoneLow = 4088.10m,
     decimal zoneHigh = 4090.00m,
     decimal stopPrice = 4082.50m,
-    long expiresAt = 2_000_000_000
+    long expiresAt = 2_000_000_000,
+    string strategy = "Trend Pullback",
+    string strategyFamily = "trend_pullback"
   )
   {
     return $$"""
@@ -59,8 +61,8 @@ public sealed class TradePlanRuntimeTests
       "created_at": 1719999600,
       "expires_at": {{expiresAt}},
       "analysis": {
-        "strategy": "Trend Pullback",
-        "strategy_family": "trend_pullback",
+        "strategy": "{{strategy}}",
+        "strategy_family": "{{strategyFamily}}",
         "direction": "{{direction}}",
         "context_timeframes": ["M15"],
         "formation_timeframe": "H1",
@@ -166,6 +168,80 @@ public sealed class TradePlanRuntimeTests
     var events = store.Events.Select(e => e.Type).ToArray();
     Assert.DoesNotContain("plan_armed", events);
     Assert.Contains("order_filled", events);
+  }
+
+  [Fact]
+  public async Task SecondSameDirectionNonScalpPlanIsRejectedWhileFirstIsPending()
+  {
+    // Live 2026-08-17 GBPJPY: two Key Level SELL plans 5s apart both filled
+    // because pending runtime state was not a same-direction gate.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:kl-dac0",
+      thesisId: "thesis-dac0",
+      setupId: "setup-dac0",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level"
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    var first = Assert.Single(runtime.TrackedStates);
+    Assert.Equal("v8:kl-dac0", first.PlanId);
+    Assert.Equal(TradePlanRuntimeStage.Received, first.Stage);
+    Assert.Equal(4089.05m, first.IntendedEntryPrice);
+
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:kl-ca1c",
+      thesisId: "thesis-ca1c",
+      setupId: "setup-ca1c",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level"
+    ));
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+
+    Assert.Single(runtime.TrackedStates);
+    Assert.Equal("rejected", store.Value("execution:plan_state:v8:kl-ca1c"));
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "plan_rejected" && item.CandidateId == "v8:kl-ca1c"
+    );
+    Assert.Empty(client.MarketOrders);
+  }
+
+  [Fact]
+  public async Task IncomingScalpMayStackOnPendingNonScalpPlan()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:kl-live",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level"
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:hfs-stack",
+      thesisId: "thesis-hfs",
+      setupId: "setup-hfs",
+      strategy: "HFS Range Sweep",
+      strategyFamily: "hfs"
+    ));
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+
+    Assert.Equal(2, runtime.TrackedStates.Count);
+    Assert.Equal("received", store.Value("execution:plan_state:v8:hfs-stack"));
   }
 
   [Fact]

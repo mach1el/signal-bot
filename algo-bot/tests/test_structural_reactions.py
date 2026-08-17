@@ -792,6 +792,38 @@ def test_independent_sources_remain_separate():
   assert len(kept) == 2
 
 
+def test_overlapping_key_levels_same_confirmation_are_one_thesis():
+  first = _match(
+    match_id="dac0ac35aaaa",
+    strategy="Key Level Reaction",
+    family="key_level",
+    structural_source="key_level",
+    structural_zone_id="47519286aaaa",
+    zone_id="47519286aaaa",
+    entry_low=215.898,
+    entry_high=215.921,
+    key_level=215.85,
+    confirmation_bar_ts="c-gbpjpy",
+    touch_bar_ts="t-gbpjpy",
+  )
+  second = _match(
+    match_id="ca1c22e73aaa",
+    strategy="Key Level Reaction",
+    family="key_level",
+    structural_source="key_level",
+    structural_zone_id="90824b10aaaa",
+    zone_id="90824b10aaaa",
+    entry_low=215.898,
+    entry_high=215.935,
+    key_level=215.85,
+    confirmation_bar_ts="c-gbpjpy",
+    touch_bar_ts="t-gbpjpy",
+  )
+  assert same_thesis(first, second, atr=0.15)
+  kept, _ = dedupe_matches([first, second], atr=0.15)
+  assert len(kept) == 1
+
+
 def test_structural_setups_constant():
   assert STRUCTURAL_SETUPS == {
     "Key Level Reaction",
