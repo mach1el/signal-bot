@@ -68,3 +68,24 @@ async def test_idle_m1_skips_pandas_gates_and_writes_thin_last_gate(monkeypatch)
   status = json.loads(await client.get("auto_trade:last_gate:XAU"))
   assert status["state"] == "idle_no_match"
   assert status["gate_source"] == "idle_no_match"
+
+
+@pytest.mark.asyncio
+async def test_mapped_thesis_rearm_does_not_bool_coerce_m1_frame(monkeypatch):
+  """Prod 2026-08-17: frames.get('M1') or frames.get('M1') crashed every minute."""
+  client = redis_state.get_client()
+  df = _frame()
+  called = {}
+
+  async def fake_advance(client_arg, *, symbol, m1, atr):
+    called["symbol"] = symbol
+    called["rows"] = len(m1)
+    called["atr"] = atr
+
+  monkeypatch.setattr(worker, "_advance_mapped_thesis_rearms", fake_advance)
+  await worker._advance_mapped_thesis_rearms_from_frames(
+    client, symbol="XAU", frames={"M1": df},
+  )
+  assert called["symbol"] == "XAU"
+  assert called["rows"] == 20
+  assert called["atr"] > 0
