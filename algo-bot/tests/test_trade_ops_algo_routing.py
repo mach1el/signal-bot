@@ -265,10 +265,10 @@ async def test_do_cancel_falls_through_when_algo_and_still_requested(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_do_delete_cancels_broker_order_when_algo_and_pending(monkeypatch):
-  # Real production bug: /trade_delete on a still-pending algo-manual
-  # signal only wiped the Postgres row and channel posts, leaving the
-  # broker-side resting limit order live with nothing left tracking it.
+async def test_do_delete_defers_broker_cancel_when_algo_and_pending(monkeypatch):
+  # /trade_delete on a still-pending algo-manual signal must wait for
+  # broker cancel confirm (same as /trade_cancel). Immediate hard-delete
+  # raced manual_cancelled and could leave a resting limit untracked.
   rec = await _algo_signal()
   await store.set_execution_intent(
     rec["id"], intent_id="manual:x:3", status="requested", revision=0,
@@ -281,7 +281,11 @@ async def test_do_delete_cancels_broker_order_when_algo_and_pending(monkeypatch)
 
   request_cancel.assert_awaited_once_with("manual:x:3")
   assert result["ok"] is True
-  assert await store.get_manual_signal(rec["id"]) is None
+  assert result.get("pending") is True
+  assert result["action"] == "cancel"
+  row = await store.get_manual_signal(rec["id"])
+  assert row is not None
+  assert row["status"] == "open"
 
 
 @pytest.mark.asyncio
