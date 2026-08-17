@@ -313,7 +313,7 @@ async def test_order_filled_rewrites_waiting_fill_root(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_plan_expired_rewrites_waiting_fill_root(monkeypatch):
+async def test_plan_expired_leaves_waiting_fill_root_intact(monkeypatch):
   client = redis_state.get_client()
   match_id = "11c1d02cexpired"
   await _confirmed_setup(client, match_id)
@@ -354,14 +354,15 @@ async def test_plan_expired_rewrites_waiting_fill_root(monkeypatch):
   assert sent == []
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
-  assert "WAITING FILL" not in card["text"] or "TERMINAL" in card["text"]
-  assert "TERMINAL" in card["text"]
+  assert "WAITING FILL" in card["text"]
+  assert "TERMINAL" not in card["text"]
+  assert "(live)" not in card["text"]
   assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
 
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_position_closed_rewrites_waiting_fill_root(monkeypatch):
+async def test_position_closed_leaves_waiting_fill_root_intact(monkeypatch):
   client = redis_state.get_client()
   match_id = "03bb3092closed"
   await _confirmed_setup(client, match_id)
@@ -394,8 +395,9 @@ async def test_position_closed_rewrites_waiting_fill_root(monkeypatch):
 
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
-  assert "TERMINAL" in card["text"]
-  assert "WAITING FILL" not in card["text"].splitlines()[0]
+  assert "TERMINAL" not in card["text"]
+  assert "WAITING FILL" in card["text"]
+  assert "(live)" not in card["text"]
   assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
 
 
