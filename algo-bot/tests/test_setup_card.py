@@ -1214,10 +1214,12 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
   setup_id = "setup-publish-existing"
   await _confirmed_setup(client, setup_id)
   match = _strategy_match_for_card(setup_id)
+  # Same direction/strategy as the match so publish only refreshes status,
+  # not the whole body (wrong-direction bodies are rewritten separately).
   original = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
     "🟡 <b>QUEUED</b> · worker acknowledgement pending",
-    "🔴 <b>SELL · Key Level Reaction</b>",
+    "🟢 <b>BUY · Key Level Reaction</b>",
   ])
   await setup_card.save_forming_card(
     client, setup_id, chat_id=123, message_id=777, text=original,
@@ -1249,4 +1251,41 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
   assert "QUEUED" in card["text"] or any(
     "QUEUED" in text for _, _, text in edited
   )
+  assert "PLAN PUBLISHED" not in card["text"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_plan_published_root_card_rewrites_mismatched_strategy_body():
+  client = redis_state.get_client()
+  setup_id = "setup-publish-mismatch"
+  await _confirmed_setup(client, setup_id)
+  match = _strategy_match_for_card(setup_id)
+  original = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟡 <b>QUEUED</b> · worker acknowledgement pending",
+    "🔴 <b>SELL · Key Level Reaction</b>",
+  ])
+  await setup_card.save_forming_card(
+    client, setup_id, chat_id=123, message_id=888, text=original,
+  )
+  edited = []
+
+  async def send_fn(text, **kwargs):
+    raise AssertionError("should edit existing card, not send")
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append((chat_id, message_id, text))
+
+  message_id = await setup_card.ensure_plan_published_root_card(
+    client,
+    match,
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+  assert message_id == 888
+  assert edited
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert "🟢 <b>BUY · Key Level Reaction</b>" in card["text"]
   assert "PLAN PUBLISHED" not in card["text"]
