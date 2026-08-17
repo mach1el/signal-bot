@@ -43,6 +43,9 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert gbpjpy["feed"]["ctrader_symbol"] == "GBPJPY"
   assert gbpjpy["units"]["pip_size"] == "0.01"
   assert gbpjpy["units"]["pip_value_per_lot"] == "7"
+  assert xau["units"]["volume_units_per_lot"] == 10000
+  assert eurusd["units"]["volume_units_per_lot"] == 10000000
+  assert gbpjpy["units"]["volume_units_per_lot"] == 10000000
   # Deprecated compatibility projections remain and match XAU runtime.
   assert payload["feed"] == xau["feed"]
   assert payload["auto_trade"]["targets_pips"] == xau["auto_trade"]["targets_pips"]

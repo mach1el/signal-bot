@@ -308,6 +308,71 @@ public sealed class TradePlanExecutionEngineTests
     Assert.Equal("equity_table_above_broker_maximum", error.Message);
   }
 
+  [Fact]
+  public void CalculateVolumeRejectsXauMaxVolumeOnFxLotSize()
+  {
+    // Prod 2026-08-17 GBPJPY HFS: Python stamped XAU max_volume=100_000 on
+    // an FX plan. Broker LotSize=10_000_000 → 0.01 lot ceiling, so the
+    // $1,067 / 1.5× scalp table (0.18 lots) rejected pre-submit.
+    var gbpjpy = Symbol with
+    {
+      RedisSymbol = "GBPJPY",
+      CTraderSymbol = "GBPJPY",
+      Digits = 3,
+      PipPosition = 2,
+      MinVolume = 1_000,
+      StepVolume = 1_000,
+      MaxVolume = 500_000_000,
+      LotSize = 10_000_000
+    };
+    var plan = MarketWatchPlan(maxVolume: 100_000) with { Symbol = "GBPJPY" };
+
+    var error = Assert.Throws<TradePlanContractException>(() =>
+      TradePlanExecutionEngine.CalculateVolume(
+        plan,
+        Account(1_067.54m),
+        pipSize: 0.01m,
+        pipValuePerLot: 7m,
+        symbol: gbpjpy
+      )
+    );
+
+    Assert.Equal("equity_table_above_broker_maximum", error.Message);
+  }
+
+  [Fact]
+  public void CalculateVolumeAcceptsFxLotsWhenPlanMaxVolumeUsesFxLotSize()
+  {
+    var gbpjpy = Symbol with
+    {
+      RedisSymbol = "GBPJPY",
+      CTraderSymbol = "GBPJPY",
+      Digits = 3,
+      PipPosition = 2,
+      MinVolume = 1_000,
+      StepVolume = 1_000,
+      MaxVolume = 500_000_000,
+      LotSize = 10_000_000
+    };
+    var plan = MarketWatchPlan(maxVolume: 100_000_000) with
+    {
+      Symbol = "GBPJPY",
+      Risk = new TradePlanRisk(1.0m, 2.0m, 100_000_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan,
+      Account(1_067.54m),
+      pipSize: 0.01m,
+      pipValuePerLot: 7m,
+      symbol: gbpjpy
+    );
+
+    // LotsForEquity(1067.54)=0.12 → scalp < $2k ×1.5 = 0.18 lots
+    // → 0.18 * 10_000_000 = 1_800_000 volume units.
+    Assert.Equal(1_800_000, result.TotalVolume);
+  }
+
   private static TradePlan LimitLadderPlan(
     string direction = "BUY",
     decimal legPrice1 = 4089.50m,
