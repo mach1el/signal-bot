@@ -213,6 +213,42 @@ def test_waiting_fill_header_rewrites_on_terminal_status():
   assert "WAITING FILL" not in text.splitlines()[0]
 
 
+def test_activated_header_rewrites_on_terminal_status():
+  """Prod 2026-08-17: activated + terminal stacked on the same root card."""
+  activated = "\n".join([
+    "✅ <b>POSITION ACTIVATED · XAU M5</b>",
+    "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐",
+    "• <b>Price now:</b> <b>4,396.18</b> <i>(live)</i>",
+  ])
+  text = setup_card.apply_forming_card_status(
+    activated, "❌ <b>TERMINAL</b> · stop loss or take profit",
+  )
+  lines = text.splitlines()
+  assert lines[0] == "❌ <b>TERMINAL · XAU M5</b>"
+  assert "POSITION ACTIVATED" not in text
+  assert lines[1] == "❌ <b>TERMINAL</b> · stop loss or take profit"
+  assert "SELL · Key Level Reaction" in text
+  assert "(live)" not in text
+
+
+def test_forming_card_matches_strategy_detects_stale_body():
+  text = "\n".join([
+    "🔎 <b>XAU M5 · SETUP FORMING</b>",
+    "🟢 <b>PLAN PUBLISHED</b>",
+    "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐",
+  ])
+  match = SimpleNamespace(
+    direction="BUY",
+    strategy="Trend Pullback",
+  )
+  assert setup_card.forming_card_matches_strategy(text, match) is False
+  match_ok = SimpleNamespace(
+    direction="SELL",
+    strategy="Key Level Reaction",
+  )
+  assert setup_card.forming_card_matches_strategy(text, match_ok) is True
+
+
 def test_event_recovery_root_card_is_activated_on_fill():
   text = setup_card.format_event_recovery_root_card({
     "type": "order_filled",

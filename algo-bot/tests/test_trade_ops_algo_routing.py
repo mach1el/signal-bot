@@ -265,23 +265,31 @@ async def test_do_cancel_falls_through_when_algo_and_still_requested(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_do_delete_cancels_broker_order_when_algo_and_pending(monkeypatch):
-  # Real production bug: /trade_delete on a still-pending algo-manual
-  # signal only wiped the Postgres row and channel posts, leaving the
-  # broker-side resting limit order live with nothing left tracking it.
+async def test_do_delete_defers_then_hard_deletes_when_algo_and_pending(monkeypatch):
+  # /trade_delete ≠ /trade_cancel: cancel broker first, keep the row until
+  # confirm, then hard-delete. Immediate wipe raced manual_cancelled.
   rec = await _algo_signal()
   await store.set_execution_intent(
     rec["id"], intent_id="manual:x:3", status="requested", revision=0,
   )
   await store.set_execution_status(rec["id"], "pending")
   request_cancel = AsyncMock()
+  mark_pending = AsyncMock()
   monkeypatch.setattr(manual_execution, "request_cancel", request_cancel)
+  monkeypatch.setattr(manual_execution, "mark_pending_delete", mark_pending)
 
   result = await trade_ops.do_delete({"sid": rec["id"], "symbol": "XAU"})
 
   request_cancel.assert_awaited_once_with("manual:x:3")
+  mark_pending.assert_awaited_once_with("manual:x:3")
   assert result["ok"] is True
-  assert await store.get_manual_signal(rec["id"]) is None
+  assert result.get("pending") is True
+  assert result["action"] == "delete"
+  row = await store.get_manual_signal(rec["id"])
+  assert row is not None
+  assert row["status"] == "open"
+  assert trade_ops.render_result(result, "XAU", "vip").startswith("⏳")
+  assert "delete requested" in trade_ops.render_result(result, "XAU", "vip")
 
 
 @pytest.mark.asyncio
