@@ -48,7 +48,8 @@ public sealed class TradePlanRuntimeTests
     decimal stopPrice = 4082.50m,
     long expiresAt = 2_000_000_000,
     string strategy = "Trend Pullback",
-    string strategyFamily = "trend_pullback"
+    string strategyFamily = "trend_pullback",
+    string symbol = "XAU"
   )
   {
     return $$"""
@@ -57,7 +58,7 @@ public sealed class TradePlanRuntimeTests
       "plan_id": "{{planId}}",
       "thesis_id": "{{thesisId}}",
       "setup_id": "{{setupId}}",
-      "symbol": "XAU",
+      "symbol": "{{symbol}}",
       "created_at": 1719999600,
       "expires_at": {{expiresAt}},
       "analysis": {
@@ -242,6 +243,78 @@ public sealed class TradePlanRuntimeTests
 
     Assert.Equal(2, runtime.TrackedStates.Count);
     Assert.Equal("received", store.Value("execution:plan_state:v8:hfs-stack"));
+  }
+
+  [Fact]
+  public async Task PendingSameDirectionOnOtherSymbolDoesNotBlockIncoming()
+  {
+    // Live 2026-08-17: open GBPJPY must not reject a later XAU same-dir plan.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:gbpjpy-buy",
+      thesisId: "thesis-gbp",
+      setupId: "setup-gbp",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level",
+      symbol: "GBPJPY",
+      zoneLow: 215.90m,
+      zoneHigh: 215.92m,
+      stopPrice: 215.70m
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Single(runtime.TrackedStates);
+
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:xau-buy",
+      thesisId: "thesis-xau",
+      setupId: "setup-xau",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level",
+      symbol: "XAU"
+    ));
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+
+    Assert.Equal(2, runtime.TrackedStates.Count);
+    Assert.Equal("received", store.Value("execution:plan_state:v8:xau-buy"));
+  }
+
+  [Fact]
+  public async Task XauUsdAliasBlocksSecondXauSameDirectionBeforeTp2()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:xauusd-buy",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level",
+      symbol: "XAUUSD"
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
+    );
+    Assert.Single(runtime.TrackedStates);
+
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:xau-buy",
+      thesisId: "thesis-xau-2",
+      setupId: "setup-xau-2",
+      strategy: "Key Level Reaction",
+      strategyFamily: "key_level",
+      symbol: "XAU"
+    ));
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
+    );
+
+    Assert.Single(runtime.TrackedStates);
+    Assert.Equal("rejected", store.Value("execution:plan_state:v8:xau-buy"));
   }
 
   [Fact]
