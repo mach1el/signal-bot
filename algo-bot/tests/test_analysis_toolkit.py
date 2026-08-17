@@ -732,8 +732,10 @@ def test_dealing_range_classifies_discount_and_eq():
   assert discount is not None
   assert discount.position == 0.3
   assert discount.zone == "discount"
+  assert discount.fib_zone == "deep_discount"
   assert eq is not None
   assert eq.zone == "eq"
+  assert eq.fib_zone == "eq"
 
 
 def test_regime_marks_tight_exec_range_as_chop():
@@ -987,6 +989,7 @@ def test_analyze_assembles_per_tf_outputs_and_htf_bias():
 def test_analysis_modules_have_no_delivery_or_state_imports():
   import app.analysis.engine as engine
   import app.analysis.dealing_range as dealing_range_module
+  import app.analysis.fibonacci as fibonacci_module
   import app.analysis.levels as levels
   import app.analysis.liquidity as liquidity
   import app.analysis.momentum as momentum_module
@@ -1010,6 +1013,7 @@ def test_analysis_modules_have_no_delivery_or_state_imports():
   modules = [
     engine,
     dealing_range_module,
+    fibonacci_module,
     levels,
     liquidity,
     momentum_module,
