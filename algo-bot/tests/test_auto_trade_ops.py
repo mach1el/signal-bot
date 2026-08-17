@@ -1129,8 +1129,8 @@ async def test_position_closed_appends_missing_final_tp_line(monkeypatch):
   assert "🎯 TP3 · 💰 Fill: 4010.00 · ✅ Achieved: +81.0 pips" in final
   assert "🏁 POSITION CLOSED" in final
   assert "Highest TP archived" not in final
-  # Root card is edited to terminal so WAITING FILL does not linger.
-  assert any(e[1] == 7001 for e in edited)
+  # Root card stays intact (no TERMINAL rewrite); close lives on the reply.
+  assert all(e[1] != 7001 or "TERMINAL" not in e[2] for e in edited)
   assert all(d[1] != 7001 for d in deleted)
 
 
@@ -1183,7 +1183,7 @@ async def test_position_closed_fallback_creates_manage_reply(monkeypatch):
 
   assert len(calls) == 1
   assert calls[0][1]["reply_to"] == 7001
-  assert any(e[1] == 7001 for e in edited)
+  assert all(e[1] != 7001 or "TERMINAL" not in e[2] for e in edited)
   assert deleted == []
   assert "🏁 POSITION CLOSED" in calls[0][0]
   assert "🎯 TP2 · 💰 Fill: 4106.00 · ✅ Achieved: +90.0 pips" in calls[0][0]
@@ -1278,8 +1278,8 @@ async def test_opened_event_replies_to_stored_forming_message():
 @pytest.mark.asyncio
 @pytest.mark.no_database
 async def test_rejected_event_retains_root_card_and_sends_nothing(monkeypatch):
-  # One forming card per setup: reject edits the root to terminal and sends
-  # nothing new (single-root retain mode).
+  # One forming card per setup: reject leaves the root body intact and
+  # sends nothing new (single-root retain mode).
   client = redis_state.get_client()
   match_id = "supply:M5:4062.49:4066.18:sweep"
   await client.set(
@@ -1320,8 +1320,10 @@ async def test_rejected_event_retains_root_card_and_sends_nothing(monkeypatch):
   assert result is False
   assert calls == []
   assert deleted == []
-  assert edited and edited[0][0] == 123 and edited[0][1] == 7001
-  assert await client.get(delivery._forming_message_key(match_id)) is not None
+  assert all("TERMINAL" not in (e[2] or "") for e in edited)
+  stored = await client.get(delivery._forming_message_key(match_id))
+  assert stored is not None
+  assert "TERMINAL" not in stored
 
 
 @pytest.mark.asyncio
