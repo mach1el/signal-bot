@@ -540,6 +540,7 @@ async def test_active_opposite_initial_group_helper_detects_sell_book():
     "auto_trade:position:39000344",
     json.dumps({
       "position_id": 39000344,
+      "symbol": "XAU",
       "direction": 1,  # ProtoOA SELL
       "remaining_volume": 400,
       "group_id": "group-sell-1",
@@ -549,12 +550,16 @@ async def test_active_opposite_initial_group_helper_detects_sell_book():
   )
 
   opposite = await worker._active_opposite_initial_group(
-    client, direction="BUY",
+    client, direction="BUY", symbol="XAU",
   )
   assert opposite is not None
   assert opposite["group_id"] == "group-sell-1"
   assert await worker._active_opposite_initial_group(
-    client, direction="SELL",
+    client, direction="SELL", symbol="XAU",
+  ) is None
+  # Other instruments must not see the XAU SELL book.
+  assert await worker._active_opposite_initial_group(
+    client, direction="BUY", symbol="EURUSD",
   ) is None
 
 

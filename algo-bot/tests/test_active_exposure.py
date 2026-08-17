@@ -335,3 +335,47 @@ def test_missing_symbol_exposure_does_not_lock_other_instruments():
     candidate_symbol="EURUSD",
   )
   assert decision.block is False
+
+
+@pytest.mark.asyncio
+async def test_load_active_exposures_filters_by_symbol():
+  class FakeRedis:
+    async def get(self, key: str):
+      if key == "execution:trade_plan_runtime_ids":
+        return b"v8:gbp,v8:xau"
+      if key == "execution:plan_runtime:v8:gbp":
+        return json.dumps({
+          "PlanId": "v8:gbp",
+          "Symbol": "GBPJPY",
+          "Direction": "SELL",
+          "Stage": "FullyOpen",
+          "GroupStage": "fully_open",
+          "GroupWeightedFillPrice": 215.91,
+          "TotalFilledVolume": 120,
+          "RemainingVolume": 120,
+          "HighestBookedTargetIndex": -1,
+        }).encode()
+      if key == "execution:plan_runtime:v8:xau":
+        return json.dumps({
+          "PlanId": "v8:xau",
+          "Symbol": "XAU",
+          "Direction": "SELL",
+          "Stage": "FullyOpen",
+          "GroupStage": "fully_open",
+          "GroupWeightedFillPrice": 4414.11,
+          "TotalFilledVolume": 120,
+          "RemainingVolume": 120,
+          "HighestBookedTargetIndex": -1,
+        }).encode()
+      return None
+
+    async def smembers(self, key: str):
+      return set()
+
+  all_exposures = await load_active_exposures(FakeRedis())
+  assert {item.symbol for item in all_exposures} == {"GBPJPY", "XAU"}
+  eurusd = await load_active_exposures(FakeRedis(), symbol="EURUSD")
+  assert eurusd == []
+  gbp = await load_active_exposures(FakeRedis(), symbol="GBPJPY")
+  assert len(gbp) == 1
+  assert gbp[0].plan_id == "v8:gbp"
