@@ -634,6 +634,36 @@ async def test_handle_event_manual_cancelled_cancels_armed_signal(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_event_manual_cancelled_hard_deletes_when_pending_delete(
+  monkeypatch,
+):
+  # /trade_delete flagged the intent — broker cancel must remove the row
+  # and posts (🗑 deleted), not leave ❌ cancelled.
+  _mock_send(monkeypatch)
+  truth = AsyncMock()
+  monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  monkeypatch.setattr(broadcast, "delete_posts", AsyncMock())
+  sid = await _algo_signal()
+  await store.insert_signal_post(sid, -100987654321, 9900 + sid, "vip")
+  await store.insert_signal_post(sid, -100987654322, 9800 + sid, "public")
+  intent = f"manual:{sid}:0"
+  client = redis_state.get_client()
+  await manual_execution.mark_pending_delete(intent)
+
+  await manual_execution._handle_event(
+    client,
+    {"type": "manual_cancelled", "candidate_id": intent},
+    {},
+  )
+
+  assert await store.get_manual_signal(sid) is None
+  truth.assert_awaited_once()
+  assert "deleted" in truth.await_args.args[0]
+  assert "cancelled" not in truth.await_args.args[0]
+  assert await client.get(f"manual_trade:pending_delete:{intent}") is None
+
+
+@pytest.mark.asyncio
 async def test_handle_event_manual_expired_releases_watcher_ownership(monkeypatch):
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()
