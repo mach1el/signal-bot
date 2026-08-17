@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `d2307f717e28786b1e333ff34eca1b6cb9e3248f452cead4fd2e4596ba18219f`
-- Environment-bound fields: `432`
+- Contract fingerprint: `280b4886604dd550286e011c641ab33256ee1f769661544cd707e378191d499c`
+- Environment-bound fields: `453`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -44,6 +44,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_CANDIDATE_STORAGE_TTL_SECONDS` | `lifecycle.candidate.storage_ttl_seconds` | `int` | no | yes | `AUTO_TRADE_CANDIDATE_TTL` | `86400` |
 | `AUTO_TRADE_CANDIDATE_STREAM` | `contract.streams.candidates` | `str` | no | yes | `AUTO_TRADE_STREAM` | `auto_trade:candidates` |
 | `AUTO_TRADE_CANONICAL_SYMBOL` | `contract.instrument.canonical_symbol` | `str` | no | yes | — | `XAU` |
+| `AUTO_TRADE_CONFLUENCE_ZONE_ENABLED` | `strategies.technique.confluence.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_CONTRACT_MODE` | `contract.mode` | `str` | no | yes | — | `v8_only` |
 | `AUTO_TRADE_DEMAND_REACTION_ENABLED` | `strategies.reaction.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `strategies.zone.demand.enabled` | `bool` | no | no | — | `True` |
@@ -166,13 +167,23 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_SUPPLY_ZONE_ENABLED` | `strategies.zone.supply.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_SYMBOLS` | `contract.instrument.symbols` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_TARGET_PLANS_PIPS` | `execution.targeting.default_ladder_pips` | `str` | no | yes | `AUTO_TRADE_TP_PIPS` | `30,60,90,120,200` |
+| `AUTO_TRADE_TECHNIQUE_CRT_ENABLED` | `strategies.technique.crt.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_CRT_MIN_ATR` | `strategies.technique.crt.min_atr` | `float` | no | no | — | `1.5` |
+| `AUTO_TRADE_TECHNIQUE_CRT_RECLAIM_BARS` | `strategies.technique.crt.reclaim_bars` | `int` | no | no | — | `6` |
 | `AUTO_TRADE_TECHNIQUE_ENFORCE` | `execution.technique.enforce` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_FVG_ENABLED` | `strategies.technique.fvg.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_FVG_ENTRY_MAX_WIDTH_PRICE` | `strategies.technique.fvg.entry_max_width_price` | `float` | no | no | — | `5.0` |
+| `AUTO_TRADE_TECHNIQUE_FVG_MAX_ATR` | `strategies.technique.fvg.max_atr` | `float` | no | no | — | `2.0` |
 | `AUTO_TRADE_TECHNIQUE_HFS_REQUIRE_KILLZONE` | `execution.technique.hfs_require_killzone` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_IFVG_ENABLED` | `strategies.technique.ifvg.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `execution.technique.include_late_ny` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `execution.technique.london_window_hours` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `execution.technique.ny_window_hours` | `int` | no | no | — | `3` |
+| `AUTO_TRADE_TECHNIQUE_OB_ENABLED` | `strategies.technique.ob.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_REACTION_PUBLISH_WINDOWS` | `execution.technique.reaction_publish_windows` | `str` | no | no | — | `7-11,13-16` |
 | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `execution.technique.reaction_require_killzone` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `execution.technique.require_sweep_body` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_SD_ENABLED` | `strategies.technique.sd.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `execution.technique.strict_premium_discount` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TELEGRAM_DELETE_ROOT_ON_TERMINAL` | `delivery.telegram.delete_root_on_terminal` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_TELEGRAM_SINGLE_ROOT_CARD` | `delivery.telegram.single_root_card` | `bool` | no | no | — | `True` |
@@ -203,6 +214,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_ZONE_FILL_MIN_ATR` | `execution.zone_scaling.fill_min_atr` | `float` | no | yes | — | `0.5` |
 | `AUTO_TRADE_ZONE_FILL_MIN_LOTS` | `execution.zone_scaling.fill_min_lots` | `decimal` | no | no | — | `0.09` |
 | `AUTO_TRADE_ZONE_FILL_TTL_BARS` | `lifecycle.zone.fill_ttl_bars` | `int` | no | no | — | `3` |
+| `AUTO_TRADE_ZONE_REACTION_FALLBACK_ENABLED` | `strategies.technique.zone_reaction_fallback.enabled` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_ZONE_RECONCILE_ENABLED` | `actionability.zone_reconciliation.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_ZONE_RECONCILE_MODE` | `actionability.zone_reconciliation.mode` | `str` | no | yes | — | `enforce` |
 | `AUTO_TRADE_ZONE_SCALE_FIRST_LEG_FRACTION` | `execution.zone_scaling.first_leg_fraction` | `float` | no | no | — | `0.8` |
@@ -265,6 +277,11 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `EQUAL_TOL_ATR` | `analysis.levels.equal_tol_atr` | `float` | no | no | — | `0.15` |
 | `EQ_BAND` | `analysis.measurements.eq_band` | `float` | no | no | — | `0.1` |
 | `EVENT_GUARD_HOURS` | `market_data.calendar.event_guard_hours` | `float` | no | no | — | `4.0` |
+| `FIBONACCI_CONFLUENCE_WEIGHT` | `analysis.fibonacci.confluence_weight` | `float` | no | no | — | `2.5` |
+| `FIBONACCI_DEEP_DISCOUNT` | `analysis.fibonacci.deep_discount` | `float` | no | no | — | `0.382` |
+| `FIBONACCI_DEEP_PREMIUM` | `analysis.fibonacci.deep_premium` | `float` | no | no | — | `0.618` |
+| `FIBONACCI_ENABLED` | `analysis.fibonacci.enabled` | `bool` | no | no | — | `True` |
+| `FIBONACCI_EPSILON_ATR` | `analysis.fibonacci.epsilon_atr` | `float` | no | no | — | `0.15` |
 | `GIT_SHA` | `bootstrap.build.git_sha` | `string` | no | yes | — | `unknown` |
 | `HEALTH_FILE` | `market_data.ctrader_feed.health_file` | `string` | no | no | — | `/tmp/ctrader-feed.heartbeat` |
 | `HFS_BREAKOUT_RETEST_ENABLED` | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `bool` | no | no | — | `True` |
@@ -272,7 +289,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `int` | no | no | — | `3600` |
 | `HFS_DAILY_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.daily_loss_limit_r` | `float` | no | no | — | `3.0` |
 | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `int` | no | no | — | `86400` |
-| `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
+| `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `False` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
 | `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `40.0` |
@@ -340,6 +357,10 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `MAX_ZONE_WIDTH_ATR` | `analysis.zones.discovery.maximum_width_atr` | `float` | no | no | — | `1.5` |
 | `MOMENTUM_BODY_FRAC` | `analysis.momentum.body_frac` | `float` | no | no | — | `0.6` |
 | `MOMENTUM_LOOKBACK` | `analysis.momentum.lookback` | `int` | no | no | — | `8` |
+| `MOMENTUM_VA_GATE_ENABLED` | `analysis.momentum.va_gate_enabled` | `bool` | no | no | — | `False` |
+| `MOMENTUM_VELOCITY_BEAR_THRESHOLD` | `analysis.momentum.velocity_bear_threshold` | `float` | no | no | — | `-0.15` |
+| `MOMENTUM_VELOCITY_BULL_THRESHOLD` | `analysis.momentum.velocity_bull_threshold` | `float` | no | no | — | `0.15` |
+| `MOMENTUM_VELOCITY_LOOKBACK` | `analysis.momentum.velocity_lookback` | `int` | no | no | — | `8` |
 | `NEWS_BRIEF_HOUR` | `market_data.calendar.news_brief_hour` | `int` | no | no | — | `7` |
 | `NEWS_GUARD_BLOCK` | `market_data.calendar.news_guard_block` | `bool` | no | no | — | `False` |
 | `OIL_KEYWORDS` | `market_data.calendar.oil_keywords` | `str` | no | no | — | `crude oil inventories,opec,cushing,api weekly crude` |
