@@ -107,9 +107,36 @@ def test_production_yaml_xau_effective_parity():
   assert "XAUUSD" in effective.identity.aliases
   for name, (left, right) in _parity_payload(cfg, effective).items():
     assert left == right, name
-  assert cfg.enabled_instruments() == ("XAU",)
-  assert cfg.live_instruments() == ("XAU",)
+  assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "XAU")
+  assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "XAU")
   assert cfg.instrument_for_broker_symbol("xauusd").identity.canonical_symbol == "XAU"
+
+
+def test_production_yaml_fx_live_executable_units():
+  loaded = _load_production_example()
+  cfg = loaded.config
+  eurusd = cfg.for_instrument("EURUSD")
+  gbpjpy = cfg.for_instrument("GBPJPY")
+  xau = cfg.for_instrument("XAU")
+  assert eurusd.identity.rollout is InstrumentRollout.LIVE
+  assert gbpjpy.identity.rollout is InstrumentRollout.LIVE
+  assert eurusd.units.pip_size == 0.0001
+  assert eurusd.units.price_digits == 5
+  assert eurusd.units.contract_units_per_lot == 100000.0
+  assert eurusd.units.pip_value_per_lot == 10.0
+  assert gbpjpy.units.pip_size == 0.01
+  assert gbpjpy.units.price_digits == 3
+  assert gbpjpy.units.contract_units_per_lot == 100000.0
+  assert gbpjpy.units.pip_value_per_lot == 7.0
+  assert xau.units.pip_value_per_lot == 10.0
+  assert eurusd.analysis.runtime.levels.round_step == 0.001
+  assert gbpjpy.analysis.runtime.levels.round_step == 0.1
+  assert eurusd.is_live()
+  assert eurusd.is_executable()
+  assert gbpjpy.is_live()
+  assert gbpjpy.is_executable()
+  assert cfg.instrument_for_broker_symbol("EURUSD").identity.canonical_symbol == "EURUSD"
+  assert cfg.instrument_for_broker_symbol("GBPJPY").identity.canonical_symbol == "GBPJPY"
 
 
 def test_for_instrument_case_normalization():

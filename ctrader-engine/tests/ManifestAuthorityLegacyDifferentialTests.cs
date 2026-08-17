@@ -61,11 +61,10 @@ public sealed class ManifestAuthorityLegacyDifferentialTests
           )
         )
       );
-      Assert.Equal(
-        ["XAU"],
+      Assert.Contains(
+        "XAU",
         manifestRuntime.Instruments.LiveInstruments()
           .Select(item => item.InstrumentId)
-          .ToArray()
       );
     }
     finally

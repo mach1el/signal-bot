@@ -21,16 +21,28 @@ pytestmark = pytest.mark.no_database
 _CONFIG = Path(__file__).resolve().parents[3] / "config" / "trading-bot.yml"
 
 
-def test_manifest_v2_has_instrument_runtimes_xau_only():
+def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   payload = build_resolved_runtime_manifest(config_file=str(_CONFIG))
   assert payload["manifest_version"] == MANIFEST_VERSION == 2
-  assert payload["live_instruments"] == ["XAU"]
-  assert set(payload["instrument_runtimes"]) == {"XAU"}
+  assert payload["live_instruments"] == ["EURUSD", "GBPJPY", "XAU"]
+  assert set(payload["instrument_runtimes"]) == {"EURUSD", "GBPJPY", "XAU"}
   xau = payload["instrument_runtimes"]["XAU"]
   assert xau["rollout"] == "live"
   assert xau["feed"]["ctrader_symbol"] == "XAUUSD"
   assert xau["feed"]["redis_symbol"] == "XAU"
   assert xau["units"]["pip_size"] == "0.1"
+  assert xau["units"]["pip_value_per_lot"] == "10"
+  eurusd = payload["instrument_runtimes"]["EURUSD"]
+  assert eurusd["rollout"] == "live"
+  assert eurusd["feed"]["ctrader_symbol"] == "EURUSD"
+  assert eurusd["feed"]["redis_symbol"] == "EURUSD"
+  assert eurusd["units"]["pip_size"] == "0.0001"
+  assert eurusd["units"]["pip_value_per_lot"] == "10"
+  gbpjpy = payload["instrument_runtimes"]["GBPJPY"]
+  assert gbpjpy["rollout"] == "live"
+  assert gbpjpy["feed"]["ctrader_symbol"] == "GBPJPY"
+  assert gbpjpy["units"]["pip_size"] == "0.01"
+  assert gbpjpy["units"]["pip_value_per_lot"] == "7"
   # Deprecated compatibility projections remain and match XAU runtime.
   assert payload["feed"] == xau["feed"]
   assert payload["auto_trade"]["targets_pips"] == xau["auto_trade"]["targets_pips"]

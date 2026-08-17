@@ -52,7 +52,7 @@ def test_manifest_deterministic_and_secret_safe(tmp_path):
   ):
     assert sentinel not in blob
   assert first["instruments"]["XAU"]["identity"]["rollout"] == "live"
-  assert first["live_instruments"] == ["XAU"]
+  assert first["live_instruments"] == ["EURUSD", "GBPJPY", "XAU"]
   out = tmp_path / "resolved-runtime.json"
   write_manifest_atomic(first, out)
   loaded = load_manifest_file(out)
