@@ -7,13 +7,17 @@ ENV-authoritative**.
 ## Absolute production boundary
 
 ```text
-live instruments = XAU only
-CTRADER_CONFIGURATION_SOURCE = environment
-CTRADER_MANIFEST_PARITY_MODE = enforce
+live instruments = XAU + EURUSD + GBPJPY
+feed instruments = XAU + EURUSD + GBPJPY
+CTRADER_CONFIGURATION_SOURCE = manifest
+CTRADER_MANIFEST_PARITY_MODE = off
 ```
 
-Do not combine configuration-source cutover, multi-symbol architecture, and
-second-symbol activation into one production change.
+EURUSD and GBPJPY are demo-live with their own pip/lot/zone geometry.
+Do not inherit XAU dollar merge/round/FVG widths onto FX.
+
+XAU remains required in `live_instruments`. Additional live symbols are
+allowed after explicit trading-policy review.
 
 ## Account-level architecture
 
@@ -25,7 +29,7 @@ CTraderAccountRuntimeHost / FeedRunner
 ├── one account reconciliation coordinator (AccountRiskCoordinator)
 ├── one candidate stream consumer
 └── InstrumentRuntimeRegistry
-    └── InstrumentRuntime (XAU live today; future symbols gated by rollout)
+    └── InstrumentRuntime (XAU, EURUSD, GBPJPY live on demo)
 ```
 
 ## Instrument runtime registry

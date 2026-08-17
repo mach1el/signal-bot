@@ -170,7 +170,10 @@ public sealed class ManifestAuthorityCutoverTests : IDisposable
     Assert.NotEqual("WRONG", runtime.Feed.CTraderSymbol);
     Assert.NotEqual(999m, runtime.AutoTrade.RiskPercent);
     Assert.NotEqual(999m, runtime.AutoTrade.StopLossDistance);
-    Assert.Equal(["XAU"], runtime.Instruments.LiveInstruments().Select(i => i.InstrumentId));
+    Assert.Equal(
+      ["EURUSD", "GBPJPY", "XAU"],
+      runtime.Instruments.LiveInstruments().Select(i => i.InstrumentId).ToArray()
+    );
     Assert.True(runtime.ManifestValidationEnforced);
     Assert.Equal(2, runtime.ManifestVersion);
   }
@@ -250,7 +253,7 @@ public sealed class ManifestAuthorityCutoverTests : IDisposable
     };
     var json = System.Text.Json.JsonSerializer.Serialize(artifact);
     Assert.Contains("\"differences\":0", json, StringComparison.Ordinal);
-    Assert.Equal(["XAU"], artifact.live_instruments);
+    Assert.Equal(["EURUSD", "GBPJPY", "XAU"], artifact.live_instruments);
   }
 
   [Fact]
