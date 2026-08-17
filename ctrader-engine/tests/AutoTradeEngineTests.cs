@@ -3045,6 +3045,46 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoFillAmendsAbsoluteVipStopAfterBetterFill()
+  {
+    // Live 2026-08-17 XAU #64: BUY zone 4385-4388, posted SL 4382. Limit sat
+    // at zone high; fill 4385.85 made the relative broker SL drift to ~4378.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "BUY",
+      entryLow: 4385.0m,
+      entryHigh: 4388.0m,
+      manualStopLoss: 4382.0m
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4390.0m, 4390.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    var placed = Assert.Single(client.LimitOrders);
+    Assert.Equal(4388.0m, placed.LimitPrice);
+    client.FillPendingOrder(Assert.Single(client.PendingOrders).OrderId, 4385.85m);
+    now = Now.AddSeconds(16);
+    await WaitForEventAsync(store, "manual_opened");
+
+    var opened = store.Events.Single(item => item.Type == "manual_opened");
+    Assert.Equal(4382.0m, opened.StopLoss);
+    Assert.Equal(4382.0m, Assert.Single(store.Positions.Values).CurrentStopLoss);
+    Assert.Contains(
+      client.StopAmendments,
+      item => item.StopLoss == 4382.0m
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoPendingExposureAndDuplicateRemainCandidateScoped()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -5740,21 +5780,23 @@ public sealed partial class AutoTradeEngineTests
     public void RemovePosition(long positionId) =>
       _positions.RemoveAll(position => position.PositionId == positionId);
 
-    public void FillPendingOrder(long orderId)
+    public void FillPendingOrder(long orderId, decimal? fillPrice = null)
     {
       var pending = PendingOrders.Single(order => order.OrderId == orderId);
       var request = LimitOrders.Single(order => order.Comment == pending.Comment);
       PendingOrders.Remove(pending);
+      var fill = fillPrice ?? request.LimitPrice;
       var distance = request.RelativeStopLoss / 100_000m;
+      // cTrader applies RelativeStopLoss from the fill, not the limit.
       var stopLoss = request.Direction == TradeDirection.Buy
-        ? request.LimitPrice - distance
-        : request.LimitPrice + distance;
+        ? fill - distance
+        : fill + distance;
       _positions.Add(new TradingPosition(
         _nextPositionId++,
         request.SymbolId,
         request.Direction,
         request.Volume,
-        request.LimitPrice,
+        fill,
         stopLoss,
         request.Label,
         request.Comment,
