@@ -38,11 +38,13 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert eurusd["feed"]["redis_symbol"] == "EURUSD"
   assert eurusd["units"]["pip_size"] == "0.0001"
   assert eurusd["units"]["pip_value_per_lot"] == "10"
+  assert float(eurusd["units"]["lot_multiplier"]) == 3.0
   gbpjpy = payload["instrument_runtimes"]["GBPJPY"]
   assert gbpjpy["rollout"] == "live"
   assert gbpjpy["feed"]["ctrader_symbol"] == "GBPJPY"
   assert gbpjpy["units"]["pip_size"] == "0.01"
   assert gbpjpy["units"]["pip_value_per_lot"] == "7"
+  assert float(gbpjpy["units"]["lot_multiplier"]) == 3.0
   assert xau["units"]["volume_units_per_lot"] == 10000
   assert eurusd["units"]["volume_units_per_lot"] == 10000000
   assert gbpjpy["units"]["volume_units_per_lot"] == 10000000

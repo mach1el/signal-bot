@@ -116,6 +116,31 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
   assert _valid_match(match)
 
 
+def test_build_hfs_fx_publishes_single_two_r_target():
+  from dataclasses import replace
+
+  opp = replace(
+    _opp(),
+    symbol="EURUSD",
+    expected_target_pips=30.0,
+    expected_target_price=1.1630,
+    expected_stop_pips=15.0,
+    expected_reward_risk=2.0,
+    zone_low=1.1600,
+    zone_high=1.1605,
+    key_level=1.1602,
+    trigger_price=1.1602,
+    invalidation_price=1.1585,
+  )
+  ctx = replace(_ctx(), symbol="EURUSD")
+  match = build_hfs_strategy_match(
+    opp, ctx, bar_ts=120, quote_bid=1.1601, quote_ask=1.1602,
+  )
+  assert match.targets_pips == (30,)
+  assert match.full_take_profit_pips == 30
+  assert _valid_match(match)
+
+
 def test_build_hfs_1to1_stays_single_full_exit():
   from dataclasses import replace
   opp = replace(
