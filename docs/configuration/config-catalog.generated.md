@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `fc98c417552a4b287008435e5df8a9b6b198f7a6a797ff982f5fb1b4b8988ceb`
-- Document fingerprint: `b9dbe60567b4b77a4737778c3b26b511881f05d0e90c7cb333e530a933f15e5d`
-- Items: `520`
+- Contract fingerprint: `0440df81e1e672947a5943b69e3a6dc30642e66f0ce073d0ab63e4c1c17be30e`
+- Document fingerprint: `c2398f84a01af2faa808822952cc8e502af9d8813196d4bddaeb7a6d7b80bf05`
+- Items: `525`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -31,6 +31,9 @@
 | `actionability.entry_location.trend_pullback.sell_minimum_position` | `ENTRY_LOCATION_TREND_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.3` |
 | `actionability.gates.edge_proximity_atr` | `AUTO_TRADE_EDGE_PROXIMITY_ATR` | `float` | `atr` | `configurable` | `0.5` |
 | `actionability.gates.eq_exclusion_fraction` | `AUTO_TRADE_EQ_EXCLUSION_FRACTION` | `float` | `fraction` | `configurable` | `0.15` |
+| `actionability.gates.event_cluster_guard_enabled` | `AUTO_TRADE_EVENT_CLUSTER_GUARD_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
+| `actionability.gates.event_cluster_guard_minutes` | `AUTO_TRADE_EVENT_CLUSTER_GUARD_MINUTES` | `int` | `minutes` | `configurable` | `180` |
+| `actionability.gates.event_cluster_span_hours` | `AUTO_TRADE_EVENT_CLUSTER_SPAN_HOURS` | `int` | `hours` | `configurable` | `48` |
 | `actionability.gates.htf_veto_enabled` | `AUTO_TRADE_HTF_VETO_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `actionability.gates.market_map_guard_enabled` | `AUTO_TRADE_MARKET_MAP_GUARD_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `actionability.gates.max_entry_atr` | `MAX_ENTRY_ATR` | `float` | `atr` | `configurable` | `2.0` |
@@ -430,6 +433,8 @@
 |---|---|---|---|---|---|
 | `risk.exposure.allow_concurrent_strategies` | `AUTO_TRADE_ALLOW_CONCURRENT_STRATEGIES` | `bool` | `boolean` | `configurable` | `false` |
 | `risk.exposure.allow_hedged_xau` | `AUTO_TRADE_ALLOW_HEDGED_XAU` | `bool` | `boolean` | `configurable` | `false` |
+| `risk.exposure.defended_level_buffer_price` | `AUTO_TRADE_DEFENDED_LEVEL_BUFFER_PRICE` | `float` | `price` | `configurable` | `0.0` |
+| `risk.exposure.defended_levels` | `AUTO_TRADE_DEFENDED_LEVELS` | `str` | `string` | `configurable` | `""` |
 | `risk.exposure.non_hedged_opposite_policy` | `AUTO_TRADE_NON_HEDGED_OPPOSITE_POLICY` | `str` | `enum` | `configurable` | `"reject"` |
 | `risk.exposure.opposing_minimum_separation_price` | `AUTO_TRADE_OPPOSING_ACTIVE_MIN_PRICE` | `float` | `price` | `configurable` | `15.0` |
 | `risk.exposure.require_flat_for_range` | `AUTO_TRADE_REQUIRE_FLAT_FOR_RANGE` | `bool` | `boolean` | `configurable` | `true` |

@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `fc98c417552a4b287008435e5df8a9b6b198f7a6a797ff982f5fb1b4b8988ceb`
-- Environment-bound fields: `453`
+- Contract fingerprint: `0440df81e1e672947a5943b69e3a6dc30642e66f0ce073d0ab63e4c1c17be30e`
+- Environment-bound fields: `458`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -46,6 +46,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_CANONICAL_SYMBOL` | `contract.instrument.canonical_symbol` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_CONFLUENCE_ZONE_ENABLED` | `strategies.technique.confluence.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_CONTRACT_MODE` | `contract.mode` | `str` | no | yes | — | `v8_only` |
+| `AUTO_TRADE_DEFENDED_LEVELS` | `risk.exposure.defended_levels` | `str` | no | no | — | `` |
+| `AUTO_TRADE_DEFENDED_LEVEL_BUFFER_PRICE` | `risk.exposure.defended_level_buffer_price` | `float` | no | no | — | `0.0` |
 | `AUTO_TRADE_DEMAND_REACTION_ENABLED` | `strategies.reaction.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `strategies.zone.demand.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_DIRECT_PUBLISH_ENABLED` | `runtime.auto_trade.direct_publish_enabled` | `bool` | no | no | — | `True` |
@@ -56,6 +58,9 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_ENTRY_CONTRACT_TOLERANCE_PIPS` | `execution.entry.contract_tolerance_pips` | `float` | no | yes | — | `3.0` |
 | `AUTO_TRADE_EQUITY_TABLE_VERSION` | `risk.sizing.equity_table_version` | `str` | no | yes | — | `owner_equity_v1` |
 | `AUTO_TRADE_EQ_EXCLUSION_FRACTION` | `actionability.gates.eq_exclusion_fraction` | `float` | no | no | — | `0.15` |
+| `AUTO_TRADE_EVENT_CLUSTER_GUARD_ENABLED` | `actionability.gates.event_cluster_guard_enabled` | `bool` | no | no | — | `False` |
+| `AUTO_TRADE_EVENT_CLUSTER_GUARD_MINUTES` | `actionability.gates.event_cluster_guard_minutes` | `int` | no | no | — | `180` |
+| `AUTO_TRADE_EVENT_CLUSTER_SPAN_HOURS` | `actionability.gates.event_cluster_span_hours` | `int` | no | no | — | `48` |
 | `AUTO_TRADE_EVENT_STREAM` | `contract.streams.events` | `str` | no | yes | — | `auto_trade:events` |
 | `AUTO_TRADE_EXECUTION_COST_PIPS` | `execution.policy.execution_cost_pips` | `float` | no | no | — | `1.0` |
 | `AUTO_TRADE_EXECUTION_ZONE_MAX_WIDTH_ATR` | `execution.policy.execution_zone_max_width_atr` | `float` | no | yes | — | `2.0` |
