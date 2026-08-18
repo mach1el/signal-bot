@@ -6,13 +6,13 @@ cTrader manifest-authoritative.
 ## Absolute production boundary
 
 ```text
-live instruments = XAU + EURUSD + GBPJPY
-feed instruments = XAU + EURUSD + GBPJPY
+live instruments = XAU + EURUSD + GBPJPY + USDJPY
+feed instruments = XAU + EURUSD + GBPJPY + USDJPY
 CTRADER_CONFIGURATION_SOURCE = manifest
 CTRADER_MANIFEST_PARITY_MODE = off
 ```
 
-EURUSD and GBPJPY are demo-live with their own pip/lot/zone geometry.
+EURUSD, GBPJPY, and USDJPY are demo-live with their own pip/lot/zone geometry.
 Do not inherit XAU dollar merge/round/FVG widths onto FX.
 
 XAU remains required in `live_instruments`. Additional live symbols are
@@ -24,9 +24,9 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 - XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
   and gold stop geometry remain unchanged.
-- EURUSD and GBPJPY use `fx_fixed_2r_v1`: a structural 12–25 pip
-  reaction/trend stop and three targets at 1R, 1.5R, and exactly 2R from
-  the final planned entry and protective stop.
+- EURUSD, GBPJPY, and USDJPY use `fx_fixed_2r_v1`: a structural stop
+  (instrument-tuned, roughly 10–30 pips) and three targets at 1R, 1.5R,
+  and exactly 2R from the final planned entry and protective stop.
 - FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R.
   TP1 enables protected break-even; booking 1.5R trails the runner to 1R.
 - Broker-step rules may defer an undersized partial to a later target; they
@@ -61,7 +61,7 @@ CTraderAccountRuntimeHost / FeedRunner
 ├── one account reconciliation coordinator (AccountRiskCoordinator)
 ├── one candidate stream consumer
 └── InstrumentRuntimeRegistry
-    └── InstrumentRuntime (XAU, EURUSD, GBPJPY live on demo)
+    └── InstrumentRuntime (XAU, EURUSD, GBPJPY, USDJPY live on demo)
 ```
 
 ## Instrument runtime registry

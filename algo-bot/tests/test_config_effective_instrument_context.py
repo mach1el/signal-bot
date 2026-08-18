@@ -109,8 +109,8 @@ def test_production_yaml_xau_effective_parity():
   assert "XAUUSD" in effective.identity.aliases
   for name, (left, right) in _parity_payload(cfg, effective).items():
     assert left == right, name
-  assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "XAU")
-  assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "XAU")
+  assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "USDJPY", "XAU")
+  assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "USDJPY", "XAU")
   assert cfg.instrument_for_broker_symbol("xauusd").identity.canonical_symbol == "XAU"
 
 
