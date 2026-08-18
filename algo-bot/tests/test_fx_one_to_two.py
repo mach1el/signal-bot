@@ -167,6 +167,7 @@ def test_fx_technique_route_uses_two_entry_clips_not_five():
     zone_high=1.1004,
     atr=0.0008,
     zone_fill_enabled=True,
+    digits=5,
     strategy="FVG",
     strategy_family="zone",
     entry_clips=2,

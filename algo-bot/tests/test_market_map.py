@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 import random
 from types import SimpleNamespace
 
@@ -27,6 +28,9 @@ from app.analysis.regime import BoxBreak
 from app.analysis.scalp_ranges import ScalpBarrier, ScalpRange
 from app.analysis.trendlines import Trendline
 from app.analysis.zones import reconcile_opposing
+from app.configuration.python_loader import load_python_canonical_settings
+from app.configuration.python_sources import load_python_runtime_source_bundle
+from app.configuration.source_policy import PythonConfigurationSourcePolicy
 from tests.configuration.canonical_fixtures import market_map_cfg as _cfg
 
 
@@ -882,6 +886,59 @@ def test_scalp_rails_reject_narrow_weak_broken_or_distant_pairs(
   )
 
   assert build_map(_ctx({"M5": item}), scalp_range.eq, cfg).rails == []
+
+
+@pytest.mark.no_database
+def test_eurusd_map_uses_instrument_price_geometry_and_digits():
+  config_file = Path(__file__).resolve().parents[2] / "config" / "trading-bot.yml"
+  root_cfg = load_python_canonical_settings(
+    load_python_runtime_source_bundle(
+      policy=PythonConfigurationSourcePolicy(config_file=str(config_file)),
+    ),
+  ).config
+  index = pd.date_range("2026-08-18", periods=3, freq="5min", tz="UTC")
+  df = pd.DataFrame(
+    {
+      "open": [1.08500, 1.08520, 1.08535],
+      "high": [1.08540, 1.08555, 1.08560],
+      "low": [1.08480, 1.08500, 1.08520],
+      "close": [1.08520, 1.08535, 1.08543],
+      "volume": [100, 100, 100],
+    },
+    index=index,
+  )
+  item = _item(
+    [
+      Zone(1.08380, 1.08430, "demand", source="order_block", score=9),
+      Zone(1.08620, 1.08670, "supply", source="supply_demand", score=9),
+    ],
+    df=df,
+  )
+  item.atr = pd.Series([0.00050] * len(df), index=df.index)
+  ctx = SimpleNamespace(
+    per_tf={"M5": item},
+    htf_bias="up",
+    dealing_range=DealingRange(1.08700, 1.08300, 1.08500, 0.6, "premium"),
+    regime=SimpleNamespace(range_low=1.08300, range_high=1.08700),
+  )
+
+  market_map = build_map(ctx, 1.08543, root_cfg, symbol="EURUSD")
+  text = render_market_map(
+    market_map,
+    "EURUSD",
+    datetime(2026, 8, 18, 8, 0, tzinfo=timezone.utc),
+    root_cfg,
+  )
+
+  assert any(
+    entry.label_lo == pytest.approx(1.08380)
+    and entry.label_hi == pytest.approx(1.08430)
+    for entry in market_map.buys
+  )
+  assert all(entry.hi - entry.lo <= 0.0015 + 1e-12 for entry in market_map.entries)
+  assert "EURUSD Market Map · 08:00 · price 1.08543" in text
+  assert "1.0838–1.0843" in text
+  assert "price 1\n" not in text
 
 
 def test_major_requires_htf_plus_fresh_or_score_and_pdh_only_stays_zone():
