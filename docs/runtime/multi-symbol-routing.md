@@ -24,9 +24,15 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 - XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
   and gold stop geometry remain unchanged.
-- EURUSD and GBPJPY use `fx_fixed_2r_v1`: a structural 12–25 pip
-  reaction/trend stop and three targets at 1R, 1.5R, and exactly 2R from
-  the final planned entry and protective stop.
+- EURUSD and GBPJPY use `fx_fixed_2r_v1` plus a **named reaction session**,
+  **stop envelope**, **activation**, and **price scale**. Policy locks
+  1R / 1.5R / 2R at 25/25/50; the envelope is pair-scale (EURUSD 10–18 pips,
+  GBPJPY 15–30). Do not copy dotted stop or geometry paths per pair.
+- A new live FX instrument declares `policy`, `reaction_session`
+  (`london_ny` or `tokyo_london`, or a raw `7-11,13-16` list),
+  `stop_envelope`, `activation`, and `price_scale`. Register a new session
+  name in `REGISTERED_REACTION_SESSIONS` instead of duplicating hour strings.
+  `overrides` remains an escape hatch for a single leaf.
 - FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R.
   TP1 enables protected break-even; booking 1.5R trails the runner to 1R.
 - Broker-step rules may defer an undersized partial to a later target; they
@@ -37,6 +43,16 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 ```yaml
 policy: fx_fixed_2r_v1
+reaction_session: london_ny   # or tokyo_london
+stop_envelope: {min_pips: 10, max_pips: 18, sl_distance: 0.0018}
+activation: {require_sweep_body: true, trigger_maximum_age_bars: 3, max_spread_pips: 1}
+price_scale:
+  round_step: 0.001
+  market_map: {change_min: 0.0001, fallback_radius_price: 0.01, scalp_radius_price: 0.006}
+  zone_merge_gap_price: 0.0005
+  zone_merge_max_width: 0.0015
+  opposing_minimum_separation_price: 0.0015
+  fvg_entry_max_width_price: 0.0015
 targeting:
   mode: fixed_rr
   reward_risk: 2.0
@@ -44,12 +60,14 @@ targeting:
   close_ratios: [0.25, 0.25, 0.50]
   trail_after_r: 1.5
   trail_to_r: 1.0
+  entry_clips: 2
 ```
 
 The target is computed only after the entry route and protective stop are
 final. If the nearest credible opposing structure cannot provide 2R of room,
 the plan fails closed instead of shrinking the target. New FX instruments must
-declare this policy and targeting block; symbol-name hard-coding is not used.
+declare this policy, targeting block, `reaction_session`, `stop_envelope`,
+`activation`, and `price_scale`; symbol-name hard-coding is not used.
 
 ## Account-level architecture
 

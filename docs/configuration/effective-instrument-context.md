@@ -106,8 +106,10 @@ Unknown policies fail closed. When omitted for XAU, the resolver binds
 `xau_current_v1` deterministically.
 
 Sparse `instruments.<ID>.overrides` may override dotted catalog paths after
-policy selection. Overrides win over the inherited global/policy values for the
-effective context only; they do not mutate the shared root in place.
+policy selection. Named packs (`reaction_session`, `stop_envelope`,
+`activation`, `price_scale`) expand first; explicit overrides win over the
+pack and over inherited global/policy values for the effective context only.
+They do not mutate the shared root in place.
 
 ## Override rules
 
