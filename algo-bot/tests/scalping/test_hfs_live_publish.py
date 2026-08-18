@@ -118,6 +118,9 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
 
 def test_build_hfs_fx_publishes_single_two_r_target():
   from dataclasses import replace
+  from tests.test_config_effective_instrument_context import (
+    _load_production_example,
+  )
 
   opp = replace(
     _opp(),
@@ -134,7 +137,12 @@ def test_build_hfs_fx_publishes_single_two_r_target():
   )
   ctx = replace(_ctx(), symbol="EURUSD")
   match = build_hfs_strategy_match(
-    opp, ctx, bar_ts=120, quote_bid=1.1601, quote_ask=1.1602,
+    opp,
+    ctx,
+    bar_ts=120,
+    quote_bid=1.1601,
+    quote_ask=1.1602,
+    cfg=_load_production_example().config,
   )
   assert match.targets_pips == (30,)
   assert match.full_take_profit_pips == 30

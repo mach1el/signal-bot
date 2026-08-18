@@ -90,6 +90,35 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
+  public void ExplicitFxTrailMovesToOneRAfterOnePointFiveRIsBooked()
+  {
+    var plan = MarketWatchPlan() with
+    {
+      Management = new TradePlanManagement(
+        "TP1",
+        6,
+        true,
+        TrailAfterTargetId: "TP2",
+        TrailToTargetId: "TP1"
+      ),
+    };
+
+    TradePlanValidator.Validate(plan);
+    Assert.Equal(
+      -1,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 2, highestBookedTargetIndex: 0
+      )
+    );
+    Assert.Equal(
+      0,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 2, highestBookedTargetIndex: 1
+      )
+    );
+  }
+
+  [Fact]
   public void MarketWatchWaitsWhenAskOutsideZone()
   {
     var plan = MarketWatchPlan();
@@ -279,29 +308,6 @@ public sealed class TradePlanExecutionEngineTests
 
     // LotsForEquity(800)=0.10 → ×1 = 0.10 lots → 1000 volume units.
     Assert.Equal(1_000, result.TotalVolume);
-  }
-
-  [Fact]
-  public void CalculateVolumeAppliesInstrumentLotMultiplier()
-  {
-    var plan = MarketWatchPlan() with
-    {
-      Risk = new TradePlanRisk(1.0m, 1.0m, 100_000_000, 2.0m),
-    };
-    var fx = Symbol with
-    {
-      LotSize = 10_000_000,
-      Digits = 5,
-      MaxVolume = 100_000_000,
-    };
-
-    var result = TradePlanExecutionEngine.CalculateVolume(
-      plan, Account(1_300m), pipSize: 0.0001m, pipValuePerLot: 10m,
-      symbol: fx, lotMultiplier: 3m
-    );
-
-    // LotsForEquity(1300)=0.12 → ×3 = 0.36 lots → 3_600_000 volume units.
-    Assert.Equal(3_600_000, result.TotalVolume);
   }
 
   [Fact]

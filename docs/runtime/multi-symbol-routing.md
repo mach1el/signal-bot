@@ -1,8 +1,7 @@
 # Symbol-routed multi-instrument runtime
 
-PR3 introduces **symbol-routed multi-instrument runtime** support while keeping
-**XAU as the only production live instrument** and keeping **cTrader
-ENV-authoritative**.
+The runtime supports symbol-routed multi-instrument execution while keeping
+cTrader manifest-authoritative.
 
 ## Absolute production boundary
 
@@ -18,6 +17,39 @@ Do not inherit XAU dollar merge/round/FVG widths onto FX.
 
 XAU remains required in `live_instruments`. Additional live symbols are
 allowed after explicit trading-policy review.
+
+## Instrument execution policies
+
+Trading policy is explicit per instrument in `config/trading-bot.yml`:
+
+- XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
+  and gold stop geometry remain unchanged.
+- EURUSD and GBPJPY use `fx_fixed_2r_v1`: a structural 12–25 pip
+  reaction/trend stop and three targets at 1R, 1.5R, and exactly 2R from
+  the final planned entry and protective stop.
+- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R.
+  TP1 enables protected break-even; booking 1.5R trails the runner to 1R.
+- Broker-step rules may defer an undersized partial to a later target; they
+  never inflate a small close beyond its declared share.
+- FX keeps the existing equity sizing and strategy-specific risk multipliers.
+  The target policy adds no FX-only lot multiplier to compensate for a shorter
+  exit plan.
+
+```yaml
+policy: fx_fixed_2r_v1
+targeting:
+  mode: fixed_rr
+  reward_risk: 2.0
+  target_r_multiples: [1.0, 1.5, 2.0]
+  close_ratios: [0.25, 0.25, 0.50]
+  trail_after_r: 1.5
+  trail_to_r: 1.0
+```
+
+The target is computed only after the entry route and protective stop are
+final. If the nearest credible opposing structure cannot provide 2R of room,
+the plan fails closed instead of shrinking the target. New FX instruments must
+declare this policy and targeting block; symbol-name hard-coding is not used.
 
 ## Account-level architecture
 

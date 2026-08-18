@@ -49,9 +49,24 @@ public sealed class TradePlanRuntimeTests
     long expiresAt = 2_000_000_000,
     string strategy = "Trend Pullback",
     string strategyFamily = "trend_pullback",
-    string symbol = "XAU"
+    string symbol = "XAU",
+    string? targetsJson = null,
+    string? managementJson = null
   )
   {
+    targetsJson ??= """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4096.00", "close_ratio": "0.5"},
+        {"target_id": "TP2", "type": "absolute", "price": "4104.00", "close_ratio": "0.5"}
+      ]
+      """;
+    managementJson ??= """
+      {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      }
+      """;
     return $$"""
     {
       "version": 8,
@@ -103,10 +118,7 @@ public sealed class TradePlanRuntimeTests
         "structure_id": "zone-xau-4088-4090",
         "reason": "protective stop plan"
       },
-      "targets": [
-        {"target_id": "TP1", "type": "absolute", "price": "4096.00", "close_ratio": "0.5"},
-        {"target_id": "TP2", "type": "absolute", "price": "4104.00", "close_ratio": "0.5"}
-      ],
+      "targets": {{targetsJson}},
       "risk": {
         "risk_percent": "1.0",
         "risk_multiplier": "1.0",
@@ -119,11 +131,7 @@ public sealed class TradePlanRuntimeTests
         "entry_distribution": "single",
         "leg_ratios": []
       },
-      "management": {
-        "be_after_target_id": "TP1",
-        "be_buffer_ticks": 6,
-        "never_worsen_stop": true
-      },
+      "management": {{managementJson}},
       "execution_policy": {
         "allow_market": true,
         "allow_limit": false,
@@ -1396,6 +1404,74 @@ public sealed class TradePlanRuntimeTests
     var eventTypes = store.Events.Select(e => e.Type).ToArray();
     Assert.Contains("tp_booked", eventTypes);
     Assert.Contains("sl_moved", eventTypes);
+  }
+
+  [Fact]
+  public async Task FxOnePointFiveRBooksThenTrailsRunnerToOneR()
+  {
+    var targets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.25"},
+        {"target_id": "TP2", "type": "absolute", "price": "4093.50", "close_ratio": "0.25"},
+        {"target_id": "TP3", "type": "absolute", "price": "4095.00", "close_ratio": "0.50"}
+      ]
+      """;
+    var management = """
+      {
+        "be_after_target_id": "TP1",
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true,
+        "trail_after_target_id": "TP2",
+        "trail_to_target_id": "TP1"
+      }
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      stopPrice: 4086.00m,
+      targetsJson: targets,
+      managementJson: management
+    ));
+    var client = new FakeV7TradingClient { AccountBalance = 3000m };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4089.05m, 4089.10m, 1),
+      CancellationToken.None
+    );
+    Assert.Equal(4086.00m, Assert.Single(client.StopAmendments).StopLoss);
+
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4092.05m, 4092.10m, 2),
+      CancellationToken.None
+    );
+    var afterOneR = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(0, afterOneR.HighestBookedTargetIndex);
+    Assert.True(afterOneR.BreakEvenApplied);
+    Assert.Equal(2, client.StopAmendments.Count);
+    Assert.Equal(4089.06m, client.StopAmendments[^1].StopLoss);
+
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4093.55m, 4093.60m, 3),
+      CancellationToken.None
+    );
+    var afterOnePointFiveR = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(1, afterOnePointFiveR.HighestBookedTargetIndex);
+    Assert.Equal(2, client.Closes.Count);
+    Assert.Equal(3, client.StopAmendments.Count);
+    Assert.Equal(4092.00m, client.StopAmendments[^1].StopLoss);
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "sl_moved"
+        && item.Message.Contains("trail TP1")
+    );
   }
 
   [Fact]
