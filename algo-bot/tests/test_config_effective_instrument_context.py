@@ -139,7 +139,9 @@ def test_production_yaml_fx_live_executable_units():
   assert eurusd.units.plan_max_volume() == 100_000_000
   assert gbpjpy.units.plan_max_volume() == 100_000_000
   assert eurusd.policy_name == FX_FIXED_2R_V1_POLICY
-  assert gbpjpy.policy_name == FX_FIXED_2R_V1_POLICY
+  # GBPJPY front-loads partials (fx_fixed_2r_frontload_v1, 2026 dig: ATR
+  # ~180 pips/day vs EURUSD's ~70) -- same 2R contract, different split.
+  assert gbpjpy.policy_name == "fx_fixed_2r_frontload_v1"
   assert eurusd.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert eurusd.targeting.reward_risk == 2.0
@@ -147,7 +149,7 @@ def test_production_yaml_fx_live_executable_units():
   assert eurusd.targeting.target_r_multiples == (1.0, 1.5, 2.0)
   assert gbpjpy.targeting.target_r_multiples == (1.0, 1.5, 2.0)
   assert eurusd.targeting.close_ratios == (0.25, 0.25, 0.50)
-  assert gbpjpy.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert gbpjpy.targeting.close_ratios == (0.40, 0.25, 0.35)
   assert eurusd.targeting.trail_after_r == 1.5
   assert gbpjpy.targeting.trail_after_r == 1.5
   assert eurusd.targeting.trail_to_r == 1.0

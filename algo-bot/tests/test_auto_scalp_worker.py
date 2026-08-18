@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from app.autotrade import worker
+from app.core import instrument_geometry
 from app.persistence import redis_state
 from app.analysis import scanner
 from app.autotrade.gate import AutoScalpBox, AutoScalpDecision, AutoScalpRail
@@ -1578,6 +1579,147 @@ def test_opposing_barrier_condition_containment_has_its_own_counter(monkeypatch)
 
   assert return_value == "entry_inside_opposing_zone"
   assert return_value != "opposing_barrier"
+
+
+def test_instrument_currencies_splits_six_letter_fx_pair():
+  assert worker._instrument_currencies("GBPJPY") == ("GBP", "JPY")
+  assert worker._instrument_currencies("eurusd") == ("EUR", "USD")
+  assert worker._instrument_currencies("XAU") is None
+  assert worker._instrument_currencies("XA1JPY") is None
+
+
+@pytest.mark.asyncio
+async def test_event_cluster_guard_noop_when_disabled(monkeypatch):
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={"actionability.gates.event_cluster_guard_enabled": False},
+  )
+  blow_up = AsyncMock(side_effect=AssertionError("must not query when disabled"))
+  monkeypatch.setattr(worker, "nearest_currency_event", blow_up)
+
+  hit = await worker._event_cluster_guard("GBPJPY", 1_780_000_000)
+
+  assert hit is None
+  blow_up.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_event_cluster_guard_fires_when_both_currencies_have_events(
+  monkeypatch,
+):
+  # 2026 dig: a BoE print and a BoJ statement in the same 48h window
+  # compound GBPJPY volatility rather than adding it.
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "actionability.gates.event_cluster_guard_enabled": True,
+      "actionability.gates.event_cluster_span_hours": 48,
+      "actionability.gates.event_cluster_guard_minutes": 180,
+    },
+  )
+  now = 1_780_000_000
+  gbp_event = {"ts_utc": now + 3600, "currency": "GBP", "title": "BoE CPI"}
+  jpy_event = {"ts_utc": now - 1800, "currency": "JPY", "title": "BoJ Policy"}
+
+  async def fake_nearest(currency, start, end, anchor):
+    return gbp_event if currency == "GBP" else jpy_event
+
+  monkeypatch.setattr(worker, "nearest_currency_event", fake_nearest)
+
+  hit = await worker._event_cluster_guard("GBPJPY", now)
+
+  assert hit == jpy_event  # nearer to `now` than the GBP event
+
+
+@pytest.mark.asyncio
+async def test_event_cluster_guard_noop_when_only_one_currency_has_an_event(
+  monkeypatch,
+):
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={"actionability.gates.event_cluster_guard_enabled": True},
+  )
+  now = 1_780_000_000
+
+  async def fake_nearest(currency, start, end, anchor):
+    return {"ts_utc": now, "currency": "GBP"} if currency == "GBP" else None
+
+  monkeypatch.setattr(worker, "nearest_currency_event", fake_nearest)
+
+  hit = await worker._event_cluster_guard("GBPJPY", now)
+
+  assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_news_guard_hit_falls_back_to_single_event_window(monkeypatch):
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={"actionability.gates.event_cluster_guard_enabled": False},
+  )
+  single_event = {"ts_utc": 1_780_000_000, "currency": "USD"}
+  monkeypatch.setattr(
+    worker, "event_in_window", AsyncMock(return_value=single_event),
+  )
+
+  hit = await worker._news_guard_hit("EURUSD", 1_780_000_000)
+
+  assert hit == single_event
+
+
+def test_defended_level_guard_blocks_within_buffer(monkeypatch):
+  # 2026 dig: a record ~Y11.73T joint US/Japan intervention hit specifically
+  # when USDJPY breached 160 -- dollar snapped 163->~156-157, a 600+ pip
+  # reversal. Spot was ~159.47 when this guard was added.
+  monkeypatch.setattr(
+    instrument_geometry, "defended_levels", lambda symbol: (160.0,),
+  )
+  monkeypatch.setattr(
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 1.0,
+  )
+
+  decision = worker._defended_level_guard(
+    "USDJPY", 159.47, guard_mode=worker.GUARD_MODE_OBSERVE,
+  )
+
+  assert decision.hard_block is True
+  assert decision.reason_code == "entry_near_defended_level"
+  # Unconditional even in observe mode -- see _defended_level_guard's
+  # hard_geometry=True docstring for why it can't defer to guard_mode.
+  decision_strict = worker._defended_level_guard(
+    "USDJPY", 159.47, guard_mode=worker.GUARD_MODE_STRICT,
+  )
+  assert decision_strict.hard_block is True
+
+
+def test_defended_level_guard_allows_outside_buffer(monkeypatch):
+  monkeypatch.setattr(
+    instrument_geometry, "defended_levels", lambda symbol: (160.0,),
+  )
+  monkeypatch.setattr(
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 1.0,
+  )
+
+  decision = worker._defended_level_guard(
+    "USDJPY", 155.0, guard_mode=worker.GUARD_MODE_OBSERVE,
+  )
+
+  assert decision.hard_block is False
+  assert decision.reason_code == "no_defended_level_nearby"
+
+
+def test_defended_level_guard_noop_when_unconfigured(monkeypatch):
+  monkeypatch.setattr(instrument_geometry, "defended_levels", lambda symbol: ())
+  monkeypatch.setattr(
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 0.0,
+  )
+
+  decision = worker._defended_level_guard(
+    "EURUSD", 1.16, guard_mode=worker.GUARD_MODE_OBSERVE,
+  )
+
+  assert decision.hard_block is False
+  assert decision.reason_code == "no_defended_level_configured"
 
 
 @pytest.mark.asyncio
