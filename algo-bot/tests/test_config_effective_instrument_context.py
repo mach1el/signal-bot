@@ -152,6 +152,8 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.targeting.trail_after_r == 1.5
   assert eurusd.targeting.trail_to_r == 1.0
   assert gbpjpy.targeting.trail_to_r == 1.0
+  assert eurusd.targeting.entry_clips == 2
+  assert gbpjpy.targeting.entry_clips == 2
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
   assert float(eurusd.execution.range.min_rr) == 2.0

@@ -114,6 +114,65 @@ def test_position_closed_labels_manual_or_external_close():
     "reason_code": "manual_or_external_close",
   })
   assert "Closed manually on platform" in closed
+  assert "Closed by broker SL/TP" not in closed
+
+
+def test_position_closed_manual_close_reports_winning_pips():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": "PLAN CLOSED · manual_or_external · winning 18 pips · @ 4094.50",
+    "reason_code": "manual_or_external_close",
+    "group_realized_pips": 18.0,
+    "price": 4094.50,
+  })
+  assert "Closed manually on platform" in closed
+  assert "Winning:" in closed
+  assert "+18.0 pips" in closed
+  assert "@ <b>4094.50</b>" in closed
+
+
+def test_algo_auto_manual_close_does_not_invent_stop_loss():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": (
+      "position closed at broker: manual or external order · winning 18.0 pips"
+    ),
+    "reason_code": "manual_or_external_close",
+    "group_realized_pips": 18.0,
+    "stop_pips": 25.0,
+    "price": 4094.50,
+    "stream": "algo_auto",
+  })
+  assert "Closed manually on platform" in closed
+  assert "Winning:" in closed
+  assert "+18.0 pips" in closed
+  assert "Closed by broker SL/TP" not in closed
+  compact = delivery._format_position_closed_compact_line(
+    {
+      "reason_code": "manual_or_external_close",
+      "group_realized_pips": 18.0,
+      "stop_pips": 25.0,
+    },
+    "position closed at broker: manual or external order · winning 18.0 pips",
+  )
+  assert "Winning:" in compact
+  assert "SL" not in compact
+
+
+def test_algo_auto_unconfirmed_close_does_not_invent_stop_loss():
+  closed = delivery.render_auto_trade_event({
+    "type": "position_closed",
+    "message": (
+      "position is no longer open at broker (reason unconfirmed) · winning 9.0 pips"
+    ),
+    "group_realized_pips": 9.0,
+    "stop_pips": 41.5,
+    "price": 4094.50,
+    "stream": "algo_auto",
+  })
+  assert "Closed by broker SL/TP" not in closed
+  assert "Winning:" in closed
+  assert "+9.0 pips" in closed
 
 
 def test_position_closed_omits_label_when_reason_unconfirmed():

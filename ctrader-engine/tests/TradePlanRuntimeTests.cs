@@ -180,6 +180,77 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task ManualBrokerCloseFinalizesPlanWithSignedPips()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson());
+    var client = new FakeV7TradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.ManualOrExternalOrder,
+      PositionCloseExecutionPriceToReturn = 4094.50m,
+    };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    var positionId = Assert.Single(runtime.TrackedStates).PositionId;
+    Assert.NotNull(positionId);
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.45m, 4094.50m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Equal("manual_or_external_close", closed.ReasonCode);
+    Assert.Equal(4094.50m, closed.Price);
+    Assert.Equal(55m, closed.GroupRealizedPips);
+    Assert.Contains(positionId.Value, client.PositionCloseReasonLookups);
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "warning"
+        && item.Message.Contains("RECOVERY REQUIRED", StringComparison.Ordinal)
+    );
+  }
+
+  [Fact]
+  public async Task UnknownCloseWithRecoveredExitPriceDoesNotUseStopTautology()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(stopPrice: 4082.50m));
+    var client = new FakeV7TradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      // Manual close well away from the protective stop.
+      PositionCloseExecutionPriceToReturn = 4094.50m,
+    };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    var positionId = Assert.Single(runtime.TrackedStates).PositionId;
+    Assert.NotNull(positionId);
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.45m, 4094.50m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Null(closed.ReasonCode);
+    Assert.Equal(55m, closed.GroupRealizedPips);
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "position_closed"
+        && item.Message.Contains("no TP archived", StringComparison.OrdinalIgnoreCase)
+    );
+  }
+
+  [Fact]
   public async Task SecondSameDirectionNonScalpPlanIsRejectedWhileFirstIsPending()
   {
     // Live 2026-08-17 GBPJPY: two Key Level SELL plans 5s apart both filled
@@ -2477,6 +2548,7 @@ public sealed class TradePlanRuntimeTests
     public string EquitySource { get; set; } = "test";
     public PositionCloseReason PositionCloseReasonToReturn { get; set; } =
       PositionCloseReason.Unknown;
+    public decimal? PositionCloseExecutionPriceToReturn { get; set; }
     public List<long> PositionCloseReasonLookups { get; } = [];
 
     // Mirrors the real cTrader behaviour a duplicate leg ClientOrderId
@@ -2562,7 +2634,10 @@ public sealed class TradePlanRuntimeTests
     )
     {
       PositionCloseReasonLookups.Add(positionId);
-      return Task.FromResult(new PositionCloseLookup(PositionCloseReasonToReturn));
+      return Task.FromResult(new PositionCloseLookup(
+        PositionCloseReasonToReturn,
+        PositionCloseExecutionPriceToReturn
+      ));
     }
 
     public Task<TradeExecution> PlaceMarketOrderAsync(
