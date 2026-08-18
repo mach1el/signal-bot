@@ -109,8 +109,8 @@ def test_production_yaml_xau_effective_parity():
   assert "XAUUSD" in effective.identity.aliases
   for name, (left, right) in _parity_payload(cfg, effective).items():
     assert left == right, name
-  assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "XAU")
-  assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "XAU")
+  assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "USDJPY", "XAU")
+  assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "USDJPY", "XAU")
   assert cfg.instrument_for_broker_symbol("xauusd").identity.canonical_symbol == "XAU"
 
 
@@ -139,7 +139,9 @@ def test_production_yaml_fx_live_executable_units():
   assert eurusd.units.plan_max_volume() == 100_000_000
   assert gbpjpy.units.plan_max_volume() == 100_000_000
   assert eurusd.policy_name == FX_FIXED_2R_V1_POLICY
-  assert gbpjpy.policy_name == FX_FIXED_2R_V1_POLICY
+  # GBPJPY front-loads partials (fx_fixed_2r_frontload_v1, 2026 dig: ATR
+  # ~180 pips/day vs EURUSD's ~70) -- same 2R contract, different split.
+  assert gbpjpy.policy_name == "fx_fixed_2r_frontload_v1"
   assert eurusd.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert eurusd.targeting.reward_risk == 2.0
@@ -147,7 +149,7 @@ def test_production_yaml_fx_live_executable_units():
   assert eurusd.targeting.target_r_multiples == (1.0, 1.5, 2.0)
   assert gbpjpy.targeting.target_r_multiples == (1.0, 1.5, 2.0)
   assert eurusd.targeting.close_ratios == (0.25, 0.25, 0.50)
-  assert gbpjpy.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert gbpjpy.targeting.close_ratios == (0.40, 0.25, 0.35)
   assert eurusd.targeting.trail_after_r == 1.5
   assert gbpjpy.targeting.trail_after_r == 1.5
   assert eurusd.targeting.trail_to_r == 1.0
@@ -187,12 +189,24 @@ def test_production_yaml_fx_live_executable_units():
   assert cfg.instrument_for_broker_symbol("GBPJPY").identity.canonical_symbol == "GBPJPY"
   assert cfg.instruments.root["EURUSD"].reaction_session == "london_ny"
   assert cfg.instruments.root["GBPJPY"].reaction_session == "tokyo_london"
+  assert cfg.instruments.root["USDJPY"].reaction_session == "tokyo_london_ny"
   assert cfg.instruments.root["EURUSD"].overrides == {}
-  assert cfg.instruments.root["GBPJPY"].overrides == {}
+  # GBPJPY/USDJPY each keep exactly one escape-hatch override for a leaf no
+  # pack composes: GBPJPY's event-cluster news guard, USDJPY's defended-
+  # level guard. Neither duplicates anything the packs already expand.
+  assert cfg.instruments.root["GBPJPY"].overrides == {
+    "actionability.gates.event_cluster_guard_enabled": True,
+  }
+  assert set(cfg.instruments.root["USDJPY"].overrides) == {
+    "risk.exposure.defended_levels",
+    "risk.exposure.defended_level_buffer_price",
+  }
   assert cfg.instruments.root["EURUSD"].price_scale is not None
   assert cfg.instruments.root["GBPJPY"].price_scale is not None
+  assert cfg.instruments.root["USDJPY"].price_scale is not None
   assert "execution.reaction.stop_min_pips" not in cfg.instruments.root["EURUSD"].overrides
   assert "execution.range.min_rr" not in cfg.instruments.root["GBPJPY"].overrides
+  assert "execution.range.min_rr" not in cfg.instruments.root["USDJPY"].overrides
 
 
 def test_fx_execution_pack_expands_and_explicit_override_wins():

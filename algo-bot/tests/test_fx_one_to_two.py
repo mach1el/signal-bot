@@ -64,7 +64,7 @@ def test_fixed_rr_targeting_requires_ratio_and_matching_policy():
       close_ratios=_FX_CLOSE_RATIOS,
       trail_after_r=1.5,
     )
-  with pytest.raises(ValueError, match="requires policy=fx_fixed_2r_v1"):
+  with pytest.raises(ValueError, match="fixed_rr targeting requires policy in"):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
@@ -185,12 +185,22 @@ def test_fx_technique_route_uses_two_entry_clips_not_five():
 
 def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
   cfg = _load_production_example().config
-  for symbol in ("EURUSD", "GBPJPY"):
+  # GBPJPY front-loads close_ratios (fx_fixed_2r_frontload_v1, 2026 dig:
+  # ATR ~180 pips/day vs EURUSD's ~70, moves reverse hard once they've run)
+  # -- everything else about the 2R contract is identical across FX pairs.
+  expected_close_ratios = {
+    "EURUSD": _FX_CLOSE_RATIOS,
+    "USDJPY": _FX_CLOSE_RATIOS,
+    "GBPJPY": (0.40, 0.25, 0.35),
+  }
+  for symbol, close_ratios in expected_close_ratios.items():
     effective = cfg.for_instrument(symbol)
-    assert effective.policy_name == FX_FIXED_2R_V1_POLICY
+    assert effective.policy_name in (
+      FX_FIXED_2R_V1_POLICY, "fx_fixed_2r_frontload_v1",
+    )
     assert effective.targeting.mode is InstrumentTargetMode.FIXED_RR
     assert effective.targeting.target_r_multiples == _FX_TARGET_R_MULTIPLES
-    assert effective.targeting.close_ratios == _FX_CLOSE_RATIOS
+    assert effective.targeting.close_ratios == close_ratios
     assert effective.targeting.trail_after_r == 1.5
     assert effective.targeting.trail_to_r == 1.0
     assert effective.targeting.entry_clips == 2
@@ -341,7 +351,7 @@ def test_fixed_rr_rejects_when_opposing_room_cannot_hold_two_r():
   assert evaluation.terminal is True
 
 
-def test_gbpjpy_sell_uses_the_same_exact_two_r_contract():
+def test_gbpjpy_sell_uses_two_r_contract_with_frontloaded_partials():
   cfg = _load_production_example().config
   match = replace(
     _fx_match("GBPJPY"),
@@ -386,10 +396,12 @@ def test_gbpjpy_sell_uses_the_same_exact_two_r_contract():
   assert entry - plan.targets[-1].price == (
     plan.stop.price - entry
   ) * Decimal("2")
+  # Front-loaded vs EURUSD/USDJPY's 25/25/50 -- same 1R/1.5R/2R ladder,
+  # different partial-close split (fx_fixed_2r_frontload_v1).
   assert [target.close_ratio for target in plan.targets] == [
+    Decimal("0.4"),
     Decimal("0.25"),
-    Decimal("0.25"),
-    Decimal("0.5"),
+    Decimal("0.35"),
   ]
   assert plan.management.be_after_target_id == "TP1"
   assert plan.management.trail_after_target_id == "TP2"

@@ -6,13 +6,13 @@ cTrader manifest-authoritative.
 ## Absolute production boundary
 
 ```text
-live instruments = XAU + EURUSD + GBPJPY
-feed instruments = XAU + EURUSD + GBPJPY
+live instruments = XAU + EURUSD + GBPJPY + USDJPY
+feed instruments = XAU + EURUSD + GBPJPY + USDJPY
 CTRADER_CONFIGURATION_SOURCE = manifest
 CTRADER_MANIFEST_PARITY_MODE = off
 ```
 
-EURUSD and GBPJPY are demo-live with their own pip/lot/zone geometry.
+EURUSD, GBPJPY, and USDJPY are demo-live with their own pip/lot/zone geometry.
 Do not inherit XAU dollar merge/round/FVG widths onto FX.
 
 XAU remains required in `live_instruments`. Additional live symbols are
@@ -24,17 +24,23 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 - XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
   and gold stop geometry remain unchanged.
-- EURUSD and GBPJPY use `fx_fixed_2r_v1` plus a **named reaction session**,
-  **stop envelope**, **activation**, and **price scale**. Policy locks
-  1R / 1.5R / 2R at 25/25/50; the envelope is pair-scale (EURUSD 10–18 pips,
-  GBPJPY 15–30). Do not copy dotted stop or geometry paths per pair.
+- EURUSD and USDJPY use `fx_fixed_2r_v1`; GBPJPY uses `fx_fixed_2r_frontload_v1`
+  (same 1R/1.5R/2R ladder, front-loaded 40/25/35 partials instead of 25/25/50
+  — see "Per-symbol position management" below). Both are `FIXED_RR_POLICY_
+  CLOSE_RATIOS` entries and require a **named reaction session**, **stop
+  envelope**, **activation**, and **price scale** pack once live/paper.
+  The envelope is pair-scale (EURUSD/USDJPY 10–18 pips, GBPJPY 15–30).
+  Do not copy dotted stop or geometry paths per pair.
 - A new live FX instrument declares `policy`, `reaction_session`
-  (`london_ny` or `tokyo_london`, or a raw `7-11,13-16` list),
-  `stop_envelope`, `activation`, and `price_scale`. Register a new session
-  name in `REGISTERED_REACTION_SESSIONS` instead of duplicating hour strings.
-  `overrides` remains an escape hatch for a single leaf.
-- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R.
-  TP1 enables protected break-even; booking 1.5R trails the runner to 1R.
+  (`london_ny`, `tokyo_london`, `tokyo_london_ny`, or a raw `7-11,13-16`
+  list), `stop_envelope`, `activation`, and `price_scale`. Register a new
+  session name in `REGISTERED_REACTION_SESSIONS` instead of duplicating
+  hour strings. `overrides` remains an escape hatch for a single leaf not
+  covered by a pack (e.g. a defended-level guard or the event-cluster
+  news guard, neither of which is pack-composed).
+- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R
+  (GBPJPY: 40%/25%/35%). TP1 enables protected break-even; booking 1.5R
+  trails the runner to 1R.
 - Broker-step rules may defer an undersized partial to a later target; they
   never inflate a small close beyond its declared share.
 - FX keeps the existing equity sizing and strategy-specific risk multipliers.
@@ -43,7 +49,7 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 ```yaml
 policy: fx_fixed_2r_v1
-reaction_session: london_ny   # or tokyo_london
+reaction_session: london_ny   # or tokyo_london, tokyo_london_ny
 stop_envelope: {min_pips: 10, max_pips: 18, sl_distance: 0.0018}
 activation: {require_sweep_body: true, trigger_maximum_age_bars: 3, max_spread_pips: 1}
 price_scale:
@@ -69,6 +75,25 @@ the plan fails closed instead of shrinking the target. New FX instruments must
 declare this policy, targeting block, `reaction_session`, `stop_envelope`,
 `activation`, and `price_scale`; symbol-name hard-coding is not used.
 
+## Per-symbol position management
+
+Beyond geometry, individual pairs own genuinely different management
+mechanisms, grounded in each pair's real 2026 market behavior:
+
+- **GBPJPY** (`fx_fixed_2r_frontload_v1` + event-cluster guard): ATR(14)
+  ~180 pips/day vs EURUSD's ~70, and moves reverse hard once they've run —
+  40%/25%/35% partials lock in more of the win at 1R. Separately, when a
+  BoE and a BoJ high-impact calendar event land within 48h of each other
+  ("volatility clusters" compound rather than add), the news guard widens
+  from the normal 30-minute single-event window to 3 hours around
+  whichever event is nearer (`actionability.gates.event_cluster_guard_*`,
+  off by default, on only for GBPJPY via `overrides`).
+- **USDJPY** (defended-level guard): Japan/the US ran a record ~¥11.73T
+  joint intervention specifically when USDJPY breached 160 — a 600+ pip
+  reversal. New entries within a configured buffer of a defended level
+  (`risk.exposure.defended_levels`/`defended_level_buffer_price`, set via
+  `overrides`) are hard-blocked regardless of `guard_mode`.
+
 ## Account-level architecture
 
 ```text
@@ -79,7 +104,7 @@ CTraderAccountRuntimeHost / FeedRunner
 ├── one account reconciliation coordinator (AccountRiskCoordinator)
 ├── one candidate stream consumer
 └── InstrumentRuntimeRegistry
-    └── InstrumentRuntime (XAU, EURUSD, GBPJPY live on demo)
+    └── InstrumentRuntime (XAU, EURUSD, GBPJPY, USDJPY live on demo)
 ```
 
 ## Instrument runtime registry
