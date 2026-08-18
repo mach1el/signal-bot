@@ -3777,9 +3777,19 @@ public sealed partial class AutoTradeEngineTests
     // missed reconcile gap (eg. a redeploy) can leave the true close outside
     // the search window entirely.
     Assert.NotEqual(0, client.PositionCloseOpenedAtTimestamps.Single());
-    // No execution price was configured on the lookup for this case, so the
-    // reported price must still fall back to the last known stop.
-    Assert.Equal(client.StopAmendments.Single().StopLoss, closed.Price);
+    if (reason == PositionCloseReason.StopLossOrTakeProfit)
+    {
+      // Confirmed SL with no deal fill still books against the protective stop.
+      Assert.Equal(client.StopAmendments.Single().StopLoss, closed.Price);
+    }
+    else
+    {
+      // Manual close with no deal fill must not invent the stop as the exit.
+      Assert.Equal(4000.0m, closed.Price);
+      Assert.NotEqual(client.StopAmendments.Single().StopLoss, closed.Price);
+      Assert.Contains("pips", closed.Message);
+      Assert.NotNull(closed.GroupRealizedPips);
+    }
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -3818,6 +3828,10 @@ public sealed partial class AutoTradeEngineTests
     // The real closing deal price must win over the last-known-stop fallback.
     Assert.Equal(4009.35m, closed.Price);
     Assert.NotEqual(client.StopAmendments.Single().StopLoss, closed.Price);
+    Assert.Equal("manual_or_external_close", closed.ReasonCode);
+    Assert.Contains("winning", closed.Message);
+    Assert.NotNull(closed.GroupRealizedPips);
+    Assert.True(closed.GroupRealizedPips > 0);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -3899,7 +3913,10 @@ public sealed partial class AutoTradeEngineTests
     var closed = store.Events.Single(item => item.Type == "position_closed");
     Assert.Null(closed.ReasonCode);
     Assert.Contains("unconfirmed", closed.Message);
-    Assert.Equal(stop, closed.Price);
+    Assert.Equal(4000.0m, closed.Price);
+    Assert.NotEqual(stop, closed.Price);
+    Assert.Contains("pips", closed.Message);
+    Assert.NotNull(closed.GroupRealizedPips);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);

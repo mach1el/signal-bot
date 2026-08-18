@@ -38,6 +38,7 @@ def _targeting(reward_risk: float = 2.0) -> dict[str, object]:
     "close_ratios": _FX_CLOSE_RATIOS,
     "trail_after_r": 1.5 * reward_risk / 2.0,
     "trail_to_r": 1.0 * reward_risk / 2.0,
+    "entry_clips": 2,
   }
 
 
@@ -95,6 +96,23 @@ def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
         "close_ratios": (0.25, 0.25, 0.50),
         "trail_after_r": 1.5,
         "trail_to_r": 0.5,
+        "entry_clips": 2,
+      },
+    )
+  with pytest.raises(ValueError, match="entry_clips=2"):
+    InstrumentConfig(
+      enabled=False,
+      canonical_symbol="TESTFX",
+      broker_symbol="TESTFX",
+      policy=FX_FIXED_2R_V1_POLICY,
+      targeting={
+        "mode": "fixed_rr",
+        "reward_risk": 2.0,
+        "target_r_multiples": _FX_TARGET_R_MULTIPLES,
+        "close_ratios": _FX_CLOSE_RATIOS,
+        "trail_after_r": 1.5,
+        "trail_to_r": 1.0,
+        "entry_clips": 5,
       },
     )
 
@@ -133,6 +151,37 @@ def _fx_match(symbol: str = "EURUSD") -> StrategyMatch:
   )
 
 
+def test_fx_technique_route_uses_two_entry_clips_not_five():
+  from app.autotrade.execution_route import (
+    ROUTE_MARKET_WITH_LIMIT_SCALE,
+    SCALP_MICRO_CLIPS,
+    resolve_execution_route_plan,
+  )
+
+  plan = resolve_execution_route_plan(
+    direction="BUY",
+    order_type_preference="market",
+    entry_distribution="single",
+    executable_quote=1.1002,
+    zone_low=1.1000,
+    zone_high=1.1004,
+    atr=0.0008,
+    zone_fill_enabled=True,
+    strategy="FVG",
+    strategy_family="zone",
+    entry_clips=2,
+  )
+  assert plan.valid is True
+  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
+  assert len(plan.planned_leg_entry_prices) == 2
+  assert len(plan.planned_leg_entry_prices) != SCALP_MICRO_CLIPS
+  assert pytest.approx(sum(plan.planned_leg_volume_ratios), abs=1e-6) == 1.0
+  assert all(
+    pytest.approx(ratio, abs=1e-4) == 0.5
+    for ratio in plan.planned_leg_volume_ratios
+  )
+
+
 def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
   cfg = _load_production_example().config
   for symbol in ("EURUSD", "GBPJPY"):
@@ -143,6 +192,7 @@ def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
     assert effective.targeting.close_ratios == _FX_CLOSE_RATIOS
     assert effective.targeting.trail_after_r == 1.5
     assert effective.targeting.trail_to_r == 1.0
+    assert effective.targeting.entry_clips == 2
     assert fixed_reward_risk(symbol, cfg) == 2.0
   assert fixed_reward_risk("XAU", cfg) is None
   assert fixed_reward_risk("XAUUSD", cfg) is None

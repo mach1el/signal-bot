@@ -46,6 +46,12 @@ def test_normalize_setup_type_aliases():
     ({"type": "group_result", "reason_code": "take_profit"}, "tp"),
     ({"type": "group_result", "group_realized_pips": -12.5}, "sl"),
     ({"type": "group_result", "group_realized_pips": 40.0}, "tp"),
+    ({
+      "type": "position_closed",
+      "reason_code": "manual_or_external_close",
+      "group_realized_pips": 18.0,
+      "message": "position closed at broker: manual or external order · winning 18.0 pips",
+    }, "tp"),
     ({"type": "setup_status"}, None),
   ],
 )

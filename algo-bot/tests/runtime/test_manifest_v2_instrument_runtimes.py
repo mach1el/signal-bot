@@ -48,6 +48,7 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   ]
   assert float(eurusd["targeting"]["trail_after_r"]) == 1.5
   assert float(eurusd["targeting"]["trail_to_r"]) == 1.0
+  assert int(eurusd["targeting"]["entry_clips"]) == 2
   gbpjpy = payload["instrument_runtimes"]["GBPJPY"]
   assert gbpjpy["rollout"] == "live"
   assert gbpjpy["feed"]["ctrader_symbol"] == "GBPJPY"
