@@ -144,6 +144,14 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert eurusd.targeting.reward_risk == 2.0
   assert gbpjpy.targeting.reward_risk == 2.0
+  assert eurusd.targeting.target_r_multiples == (1.0, 1.5, 2.0)
+  assert gbpjpy.targeting.target_r_multiples == (1.0, 1.5, 2.0)
+  assert eurusd.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert gbpjpy.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert eurusd.targeting.trail_after_r == 1.5
+  assert gbpjpy.targeting.trail_after_r == 1.5
+  assert eurusd.targeting.trail_to_r == 1.0
+  assert gbpjpy.targeting.trail_to_r == 1.0
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
   assert float(eurusd.execution.range.min_rr) == 2.0

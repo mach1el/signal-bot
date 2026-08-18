@@ -90,6 +90,35 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
+  public void ExplicitFxTrailMovesToOneRAfterOnePointFiveRIsBooked()
+  {
+    var plan = MarketWatchPlan() with
+    {
+      Management = new TradePlanManagement(
+        "TP1",
+        6,
+        true,
+        TrailAfterTargetId: "TP2",
+        TrailToTargetId: "TP1"
+      ),
+    };
+
+    TradePlanValidator.Validate(plan);
+    Assert.Equal(
+      -1,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 2, highestBookedTargetIndex: 0
+      )
+    );
+    Assert.Equal(
+      0,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 2, highestBookedTargetIndex: 1
+      )
+    );
+  }
+
+  [Fact]
   public void MarketWatchWaitsWhenAskOutsideZone()
   {
     var plan = MarketWatchPlan();

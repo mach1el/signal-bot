@@ -23,30 +23,79 @@ from tests.test_config_effective_instrument_context import _load_production_exam
 
 pytestmark = pytest.mark.no_database
 
+_FX_TARGET_R_MULTIPLES = (1.0, 1.5, 2.0)
+_FX_CLOSE_RATIOS = (0.25, 0.25, 0.50)
+
+
+def _targeting(reward_risk: float = 2.0) -> dict[str, object]:
+  levels = tuple(
+    value * reward_risk / 2.0 for value in _FX_TARGET_R_MULTIPLES
+  )
+  return {
+    "mode": "fixed_rr",
+    "reward_risk": reward_risk,
+    "target_r_multiples": levels,
+    "close_ratios": _FX_CLOSE_RATIOS,
+    "trail_after_r": 1.5 * reward_risk / 2.0,
+    "trail_to_r": 1.0 * reward_risk / 2.0,
+  }
+
 
 def test_fixed_rr_targeting_requires_ratio_and_matching_policy():
   with pytest.raises(ValueError, match="requires reward_risk"):
     InstrumentTargetingConfig(mode="fixed_rr")
-  with pytest.raises(ValueError, match="must not set reward_risk"):
+  with pytest.raises(ValueError, match="must not set fixed-RR fields"):
     InstrumentTargetingConfig(mode="ladder_pips", reward_risk=2.0)
+  with pytest.raises(ValueError, match="requires target_r_multiples"):
+    InstrumentTargetingConfig(mode="fixed_rr", reward_risk=2.0)
+  with pytest.raises(ValueError, match="must sum to 1.0"):
+    InstrumentTargetingConfig(
+      mode="fixed_rr",
+      reward_risk=2.0,
+      target_r_multiples=_FX_TARGET_R_MULTIPLES,
+      close_ratios=(0.2, 0.2, 0.2),
+    )
+  with pytest.raises(ValueError, match="must be set together"):
+    InstrumentTargetingConfig(
+      mode="fixed_rr",
+      reward_risk=2.0,
+      target_r_multiples=_FX_TARGET_R_MULTIPLES,
+      close_ratios=_FX_CLOSE_RATIOS,
+      trail_after_r=1.5,
+    )
   with pytest.raises(ValueError, match="requires policy=fx_fixed_2r_v1"):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
       broker_symbol="TESTFX",
       policy="xau_current_v1",
-      targeting={"mode": "fixed_rr", "reward_risk": 2.0},
+      targeting=_targeting(),
     )
 
 
-def test_fx_policy_is_locked_to_exactly_two_r():
-  with pytest.raises(ValueError, match="targeting.reward_risk=2.0"):
+def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
+  with pytest.raises(ValueError, match="targets 1R/1.5R/2R"):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
       broker_symbol="TESTFX",
       policy=FX_FIXED_2R_V1_POLICY,
-      targeting={"mode": "fixed_rr", "reward_risk": 1.5},
+      targeting=_targeting(1.5),
+    )
+  with pytest.raises(ValueError, match="targets 1R/1.5R/2R"):
+    InstrumentConfig(
+      enabled=False,
+      canonical_symbol="TESTFX",
+      broker_symbol="TESTFX",
+      policy=FX_FIXED_2R_V1_POLICY,
+      targeting={
+        "mode": "fixed_rr",
+        "reward_risk": 2.0,
+        "target_r_multiples": (0.5, 1.5, 2.0),
+        "close_ratios": (0.25, 0.25, 0.50),
+        "trail_after_r": 1.5,
+        "trail_to_r": 0.5,
+      },
     )
 
 
@@ -90,6 +139,10 @@ def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
     effective = cfg.for_instrument(symbol)
     assert effective.policy_name == FX_FIXED_2R_V1_POLICY
     assert effective.targeting.mode is InstrumentTargetMode.FIXED_RR
+    assert effective.targeting.target_r_multiples == _FX_TARGET_R_MULTIPLES
+    assert effective.targeting.close_ratios == _FX_CLOSE_RATIOS
+    assert effective.targeting.trail_after_r == 1.5
+    assert effective.targeting.trail_to_r == 1.0
     assert fixed_reward_risk(symbol, cfg) == 2.0
   assert fixed_reward_risk("XAU", cfg) is None
   assert fixed_reward_risk("XAUUSD", cfg) is None
@@ -163,7 +216,7 @@ def test_fx_reaction_stop_envelope_is_twelve_to_twenty_five():
   assert gold_measured["fixed_rr_targeting"] is False
 
 
-def test_fx_trade_plan_is_one_full_close_target_at_exactly_two_r():
+def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
   cfg = _load_production_example().config
   match = _fx_match()
   evaluation = evaluate_execution_policy(
@@ -193,13 +246,22 @@ def test_fx_trade_plan_is_one_full_close_target_at_exactly_two_r():
 
   entry = Decimal(str(evaluation.measured["planned_entry_price"]))
   risk = abs(entry - plan.stop.price)
-  reward = abs(plan.targets[0].price - entry)
-  assert reward == risk * Decimal("2")
-  assert len(plan.targets) == 1
-  assert plan.targets[0].close_ratio == Decimal("1")
-  assert plan.management.be_after_target_id is None
+  assert len(plan.targets) == 3
+  assert [target.close_ratio for target in plan.targets] == [
+    Decimal("0.25"),
+    Decimal("0.25"),
+    Decimal("0.5"),
+  ]
+  for target, multiple in zip(
+    plan.targets,
+    (Decimal("1"), Decimal("1.5"), Decimal("2")),
+  ):
+    assert abs(target.price - entry) == risk * multiple
+  assert plan.management.be_after_target_id == "TP1"
+  assert plan.management.trail_after_target_id == "TP2"
+  assert plan.management.trail_to_target_id == "TP1"
   # The 50-pip match target was only provisional; stop geometry owns TP.
-  assert reward / Decimal("0.0001") != Decimal("50")
+  assert abs(plan.targets[-1].price - entry) / Decimal("0.0001") != Decimal("50")
 
 
 def test_fixed_rr_rejects_when_opposing_room_cannot_hold_two_r():
@@ -260,10 +322,18 @@ def test_gbpjpy_sell_uses_the_same_exact_two_r_contract():
     max_volume=100_000_000,
   )
   entry = Decimal(str(evaluation.measured["planned_entry_price"]))
-  assert plan.stop.price > entry > plan.targets[0].price
-  assert entry - plan.targets[0].price == (
+  assert plan.stop.price > entry > plan.targets[-1].price
+  assert entry - plan.targets[-1].price == (
     plan.stop.price - entry
   ) * Decimal("2")
+  assert [target.close_ratio for target in plan.targets] == [
+    Decimal("0.25"),
+    Decimal("0.25"),
+    Decimal("0.5"),
+  ]
+  assert plan.management.be_after_target_id == "TP1"
+  assert plan.management.trail_after_target_id == "TP2"
+  assert plan.management.trail_to_target_id == "TP1"
 
 
 def test_xau_keeps_its_existing_ladder_policy():
@@ -271,3 +341,7 @@ def test_xau_keeps_its_existing_ladder_policy():
   xau = cfg.for_instrument("XAU")
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
+  assert xau.targeting.target_r_multiples == ()
+  assert xau.targeting.close_ratios == ()
+  assert xau.targeting.trail_after_r is None
+  assert xau.targeting.trail_to_r is None
