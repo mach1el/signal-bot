@@ -136,7 +136,13 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.units.volume_units_per_lot == 10_000_000
   assert eurusd.units.plan_max_volume() == 100_000_000
   assert gbpjpy.units.plan_max_volume() == 100_000_000
-  assert eurusd.units.plan_max_volume() != xau.units.plan_max_volume()
+  assert eurusd.units.lot_multiplier == 3.0
+  assert gbpjpy.units.lot_multiplier == 3.0
+  assert xau.units.lot_multiplier == 1.0
+  assert float(eurusd.execution.range.min_rr) == 2.0
+  assert int(eurusd.execution.reaction.stop_min_pips) == 12
+  assert int(eurusd.execution.reaction.stop_max_pips) == 25
+  assert float(gbpjpy.execution.stops.sl_distance) == 0.25
   assert eurusd.analysis.runtime.levels.round_step == 0.001
   assert gbpjpy.analysis.runtime.levels.round_step == 0.1
   assert eurusd.is_live()

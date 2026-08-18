@@ -33,3 +33,4 @@ tests/test_worker_terminal_card_cleanup.py
 tests/test_candidate_execution_state.py
 tests/test_scalp_risk_reconcile.py
 tests/test_autotrade_units.py
+tests/test_fx_one_to_two.py
