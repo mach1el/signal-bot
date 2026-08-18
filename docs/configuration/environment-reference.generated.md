@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `280b4886604dd550286e011c641ab33256ee1f769661544cd707e378191d499c`
+- Contract fingerprint: `fc98c417552a4b287008435e5df8a9b6b198f7a6a797ff982f5fb1b4b8988ceb`
 - Environment-bound fields: `453`
 - Deprecated aliases: `21`
 
@@ -91,7 +91,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_MARKET_MAP_GUARD_ENABLED` | `actionability.gates.market_map_guard_enabled` | `bool` | no | yes | — | `True` |
 | `AUTO_TRADE_MAX_ACTIVE_POSITIONS_PER_SYMBOL` | `risk.position_limits.maximum_per_symbol` | `int` | no | no | — | `1` |
 | `AUTO_TRADE_MAX_ENTRY_DISTANCE_PIPS` | `execution.entry.maximum_chase_distance_pips` | `float` | no | yes | — | `40.0` |
-| `AUTO_TRADE_MAX_SPREAD_PIPS` | `execution.entry.max_spread_pips` | `int` | no | no | — | `5` |
+| `AUTO_TRADE_MAX_SPREAD_PIPS` | `execution.entry.max_spread_pips` | `int` | no | yes | — | `5` |
 | `AUTO_TRADE_MAX_TRACKED_CANDIDATES` | `risk.position_limits.max_tracked_candidates` | `int` | no | no | — | `5` |
 | `AUTO_TRADE_MAX_TRANCHES` | `execution.policy.max_tranches` | `int` | no | yes | — | `2` |
 | `AUTO_TRADE_MIN_CAPPED_TARGET_PIPS` | `actionability.target_room.minimum_capped_target_pips` | `float` | no | no | — | `15.0` |
