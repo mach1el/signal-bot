@@ -1380,6 +1380,7 @@ def test_v8_overlap_opposing_band_does_not_block_technique_candidate():
     pip_size=pip_size,
     barrier_buffer_atr=0.5,
     execution_cost_pips=1.0,
+    allow_same_wall_overlap=True,
   )
   assert decision.allowed is True
   assert decision.reason_code == "no_opposing_barrier"

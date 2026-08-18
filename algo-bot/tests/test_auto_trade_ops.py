@@ -1,5 +1,9 @@
 import json
+from pathlib import Path
 from app.core.config import runtime_config
+from app.configuration.python_loader import load_python_canonical_settings
+from app.configuration.python_sources import load_python_runtime_source_bundle
+from app.configuration.source_policy import PythonConfigurationSourcePolicy
 from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -246,6 +250,49 @@ def test_render_box_open_and_full_tp_as_shareable_cards():
   assert "71.82" not in take_profit
   assert "39025496" not in take_profit
   assert "Auto trade" not in (opened + take_profit)
+
+
+@pytest.mark.no_database
+def test_fx_delivery_uses_symbol_pips_and_price_digits(monkeypatch):
+  config_file = Path(__file__).resolve().parents[2] / "config" / "trading-bot.yml"
+  policy = PythonConfigurationSourcePolicy(config_file=str(config_file))
+  production = load_python_canonical_settings(
+    load_python_runtime_source_bundle(policy=policy),
+  ).config
+  install_runtime_overrides(monkeypatch, base=production)
+
+  opened = delivery.render_auto_trade_event({
+    "type": "opened",
+    "symbol": "EURUSD",
+    "message": (
+      "BUY 0.02 lots filled 1.08456, SL 1.08156 · 30p structure · "
+      "full TP 60p · risk-bound"
+    ),
+  })
+  route = delivery.render_auto_trade_event({
+    "type": "strategy_route",
+    "symbol": "EURUSD",
+    "status": "candidate_published",
+    "strategy": "Key Level Reaction",
+    "direction": "BUY",
+    "measured": {
+      "planned_execution_route": "market",
+      "planned_entry_price": 1.08456,
+      "entry_low": 1.08421,
+      "entry_high": 1.08467,
+    },
+  })
+  stop = delivery.render_auto_trade_event({
+    "type": "stop_moved",
+    "symbol": "EURUSD",
+    "price": 1.08567,
+  })
+
+  assert "EURUSD BUY opened" in opened
+  assert "Full TP: <b>1.09056</b> · +60 pips" in opened
+  assert "Planned entry: <b>1.08456</b>" in route
+  assert "Zone: <b>1.08421–1.08467</b>" in route
+  assert "move SL to <b>1.08567</b>" in stop
 
 
 def test_partial_and_final_tp_use_volume_weighted_pips_not_money():
