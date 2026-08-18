@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `280b4886604dd550286e011c641ab33256ee1f769661544cd707e378191d499c`
-- Document fingerprint: `745c5a80d84072d85258d462e02e94156dcee37dfcf663b9353a750e93d3e3c9`
+- Contract fingerprint: `fc98c417552a4b287008435e5df8a9b6b198f7a6a797ff982f5fb1b4b8988ceb`
+- Document fingerprint: `b9dbe60567b4b77a4737778c3b26b511881f05d0e90c7cb333e530a933f15e5d`
 - Items: `520`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 

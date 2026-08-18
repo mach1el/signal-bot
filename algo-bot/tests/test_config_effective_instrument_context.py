@@ -157,9 +157,26 @@ def test_production_yaml_fx_live_executable_units():
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
   assert float(eurusd.execution.range.min_rr) == 2.0
-  assert int(eurusd.execution.reaction.stop_min_pips) == 12
-  assert int(eurusd.execution.reaction.stop_max_pips) == 25
-  assert float(gbpjpy.execution.stops.sl_distance) == 0.25
+  assert int(eurusd.execution.reaction.stop_min_pips) == 10
+  assert int(eurusd.execution.reaction.stop_max_pips) == 18
+  assert int(gbpjpy.execution.reaction.stop_min_pips) == 15
+  assert int(gbpjpy.execution.reaction.stop_max_pips) == 30
+  assert float(eurusd.execution.stops.sl_distance) == 0.0018
+  assert float(gbpjpy.execution.stops.sl_distance) == 0.30
+  assert eurusd.analysis.zones.minimum_width_price == 0.0006
+  assert gbpjpy.analysis.zones.minimum_width_price == 0.12
+  assert float(eurusd.execution.mapped_zone.zone_min_width_abs) == 0.0006
+  assert float(gbpjpy.execution.mapped_zone.zone_min_width_abs) == 0.12
+  assert float(eurusd.risk.exposure.opposing_minimum_separation_price) == 0.0015
+  assert float(gbpjpy.risk.exposure.opposing_minimum_separation_price) == 0.25
+  assert int(eurusd.execution.entry.max_spread_pips) == 1
+  assert int(gbpjpy.execution.entry.max_spread_pips) == 3
+  assert eurusd.execution.technique.reaction_publish_windows == "7-11,13-16"
+  assert gbpjpy.execution.technique.reaction_publish_windows == "0-3,7-11"
+  assert eurusd.execution.technique.require_sweep_body is True
+  assert gbpjpy.execution.technique.require_sweep_body is True
+  assert int(eurusd.execution.activation.reaction_trigger_maximum_age_bars) == 3
+  assert int(gbpjpy.execution.activation.reaction_trigger_maximum_age_bars) == 3
   assert eurusd.analysis.runtime.levels.round_step == 0.001
   assert gbpjpy.analysis.runtime.levels.round_step == 0.1
   assert eurusd.is_live()

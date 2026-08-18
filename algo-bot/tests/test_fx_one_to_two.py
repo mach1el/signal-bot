@@ -243,16 +243,23 @@ def test_hfs_fixed_rr_takes_two_r_when_room_fits():
   assert target[1] == 30.0
 
 
-def test_fx_reaction_stop_envelope_is_twelve_to_twenty_five():
+def test_fx_reaction_stop_envelopes_diverge_while_gold_stays_locked():
   from app.autotrade.protective_stop import stop_bounds_for_reaction_room
 
   cfg = _load_production_example().config
-  fx_min, fx_max, fx_measured = stop_bounds_for_reaction_room(
+  eurusd_min, eurusd_max, eurusd_measured = stop_bounds_for_reaction_room(
     strategy="Key Level Reaction",
     primary_tp_pips=50,
     pip_size=0.0001,
     cfg=cfg,
     symbol="EURUSD",
+  )
+  gbpjpy_min, gbpjpy_max, gbpjpy_measured = stop_bounds_for_reaction_room(
+    strategy="Key Level Reaction",
+    primary_tp_pips=50,
+    pip_size=0.01,
+    cfg=cfg,
+    symbol="GBPJPY",
   )
   gold_min, gold_max, gold_measured = stop_bounds_for_reaction_room(
     strategy="Key Level Reaction",
@@ -261,8 +268,10 @@ def test_fx_reaction_stop_envelope_is_twelve_to_twenty_five():
     cfg=cfg,
     symbol="XAU",
   )
-  assert (fx_min, fx_max) == (12, 25)
-  assert fx_measured["fixed_rr_targeting"] is True
+  assert (eurusd_min, eurusd_max) == (10, 18)
+  assert eurusd_measured["fixed_rr_targeting"] is True
+  assert (gbpjpy_min, gbpjpy_max) == (15, 30)
+  assert gbpjpy_measured["fixed_rr_targeting"] is True
   assert (gold_min, gold_max) == (60, 60)
   assert gold_measured["fixed_rr_targeting"] is False
 
