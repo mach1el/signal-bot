@@ -282,29 +282,6 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
-  public void CalculateVolumeAppliesInstrumentLotMultiplier()
-  {
-    var plan = MarketWatchPlan() with
-    {
-      Risk = new TradePlanRisk(1.0m, 1.0m, 100_000_000, 2.0m),
-    };
-    var fx = Symbol with
-    {
-      LotSize = 10_000_000,
-      Digits = 5,
-      MaxVolume = 100_000_000,
-    };
-
-    var result = TradePlanExecutionEngine.CalculateVolume(
-      plan, Account(1_300m), pipSize: 0.0001m, pipValuePerLot: 10m,
-      symbol: fx, lotMultiplier: 3m
-    );
-
-    // LotsForEquity(1300)=0.12 → ×3 = 0.36 lots → 3_600_000 volume units.
-    Assert.Equal(3_600_000, result.TotalVolume);
-  }
-
-  [Fact]
   public void CalculateVolumeSizesFromEquityTable()
   {
     var plan = MarketWatchPlan();

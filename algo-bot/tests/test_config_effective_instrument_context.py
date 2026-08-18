@@ -12,11 +12,13 @@ from app.configuration.effective_instrument import (
   build_effective_instrument,
 )
 from app.configuration.models.instruments import (
+  FX_FIXED_2R_V1_POLICY,
   InstrumentConfig,
   InstrumentContractConfig,
   InstrumentLookbacksConfig,
   InstrumentMarketDataConfig,
   InstrumentRollout,
+  InstrumentTargetMode,
   InstrumentsConfig,
   XAU_CURRENT_V1_POLICY,
   effective_rollout,
@@ -136,9 +138,14 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.units.volume_units_per_lot == 10_000_000
   assert eurusd.units.plan_max_volume() == 100_000_000
   assert gbpjpy.units.plan_max_volume() == 100_000_000
-  assert eurusd.units.lot_multiplier == 3.0
-  assert gbpjpy.units.lot_multiplier == 3.0
-  assert xau.units.lot_multiplier == 1.0
+  assert eurusd.policy_name == FX_FIXED_2R_V1_POLICY
+  assert gbpjpy.policy_name == FX_FIXED_2R_V1_POLICY
+  assert eurusd.targeting.mode is InstrumentTargetMode.FIXED_RR
+  assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
+  assert eurusd.targeting.reward_risk == 2.0
+  assert gbpjpy.targeting.reward_risk == 2.0
+  assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
+  assert xau.targeting.reward_risk is None
   assert float(eurusd.execution.range.min_rr) == 2.0
   assert int(eurusd.execution.reaction.stop_min_pips) == 12
   assert int(eurusd.execution.reaction.stop_max_pips) == 25
