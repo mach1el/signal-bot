@@ -1478,6 +1478,45 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task BeStopOutAfterTp1FinalizesInsteadOfRecoveryRequired()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson());
+    var client = new FakeV7TradingClient
+    {
+      AccountBalance = 3000m,
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+    };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4096.50m, 4096.55m, 2), CancellationToken.None
+    );
+    var afterTp1 = Assert.Single(runtime.TrackedStates);
+    Assert.True(afterTp1.BreakEvenApplied);
+    var positionId = afterTp1.PositionId;
+    Assert.NotNull(positionId);
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4088.90m, 4088.95m, 3), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "warning"
+        && item.Message.Contains("RECOVERY REQUIRED", StringComparison.Ordinal)
+    );
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("highest TP archived TP1", closed.Message, StringComparison.OrdinalIgnoreCase);
+    Assert.Equal(4089.06m, closed.Price);
+  }
+
+  [Fact]
   public async Task FxOnePointFiveRBooksThenTrailsRunnerToOneR()
   {
     var targets = """
