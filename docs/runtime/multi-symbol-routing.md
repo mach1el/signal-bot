@@ -24,11 +24,23 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 - XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
   and gold stop geometry remain unchanged.
-- EURUSD, GBPJPY, and USDJPY use `fx_fixed_2r_v1`: a structural stop
-  (instrument-tuned, roughly 10–30 pips) and three targets at 1R, 1.5R,
-  and exactly 2R from the final planned entry and protective stop.
-- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R.
-  TP1 enables protected break-even; booking 1.5R trails the runner to 1R.
+- EURUSD and USDJPY use `fx_fixed_2r_v1`; GBPJPY uses `fx_fixed_2r_frontload_v1`
+  (same 1R/1.5R/2R ladder, front-loaded 40/25/35 partials instead of 25/25/50
+  — see "Per-symbol position management" below). Both are `FIXED_RR_POLICY_
+  CLOSE_RATIOS` entries and require a **named reaction session**, **stop
+  envelope**, **activation**, and **price scale** pack once live/paper.
+  The envelope is pair-scale (EURUSD/USDJPY 10–18 pips, GBPJPY 15–30).
+  Do not copy dotted stop or geometry paths per pair.
+- A new live FX instrument declares `policy`, `reaction_session`
+  (`london_ny`, `tokyo_london`, `tokyo_london_ny`, or a raw `7-11,13-16`
+  list), `stop_envelope`, `activation`, and `price_scale`. Register a new
+  session name in `REGISTERED_REACTION_SESSIONS` instead of duplicating
+  hour strings. `overrides` remains an escape hatch for a single leaf not
+  covered by a pack (e.g. a defended-level guard or the event-cluster
+  news guard, neither of which is pack-composed).
+- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R
+  (GBPJPY: 40%/25%/35%). TP1 enables protected break-even; booking 1.5R
+  trails the runner to 1R.
 - Broker-step rules may defer an undersized partial to a later target; they
   never inflate a small close beyond its declared share.
 - FX keeps the existing equity sizing and strategy-specific risk multipliers.
@@ -37,6 +49,16 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 ```yaml
 policy: fx_fixed_2r_v1
+reaction_session: london_ny   # or tokyo_london, tokyo_london_ny
+stop_envelope: {min_pips: 10, max_pips: 18, sl_distance: 0.0018}
+activation: {require_sweep_body: true, trigger_maximum_age_bars: 3, max_spread_pips: 1}
+price_scale:
+  round_step: 0.001
+  market_map: {change_min: 0.0001, fallback_radius_price: 0.01, scalp_radius_price: 0.006}
+  zone_merge_gap_price: 0.0005
+  zone_merge_max_width: 0.0015
+  opposing_minimum_separation_price: 0.0015
+  fvg_entry_max_width_price: 0.0015
 targeting:
   mode: fixed_rr
   reward_risk: 2.0
@@ -44,12 +66,33 @@ targeting:
   close_ratios: [0.25, 0.25, 0.50]
   trail_after_r: 1.5
   trail_to_r: 1.0
+  entry_clips: 2
 ```
 
 The target is computed only after the entry route and protective stop are
 final. If the nearest credible opposing structure cannot provide 2R of room,
 the plan fails closed instead of shrinking the target. New FX instruments must
-declare this policy and targeting block; symbol-name hard-coding is not used.
+declare this policy, targeting block, `reaction_session`, `stop_envelope`,
+`activation`, and `price_scale`; symbol-name hard-coding is not used.
+
+## Per-symbol position management
+
+Beyond geometry, individual pairs own genuinely different management
+mechanisms, grounded in each pair's real 2026 market behavior:
+
+- **GBPJPY** (`fx_fixed_2r_frontload_v1` + event-cluster guard): ATR(14)
+  ~180 pips/day vs EURUSD's ~70, and moves reverse hard once they've run —
+  40%/25%/35% partials lock in more of the win at 1R. Separately, when a
+  BoE and a BoJ high-impact calendar event land within 48h of each other
+  ("volatility clusters" compound rather than add), the news guard widens
+  from the normal 30-minute single-event window to 3 hours around
+  whichever event is nearer (`actionability.gates.event_cluster_guard_*`,
+  off by default, on only for GBPJPY via `overrides`).
+- **USDJPY** (defended-level guard): Japan/the US ran a record ~¥11.73T
+  joint intervention specifically when USDJPY breached 160 — a 600+ pip
+  reversal. New entries within a configured buffer of a defended level
+  (`risk.exposure.defended_levels`/`defended_level_buffer_price`, set via
+  `overrides`) are hard-blocked regardless of `guard_mode`.
 
 ## Account-level architecture
 

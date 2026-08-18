@@ -187,6 +187,66 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.is_executable()
   assert cfg.instrument_for_broker_symbol("EURUSD").identity.canonical_symbol == "EURUSD"
   assert cfg.instrument_for_broker_symbol("GBPJPY").identity.canonical_symbol == "GBPJPY"
+  assert cfg.instruments.root["EURUSD"].reaction_session == "london_ny"
+  assert cfg.instruments.root["GBPJPY"].reaction_session == "tokyo_london"
+  assert cfg.instruments.root["USDJPY"].reaction_session == "tokyo_london_ny"
+  assert cfg.instruments.root["EURUSD"].overrides == {}
+  # GBPJPY/USDJPY each keep exactly one escape-hatch override for a leaf no
+  # pack composes: GBPJPY's event-cluster news guard, USDJPY's defended-
+  # level guard. Neither duplicates anything the packs already expand.
+  assert cfg.instruments.root["GBPJPY"].overrides == {
+    "actionability.gates.event_cluster_guard_enabled": True,
+  }
+  assert set(cfg.instruments.root["USDJPY"].overrides) == {
+    "risk.exposure.defended_levels",
+    "risk.exposure.defended_level_buffer_price",
+  }
+  assert cfg.instruments.root["EURUSD"].price_scale is not None
+  assert cfg.instruments.root["GBPJPY"].price_scale is not None
+  assert cfg.instruments.root["USDJPY"].price_scale is not None
+  assert "execution.reaction.stop_min_pips" not in cfg.instruments.root["EURUSD"].overrides
+  assert "execution.range.min_rr" not in cfg.instruments.root["GBPJPY"].overrides
+  assert "execution.range.min_rr" not in cfg.instruments.root["USDJPY"].overrides
+
+
+def test_fx_execution_pack_expands_and_explicit_override_wins():
+  loaded = _load_production_example()
+  cfg = loaded.config
+  gbp = cfg.instruments.root["GBPJPY"]
+  patched = gbp.model_copy(
+    update={
+      "overrides": {
+        **gbp.overrides,
+        "execution.reaction.stop_max_pips": 40,
+      },
+    },
+  )
+  runtime = cfg.model_copy(
+    update={"instruments": InstrumentsConfig(root={
+      "XAU": cfg.instruments.root["XAU"],
+      "EURUSD": cfg.instruments.root["EURUSD"],
+      "GBPJPY": patched,
+    })},
+  )
+  effective = runtime.for_instrument("GBPJPY")
+  assert int(effective.execution.reaction.stop_min_pips) == 15
+  assert int(effective.execution.reaction.stop_max_pips) == 40
+  assert int(effective.execution.stops.trend.minimum_pips) == 15
+  assert int(effective.execution.range.min_target_pips) == 30
+  assert float(effective.execution.range.min_rr) == 2.0
+
+
+def test_live_fx_policy_requires_session_envelope_activation():
+  loaded = _load_production_example()
+  payload = loaded.config.instruments.root["EURUSD"].model_dump(mode="python")
+  with pytest.raises(ValidationError, match="require reaction_session"):
+    InstrumentConfig.model_validate({**payload, "reaction_session": None})
+  with pytest.raises(ValidationError, match="require stop_envelope"):
+    InstrumentConfig.model_validate({**payload, "stop_envelope": None})
+  with pytest.raises(ValidationError, match="require activation"):
+    InstrumentConfig.model_validate({**payload, "activation": None})
+  with pytest.raises(ValidationError, match="require price_scale"):
+    InstrumentConfig.model_validate({**payload, "price_scale": None})
 
 
 def test_for_instrument_case_normalization():
