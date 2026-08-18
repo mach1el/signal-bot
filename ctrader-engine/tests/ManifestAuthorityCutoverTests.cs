@@ -171,7 +171,7 @@ public sealed class ManifestAuthorityCutoverTests : IDisposable
     Assert.NotEqual(999m, runtime.AutoTrade.RiskPercent);
     Assert.NotEqual(999m, runtime.AutoTrade.StopLossDistance);
     Assert.Equal(
-      ["EURUSD", "GBPJPY", "XAU"],
+      ["EURUSD", "GBPJPY", "USDJPY", "XAU"],
       runtime.Instruments.LiveInstruments().Select(i => i.InstrumentId).ToArray()
     );
     Assert.True(runtime.ManifestValidationEnforced);
@@ -253,7 +253,7 @@ public sealed class ManifestAuthorityCutoverTests : IDisposable
     };
     var json = System.Text.Json.JsonSerializer.Serialize(artifact);
     Assert.Contains("\"differences\":0", json, StringComparison.Ordinal);
-    Assert.Equal(["EURUSD", "GBPJPY", "XAU"], artifact.live_instruments);
+    Assert.Equal(["EURUSD", "GBPJPY", "USDJPY", "XAU"], artifact.live_instruments);
   }
 
   [Fact]

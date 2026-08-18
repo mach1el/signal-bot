@@ -24,8 +24,10 @@ _CONFIG = Path(__file__).resolve().parents[3] / "config" / "trading-bot.yml"
 def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   payload = build_resolved_runtime_manifest(config_file=str(_CONFIG))
   assert payload["manifest_version"] == MANIFEST_VERSION == 2
-  assert payload["live_instruments"] == ["EURUSD", "GBPJPY", "XAU"]
-  assert set(payload["instrument_runtimes"]) == {"EURUSD", "GBPJPY", "XAU"}
+  assert payload["live_instruments"] == ["EURUSD", "GBPJPY", "USDJPY", "XAU"]
+  assert set(payload["instrument_runtimes"]) == {
+    "EURUSD", "GBPJPY", "USDJPY", "XAU",
+  }
   xau = payload["instrument_runtimes"]["XAU"]
   assert xau["rollout"] == "live"
   assert xau["feed"]["ctrader_symbol"] == "XAUUSD"
@@ -57,9 +59,16 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert gbpjpy["targeting"]["mode"] == "fixed_rr"
   assert float(gbpjpy["targeting"]["reward_risk"]) == 2.0
   assert gbpjpy["targeting"] == eurusd["targeting"]
+  usdjpy = payload["instrument_runtimes"]["USDJPY"]
+  assert usdjpy["rollout"] == "live"
+  assert usdjpy["feed"]["ctrader_symbol"] == "USDJPY"
+  assert usdjpy["units"]["pip_size"] == "0.01"
+  assert usdjpy["units"]["pip_value_per_lot"] == "6.27"
+  assert usdjpy["targeting"] == eurusd["targeting"]
   assert xau["units"]["volume_units_per_lot"] == 10000
   assert eurusd["units"]["volume_units_per_lot"] == 10000000
   assert gbpjpy["units"]["volume_units_per_lot"] == 10000000
+  assert usdjpy["units"]["volume_units_per_lot"] == 10000000
   # Deprecated compatibility projections remain and match XAU runtime.
   assert payload["feed"] == xau["feed"]
   assert payload["auto_trade"]["targets_pips"] == xau["auto_trade"]["targets_pips"]
