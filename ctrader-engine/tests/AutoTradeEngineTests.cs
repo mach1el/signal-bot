@@ -2796,6 +2796,69 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoWithAFiveTargetLadderDropsLegTagInsteadOfRejecting()
+  {
+    // Live 2026-08-19 (candidate manual:86:0): the short-form owner DM
+    // syntax auto-fills a 5-level target ladder (30/60/100/130/200 pips).
+    // The 9-part avm comment for that many targets already sits close to
+    // the 100-char ceiling, and appending |legIndex|legCount (2026-08 R:R
+    // redesign) tipped it over - "manual algo comment is 103 chars" -
+    // which failed the candidate outright and it was then rejected as
+    // stale on retry. legIndex/legCount are observability-only (see
+    // ParseManualComment's backward-compat note), so BuildManualComment
+    // must drop them and still place the order rather than losing it.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    // Realistic 10-digit unix timestamps for both barTs and expiresAt (not
+    // this file's usual tiny placeholders) - a real signal's actual
+    // trade-day expiry, not "0"/never-expires, is most of the missing
+    // length between this test's earlier 88-89 chars and production's 103.
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "SELL",
+      candidateId: "manual:86:0",
+      entryLow: 3999.5m,
+      entryHigh: 4000.5m,
+      manualStopLoss: 4006.0m,
+      targetsPips: new[] { 30, 60, 100, 130, 200 },
+      manualTakeProfits: new[]
+      {
+        3999.5m - 3.0m, 3999.5m - 6.0m, 3999.5m - 10.0m,
+        3999.5m - 13.0m, 3999.5m - 20.0m,
+      },
+      expiresAt: 1_787_126_400,
+      barTs: 1_787_106_159
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 50_000m, Equity = 50_000m },
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
+    Assert.Equal(3, client.LimitOrders.Count);
+    foreach (var order in client.LimitOrders)
+    {
+      Assert.StartsWith("avm|", order.Comment);
+      Assert.True(
+        order.Comment.Length <= 100,
+        $"comment is {order.Comment.Length} chars: {order.Comment}"
+      );
+      // Fallback shape: 9 parts, no trailing legIndex/legCount - the
+      // 11-part shape with them would have been 104 chars here.
+      Assert.Equal(9, order.Comment.Split('|').Length);
+    }
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoFixesFirstLegToPointZeroFiveLotsAboveThreshold()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -5748,7 +5811,8 @@ public sealed partial class AutoTradeEngineTests
     string? regime = null,
     decimal? opposingZoneLow = null,
     decimal? opposingZoneHigh = null,
-    bool bypassAnalysisGates = true
+    bool bypassAnalysisGates = true,
+    long? barTs = null
   ) => JsonSerializer.Serialize(new
   {
     version = 3,
@@ -5761,6 +5825,7 @@ public sealed partial class AutoTradeEngineTests
     direction,
     trigger_ts = "1000",
     created_at = createdAt,
+    bar_ts = barTs,
     spot_ts = (long?)null,
     current_price = (double)((entryLow + entryHigh) / 2m),
     key_level = (double)((entryLow + entryHigh) / 2m),
