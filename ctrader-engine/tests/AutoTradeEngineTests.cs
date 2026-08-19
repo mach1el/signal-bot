@@ -19,6 +19,22 @@ public sealed partial class AutoTradeEngineTests
     LotSize: 10_000
   );
 
+  // Owner-reported 2026-08-19 (multi-symbol scale-up): a real 5-digit FX
+  // symbol, distinct from XAU's Digits=2 - proves manual /algo resolves
+  // the candidate's own instrument (ResolveBoundSymbol/ResolveInstrumentUnits)
+  // instead of RequireSymbol()'s single session-bound symbol.
+  private static readonly SymbolInfo EurUsdSymbol = new(
+    "EURUSD",
+    "EURUSD",
+    1,
+    Digits: 5,
+    PipPosition: 4,
+    MinVolume: 1_000,
+    StepVolume: 1_000,
+    MaxVolume: 10_000_000,
+    LotSize: 100_000
+  );
+
   [Fact]
   public async Task OpensRiskBoundMarketWithSixPointFiveStopAndClosesFiveTargets()
   {
@@ -2694,6 +2710,103 @@ public sealed partial class AutoTradeEngineTests
       client.LimitOrders.Select(order => order.Volume)
     );
     Assert.DoesNotContain(store.Events, item => item.Type == "warning");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ManualAlgoResolvesTheCandidatesOwnSymbolNotTheSessionsBound()
+  {
+    // Owner-reported 2026-08-19 (multi-symbol scale-up): before
+    // ResolveBoundSymbol/ResolveInstrumentUnits, ProcessManualAlgoAsync used
+    // RequireSymbol() - the session's single bound symbol (XAU here, per
+    // Symbol below) - for every candidate regardless of its own declared
+    // symbol. A EURUSD /algo candidate would have priced, stopped, and sized
+    // its order using XAU's SymbolInfo (Digits=2, not EURUSD's real 5) and
+    // XAU's pip geometry. Same scenario as
+    // ManualAlgoBypassesOpposingZoneAndKeepsOwnerStop (proven-correct 3-leg
+    // split), every price divided by 1000 into EURUSD's own scale.
+    // RelativeStopLoss is raw price distance * 100_000 (cTrader protocol
+    // scaling, not pip-size dependent), so it divides by 1000 too. Volume
+    // is lots * LotSize: with EURUSD's own 0.0001 pip size 1000x smaller
+    // than XAU's 0.1, the *lot count* this risk sizes to is identical to
+    // the XAU test, but EurUsdSymbol's realistic 100_000 LotSize (vs the
+    // XAU fixture's 10_000) makes the raw-unit Volume 10x larger - which is
+    // real: a standard FX lot is a materially bigger contract than this
+    // gold fixture's, so the same risk-% sizing genuinely produces higher
+    // raw volume, matching the owner's own "not same as gold" expectation.
+    // LimitPrice's decimal precision differs (5 digits, not 2), which
+    // XAU's SymbolInfo could never produce.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      manualStopLoss: 4.002m,
+      entryLow: 3.9995m,
+      entryHigh: 4.0005m,
+      opposingZoneLow: 4.001m,
+      opposingZoneHigh: 4.003m,
+      // Default manual_take_profits (entryLow - 3/6/9) are XAU-scale offsets
+      // that go negative at EURUSD's ~4.0 price scale - same 1000x scale-down
+      // as every other price in this test, kept positive and below entryLow.
+      manualTakeProfits: new[] { 3.9965m, 3.9935m, 3.9905m },
+      symbol: "EURUSD"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    engine.BindInstrumentSymbols([Symbol, EurUsdSymbol]);
+    // ProcessCandidateAsync's own routing gate (RequireSymbol() vs
+    // candidate.Symbol) only resolves a non-session symbol when
+    // InstrumentRegistry is set - production always sets this via
+    // FeedRunner. Without it here, the candidate is rejected as
+    // "unsupported candidate" before ever reaching ProcessManualAlgoAsync.
+    engine.InstrumentRegistry = new InstrumentRuntimeRegistry([
+      new InstrumentRuntime
+      {
+        InstrumentId = "EURUSD",
+        Feed = new FeedInstrumentOptions(
+          InstrumentId: "EURUSD",
+          CanonicalSymbol: "EURUSD",
+          CTraderSymbol: "EURUSD",
+          RedisSymbol: "EURUSD",
+          Timeframes: ["M1", "M5"],
+          BackfillBars: 100,
+          BarsWindowMax: 100,
+          BarsChannel: "bars:new",
+          BarQualityLookback: 6,
+          Rollout: InstrumentRollout.Live
+        ),
+        Execution = new ExecutionInstrumentOptions(
+          InstrumentId: "EURUSD",
+          CanonicalSymbol: "EURUSD",
+          Rollout: InstrumentRollout.Live,
+          PipSize: 0.0001m,
+          ContractSize: 100_000m,
+          EffectiveSymbols: ["EURUSD"]
+        ),
+      },
+    ]);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("EURUSD", 4.0000m, 4.0002m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(3, client.LimitOrders.Count);
+    Assert.Equal(
+      new[] { 250L, 200L, 150L },
+      client.LimitOrders.Select(order => order.RelativeStopLoss)
+    );
+    Assert.Equal(
+      new[] { 3.9995m, 4.0000m, 4.0005m },
+      client.LimitOrders.Select(order => order.LimitPrice)
+    );
+    Assert.Equal(
+      new[] { 8_000L, 5_000L, 2_000L },
+      client.LimitOrders.Select(order => order.Volume)
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -5909,12 +6022,13 @@ public sealed partial class AutoTradeEngineTests
     bool bypassAnalysisGates = true,
     long? barTs = null,
     bool manualSingleEntry = false,
-    int[]? manualTargetWeights = null
+    int[]? manualTargetWeights = null,
+    string symbol = "XAU"
   ) => JsonSerializer.Serialize(new
   {
     version = 3,
     candidate_id = candidateId,
-    symbol = "XAU",
+    symbol,
     timeframe = "M1",
     setup,
     mode = "manual_algo",
