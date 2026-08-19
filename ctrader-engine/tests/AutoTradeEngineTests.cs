@@ -2670,12 +2670,21 @@ public sealed partial class AutoTradeEngineTests
     // 2026-08 R:R redesign: a tight 25-pip owner stop sizes a position
     // large enough for a real three-way entry split (Shallow 800 / Mid 500
     // / Deep 200 - unlike the other manual-algo tests here, whose wider
-    // owner stops size too small and fall back to a single leg). Stop
-    // distance stays 25 pips (250000) on every leg regardless of its own
-    // fill price - StopTrailPlanner's absolute-stop pin on fill adoption
-    // corrects each leg to the owner's exact 4002.0 SL once filled.
+    // owner stops size too small and fall back to a single leg).
+    // Owner-reported live 2026-08-19: each leg's *own* distance to the one
+    // owner-declared absolute stop (4002.0), not a single Shallow-anchored
+    // distance reused everywhere - a relative stop-loss resolves against
+    // that order's own fill, so reusing Shallow's distance on Mid/Deep put
+    // their real broker stop away from 4002.0. The isNewManualFill pin-on-
+    // fill correction exists as a second line of defense for slippage
+    // between plan and fill, but production shows zero
+    // final_stop_absolute_applied/final_stop_amendment_unknown hits ever -
+    // it is not a substitute for placing the correct distance up front.
     Assert.Equal(3, client.LimitOrders.Count);
-    Assert.All(client.LimitOrders, order => Assert.Equal(250_000, order.RelativeStopLoss));
+    Assert.Equal(
+      new[] { 250_000L, 200_000L, 150_000L },
+      client.LimitOrders.Select(order => order.RelativeStopLoss)
+    );
     Assert.Equal(
       new[] { 3999.5m, 4000.0m, 4000.5m },
       client.LimitOrders.Select(order => order.LimitPrice)
