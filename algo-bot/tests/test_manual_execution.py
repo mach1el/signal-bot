@@ -472,41 +472,90 @@ async def test_handle_event_take_profit_closes_in_full_on_last_configured_target
 
 
 @pytest.mark.asyncio
-async def test_handle_event_position_closed_uses_signed_sl_result_pips(monkeypatch):
+async def test_handle_event_position_closed_full_close_defers_to_group_result(
+  monkeypatch,
+):
+  """A leg closing completely (remaining_volume=0) must NOT finalize the
+  signal by itself - a manual /algo signal can be several independent
+  entry legs sharing one group, and only AutoTradeEngine.cs's own
+  group_result event (fired once every leg is done) knows the true,
+  correctly volume-weighted final result. See finalize_manual_group.
+  """
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()  # SELL entry=4100/4105 sl=4110
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
   client = redis_state.get_client()
   positions = {555: sid}
 
-  event = {"type": "position_closed", "position_id": 555, "price": 4110.0}
+  event = {
+    "type": "position_closed",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "price": 4110.0,
+    "remaining_volume": 0,
+    "leg_realized_pips": -100,
+    "volume": 1000,
+    "group_initial_volume": 1000,
+  }
   await manual_execution._handle_event(client, event, positions)
 
   row = await store.get_manual_signal(sid)
-  assert row["status"] == "closed"
-  # Fill equals zone low: 4100 → 4110 = -100 pips.
-  assert row["result_pips"] == -100
+  assert row["status"] == "open"
   assert 555 not in positions
+  send.assert_not_awaited()
+
+  group_event = {
+    "type": "group_result",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "group_realized_pips": -100,
+  }
+  await manual_execution._handle_event(client, group_event, positions)
+
+  row = await store.get_manual_signal(sid)
+  assert row["status"] == "closed"
+  assert row["result_pips"] == -100
   send.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_event_position_closed_uses_broker_fill_not_zone_edge(
+async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_broker_fill(
   monkeypatch,
 ):
+  """A genuine partial close (this leg itself still has volume left, e.g.
+  a broker-side liquidity partial-fill on an owner flatten) is still
+  booked immediately via the existing close_leg ledger - but from the
+  event's OWN leg_realized_pips/volume/group_initial_volume, not the
+  whole-signal broker_fill_price (which, for a multi-leg group, is only
+  ever the FIRST leg to fill and would give the wrong number here).
+  """
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()  # SELL entry zone 4100-4105
+  # Deliberately a DIFFERENT price than the leg's own fill, to prove the
+  # partial-close pips come from the event's leg_realized_pips, not a
+  # recompute against this stale, whole-signal column.
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4103.0)
   client = redis_state.get_client()
   positions = {555: sid}
 
-  event = {"type": "position_closed", "position_id": 555, "price": 4110.0}
+  event = {
+    "type": "position_closed",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "price": 4110.0,
+    "remaining_volume": 400,
+    "leg_realized_pips": -70,
+    "volume": 600,
+    "group_initial_volume": 1000,
+  }
   await manual_execution._handle_event(client, event, positions)
 
   row = await store.get_manual_signal(sid)
-  assert row["status"] == "closed"
-  # From actual fill 4103 → 4110 = -70 pips (not zone-low 4100 → -100).
-  assert row["result_pips"] == -70
+  assert row["status"] == "open"
+  legs = row["legs"]
+  assert legs[0]["pips"] == -70
+  assert legs[0]["frac"] == pytest.approx(0.6)
+  assert 555 in positions
   send.assert_awaited_once()
 
 
@@ -561,22 +610,35 @@ async def test_handle_event_manual_closed_applies_owner_requested_fraction(monke
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
   client = redis_state.get_client()
   positions = {555: sid}
-  await manual_execution.request_close(sid, 555, frac=0.5)
+  await manual_execution.request_close(sid, f"manual:{sid}:0", frac=0.5)
 
-  event = {"type": "manual_closed", "position_id": 555, "price": 4095.0, "volume": 300}
+  # This leg still has volume left (a genuine partial /trade_close 50%) -
+  # its own leg_realized_pips/volume/group_initial_volume drive the ledger
+  # entry, matching the "actual executed fraction" AutoTradeEngine.cs
+  # reports rather than remembering the originally-requested one.
+  event = {
+    "type": "manual_closed",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "price": 4095.0,
+    "remaining_volume": 300,
+    "leg_realized_pips": 50,
+    "volume": 300,
+    "group_initial_volume": 600,
+  }
   await manual_execution._handle_event(client, event, positions)
 
   row = await store.get_manual_signal(sid)
   legs = row["legs"]
   assert legs[0]["frac"] == pytest.approx(0.5)
+  assert legs[0]["pips"] == 50
   assert row["status"] == "open"
-  assert await client.get("manual_trade:pending_close:555") is None
-  assert 555 not in positions
+  assert 555 in positions
   send.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_event_manual_closed_full_close_when_no_frac_was_requested(
+async def test_handle_event_manual_closed_full_close_defers_to_group_result(
   monkeypatch,
 ):
   send = _mock_send(monkeypatch)
@@ -584,13 +646,36 @@ async def test_handle_event_manual_closed_full_close_when_no_frac_was_requested(
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
   client = redis_state.get_client()
   positions = {555: sid}
-  await manual_execution.request_close(sid, 555, frac=None)
+  await manual_execution.request_close(sid, f"manual:{sid}:0", frac=None)
 
-  event = {"type": "manual_closed", "position_id": 555, "price": 4095.0, "volume": 600}
+  event = {
+    "type": "manual_closed",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "price": 4095.0,
+    "remaining_volume": 0,
+    "leg_realized_pips": 50,
+    "volume": 600,
+    "group_initial_volume": 600,
+  }
   await manual_execution._handle_event(client, event, positions)
 
   row = await store.get_manual_signal(sid)
+  assert row["status"] == "open"
+  assert 555 not in positions
+  send.assert_not_awaited()
+
+  group_event = {
+    "type": "group_result",
+    "position_id": 555,
+    "candidate_id": f"manual:{sid}:0",
+    "group_realized_pips": 50,
+  }
+  await manual_execution._handle_event(client, group_event, positions)
+
+  row = await store.get_manual_signal(sid)
   assert row["status"] == "closed"
+  assert row["result_pips"] == 50
   send.assert_awaited_once()
 
 
@@ -783,17 +868,19 @@ async def test_request_cancel_xadds_cancel_pending_command(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_request_close_xadds_close_command_and_remembers_frac(monkeypatch):
+async def test_request_close_xadds_close_command_by_intent_id(monkeypatch):
+  # Routed by intent_id (the signal's group token), not a single
+  # position_id - AutoTradeEngine.cs resolves and closes every open leg in
+  # the group, so /trade_close actually flattens a multi-leg manual /algo
+  # position instead of leaving two of three legs open on the broker.
   install_runtime_overrides(monkeypatch, legacy_overrides={"manual_trade_command_stream": "manual_trade:cmd2",})
   client = redis_state.get_client()
 
-  await manual_execution.request_close(9, 555, frac=0.5)
+  await manual_execution.request_close(9, "manual:9:0", frac=0.5)
 
   entries = await client.xrange("manual_trade:cmd2")
   payload = json.loads(entries[0][1]["payload"])
-  assert payload == {"type": "close", "position_id": 555, "frac": 0.5}
-  pending = json.loads(await client.get("manual_trade:pending_close:555"))
-  assert pending == {"signal_id": 9, "frac": 0.5}
+  assert payload == {"type": "close", "intent_id": "manual:9:0", "frac": 0.5}
 
 
 @pytest.mark.asyncio
