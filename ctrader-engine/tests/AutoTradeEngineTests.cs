@@ -2805,6 +2805,44 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualFxSingleEntryPlacesOneLimitOrderWithPolicyWeights()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "BUY",
+      entryLow: 1.15007m,
+      entryHigh: 1.15007m,
+      manualStopLoss: 1.14867m,
+      targetsPips: new[] { 14, 21, 28 },
+      manualTakeProfits: new[] { 1.15147m, 1.15217m, 1.15287m },
+      manualSingleEntry: true,
+      manualTargetWeights: new[] { 25, 25, 50 }
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 1.14950m, 1.14955m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Empty(client.Orders);
+    var order = Assert.Single(client.LimitOrders);
+    Assert.Equal(TradeDirection.Buy, order.Direction);
+    Assert.Equal(1.15007m, order.LimitPrice);
+    var planned = Assert.Single(
+      store.Events,
+      item => item.Type == "manual_limit_placed"
+    );
+    Assert.Equal(new[] { 14, 21, 28 }, planned.TargetsPips);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoWithAFiveTargetLadderDropsLegTagInsteadOfRejecting()
   {
     // Live 2026-08-19 (candidate manual:86:0): the short-form owner DM
@@ -5821,7 +5859,9 @@ public sealed partial class AutoTradeEngineTests
     decimal? opposingZoneLow = null,
     decimal? opposingZoneHigh = null,
     bool bypassAnalysisGates = true,
-    long? barTs = null
+    long? barTs = null,
+    bool manualSingleEntry = false,
+    int[]? manualTargetWeights = null
   ) => JsonSerializer.Serialize(new
   {
     version = 3,
@@ -5849,6 +5889,8 @@ public sealed partial class AutoTradeEngineTests
         ? new[] { entryHigh + 3m, entryHigh + 6m, entryHigh + 9m }
         : new[] { entryLow - 3m, entryLow - 6m, entryLow - 9m }
     ),
+    manual_single_entry = manualSingleEntry,
+    manual_target_weights = manualTargetWeights,
     regime,
     group_id = candidateId,
     strategy_family = "manual",
