@@ -14,10 +14,14 @@ pytestmark = pytest.mark.no_database
 
 @pytest.fixture(autouse=True)
 def _production_config(monkeypatch):
-  cfg = _load_production_example()
-  monkeypatch.setattr("app.core.config.runtime_config", cfg, raising=False)
-  monkeypatch.setattr("app.signals.parsing.runtime_config", cfg, raising=False)
-  monkeypatch.setattr("app.signals.fx_manual_algo.runtime_config", cfg, raising=False)
+  cfg = _load_production_example().config
+  for target in (
+    "app.core.config.runtime_config",
+    "app.core.symbols.runtime_config",
+    "app.signals.parsing.runtime_config",
+    "app.signals.fx_manual_algo.runtime_config",
+  ):
+    monkeypatch.setattr(target, cfg, raising=False)
 
 
 def test_eurusd_buy_single_price_algo_sets_fixed_rr_ladder():
@@ -61,7 +65,22 @@ def test_eurusd_explicit_sl_and_tp_override_defaults():
   ]
 
 
-def test_gbpjpy_frontload_weights_from_policy():
-  contract = build_fx_manual_contract("GBPJPY", "BUY", 216.168)
+def test_xau_single_price_algo_accepted():
+  parsed = _parse_manual("xau buy 4078 / algo")
 
-  assert contract["target_weights"] == [40, 25, 35]
+  assert parsed is not None
+  assert parsed["action"] == "BUY"
+  assert parsed["entry"] == pytest.approx(4078.0)
+  assert parsed["entry_end"] == pytest.approx(4078.0)
+  assert parsed["execution_mode"] == "algo"
+  assert parsed["sl"] == pytest.approx(4072.0)
+
+
+def test_usdjpy_buy_single_price_algo():
+  parsed = _parse_manual("usdjpy buy 148.520 / algo")
+
+  assert parsed is not None
+  assert parsed["symbol"] == "USDJPY"
+  assert parsed["action"] == "BUY"
+  assert parsed["execution_mode"] == "algo"
+  assert parsed["manual_single_entry"] is True
