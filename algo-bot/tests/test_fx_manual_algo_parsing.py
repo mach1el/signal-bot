@@ -34,6 +34,7 @@ def test_eurusd_buy_single_price_algo_sets_fixed_rr_ladder():
   assert parsed["entry_end"] == pytest.approx(1.15007)
   assert parsed["execution_mode"] == "algo"
   assert parsed["manual_single_entry"] is True
+  assert parsed["setup_type"] == "key-level"
   assert parsed["target_weights"] == [25, 25, 50]
   assert parsed["sl"] == pytest.approx(1.14867)
   assert parsed["tps"] == [
@@ -49,6 +50,16 @@ def test_eurusd_sell_without_algo_suffix_is_notify_only():
   assert parsed is not None
   assert parsed["action"] == "SELL"
   assert parsed["execution_mode"] == "notify"
+  assert parsed["setup_type"] == "key-level"
+
+
+def test_fx_entry_zone_range_is_not_used():
+  parsed = _parse_manual("eurusd buy 1.15007-1.15100 / algo")
+
+  assert parsed is not None
+  assert parsed["entry"] == pytest.approx(1.15007)
+  assert parsed["entry_end"] == pytest.approx(1.15007)
+  assert parsed["manual_single_entry"] is True
 
 
 def test_eurusd_explicit_sl_and_tp_override_defaults():
@@ -63,6 +74,7 @@ def test_eurusd_explicit_sl_and_tp_override_defaults():
     pytest.approx(1.15200),
     pytest.approx(1.15300),
   ]
+  assert parsed["setup_type"] is None
 
 
 def test_xau_single_price_algo_accepted():
@@ -84,3 +96,10 @@ def test_usdjpy_buy_single_price_algo():
   assert parsed["action"] == "BUY"
   assert parsed["execution_mode"] == "algo"
   assert parsed["manual_single_entry"] is True
+  assert parsed["setup_type"] == "key-level"
+
+
+def test_gbpjpy_frontload_weights_from_policy():
+  contract = build_fx_manual_contract("GBPJPY", "BUY", 216.168)
+
+  assert contract["target_weights"] == [40, 25, 35]
