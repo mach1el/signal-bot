@@ -18,6 +18,7 @@ def _intent(**overrides) -> ManualTradeIntent:
     manual_signal_id=47,
     revision=0,
     direction="SELL",
+    symbol="XAU",
     entry_low=4100.0,
     entry_high=4105.0,
     sl=4110.0,
