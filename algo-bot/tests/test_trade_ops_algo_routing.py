@@ -145,6 +145,10 @@ async def _algo_signal(**overrides) -> dict:
 @pytest.mark.asyncio
 async def test_do_close_defers_to_broker_when_algo_and_filled(monkeypatch):
   rec = await _algo_signal()
+  intent_id = f"manual:{rec['id']}:0"
+  await store.set_execution_intent(
+    rec["id"], intent_id=intent_id, status="armed", revision=0,
+  )
   await store.set_execution_fill(
     rec["id"], broker_position_id=555, broker_fill_price=4100.0,
   )
@@ -157,7 +161,11 @@ async def test_do_close_defers_to_broker_when_algo_and_filled(monkeypatch):
     "sid": rec["id"], "symbol": "XAU", "pips": 30, "frac": 0.5, "reply_to": None,
   })
 
-  request_close.assert_awaited_once_with(rec["id"], 555, frac=0.5)
+  # Routed by intent_id (the signal's group token), not broker_position_id
+  # - AutoTradeEngine.cs resolves and closes every open leg in the group
+  # from it, so /trade_close flattens a multi-leg manual /algo position
+  # instead of leaving some legs open on the broker.
+  request_close.assert_awaited_once_with(rec["id"], intent_id, frac=0.5)
   close_leg_mock.assert_not_awaited()
   assert result["ok"] is True
   assert result["pending"] is True
