@@ -3238,6 +3238,54 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoFirstTpCancelsUnfilledEntryClips()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    var now = Now;
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "SELL",
+      candidateId: "manual:92:0",
+      entryLow: 3999.5m,
+      entryHigh: 4000.5m,
+      manualStopLoss: 4006.0m,
+      targetsPips: new[] { 30, 60, 90 },
+      expiresAt: 1_787_126_400,
+      barTs: 1_787_106_159
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 50_000m, Equity = 50_000m },
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    Assert.Equal(3, client.PendingOrders.Count);
+
+    var filled = client.PendingOrders[0].OrderId;
+    client.FillPendingOrder(filled);
+    now = Now.AddSeconds(16);
+    await WaitForEventAsync(store, "manual_opened");
+    Assert.Equal(2, client.PendingOrders.Count);
+
+    now = Now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3996.40m, 3996.45m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Contains(store.Events, item => item.Type == "take_profit");
+    Assert.Contains(store.Events, item => item.Type == "unfilled_legs_cancelled");
+    Assert.Empty(client.PendingOrders);
+    Assert.Equal(2, client.CancelledOrders.Count);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoFillAmendsAbsoluteVipStopAfterBetterFill()
   {
     // Live 2026-08-17 XAU #64: BUY zone 4385-4388, posted SL 4382. Limit sat
