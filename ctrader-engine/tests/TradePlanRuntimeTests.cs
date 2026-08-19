@@ -216,6 +216,47 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task UnknownCloseWithoutDealPriceFinalizesWithLiveQuote()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      stopPrice: 4082.50m,
+      managementJson: """
+        {
+          "never_worsen_stop": true
+        }
+        """
+    ));
+    var client = new FakeV7TradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+    };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    var positionId = Assert.Single(runtime.TrackedStates).PositionId;
+    Assert.NotNull(positionId);
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4094.45m, 4094.50m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Equal("manual_or_external_close", closed.ReasonCode);
+    Assert.Equal(4094.45m, closed.Price);
+    Assert.Equal(55m, closed.GroupRealizedPips);
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "warning"
+        && item.Message.Contains("RECOVERY REQUIRED", StringComparison.Ordinal)
+    );
+  }
+
+  [Fact]
   public async Task UnknownCloseWithRecoveredExitPriceDoesNotUseStopTautology()
   {
     var store = new FakeV7Store();
