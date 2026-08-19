@@ -90,6 +90,22 @@ def test_xauusd_trigger_word_also_accepted():
   assert parsed["sl"] == pytest.approx(4072.0)
 
 
+def test_gbpjpy_frontload_weights_from_policy():
+  contract = build_fx_manual_contract("GBPJPY", "BUY", 216.168)
+
+  assert contract["target_weights"] == [40, 25, 35]
+
+
+def test_xau_single_price_short_form():
+  parsed = _parse_manual("xau sell 4100 / algo")
+
+  assert parsed is not None
+  assert parsed["action"] == "SELL"
+  assert parsed["entry"] == pytest.approx(4100.0)
+  assert parsed["entry_end"] == pytest.approx(4100.0)
+  assert parsed["execution_mode"] == "algo"
+
+
 def test_short_form_without_algo_suffix_still_auto_fills():
   parsed = _parse_manual("xau buy 4078-75")
 
