@@ -6,14 +6,14 @@ cTrader manifest-authoritative.
 ## Absolute production boundary
 
 ```text
-live instruments = XAU + EURUSD + GBPJPY + USDJPY
-feed instruments = XAU + EURUSD + GBPJPY + USDJPY
+live instruments = XAU + EURUSD + GBPJPY + USDJPY + GBPUSD
+feed instruments = XAU + EURUSD + GBPJPY + USDJPY + GBPUSD
 CTRADER_CONFIGURATION_SOURCE = manifest
 CTRADER_MANIFEST_PARITY_MODE = off
 ```
 
-EURUSD, GBPJPY, and USDJPY are demo-live with their own pip/lot/zone geometry.
-Do not inherit XAU dollar merge/round/FVG widths onto FX.
+EURUSD, GBPJPY, USDJPY, and GBPUSD are demo-live with their own pip/lot/zone
+geometry. Do not inherit XAU dollar merge/round/FVG widths onto FX.
 
 XAU remains required in `live_instruments`. Additional live symbols are
 allowed after explicit trading-policy review.
@@ -104,7 +104,7 @@ CTraderAccountRuntimeHost / FeedRunner
 ├── one account reconciliation coordinator (AccountRiskCoordinator)
 ├── one candidate stream consumer
 └── InstrumentRuntimeRegistry
-    └── InstrumentRuntime (XAU, EURUSD, GBPJPY, USDJPY live on demo)
+    └── InstrumentRuntime (XAU, EURUSD, GBPJPY, USDJPY, GBPUSD live on demo)
 ```
 
 ## Instrument runtime registry
