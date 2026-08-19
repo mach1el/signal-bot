@@ -100,13 +100,21 @@ public sealed class StopTrailPlannerTests
     );
   }
 
+  // 2026-08 R:R dig: TP2 previously moved the stop nowhere at all, leaving
+  // the position flat at breakeven from TP1 all the way through to TP3 -
+  // the dominant driver of real manual XAU trades scratching near zero
+  // instead of banking real progress (58 closed trades: median win 36
+  // pips). TP2 now trails to TP1's own level, same as TP3 already did
+  // (TP3's own "two behind" step still lands on TP1 too, so it's a no-op
+  // once TP2 has already moved there - TP4 is what advances the trail
+  // again, to TP2's level).
   [Theory]
   [InlineData(TradeDirection.Buy, 4000.26, 4003.2, 4006.2)]
   [InlineData(TradeDirection.Sell, 4000.14, 3997.2, 3994.2)]
-  public void HoldsAfterTp2ThenTrailsTwoTargetsBehind(
+  public void Tp2TrailsToTp1ThenTp4AdvancesToTp2(
     TradeDirection direction,
     double afterTp1,
-    double afterTp3,
+    double afterTp2,
     double afterTp4
   )
   {
@@ -119,14 +127,16 @@ public sealed class StopTrailPlannerTests
     Assert.Equal(0.06m, Math.Abs(tp1.StopLoss - state.EntryPrice));
     state = state with { CurrentStopLoss = tp1.StopLoss };
 
-    Assert.Null(StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 6));
-
-    var tp3 = Assert.IsType<StopTrailMove>(
-      StopTrailPlanner.Plan(state, 2, Symbol, 0.1m, 6)
+    var tp2 = Assert.IsType<StopTrailMove>(
+      StopTrailPlanner.Plan(state, 1, Symbol, 0.1m, 6)
     );
-    Assert.Equal(Convert.ToDecimal(afterTp3), tp3.StopLoss);
-    Assert.Equal("TP1", tp3.Label);
-    state = state with { CurrentStopLoss = tp3.StopLoss };
+    Assert.Equal(Convert.ToDecimal(afterTp2), tp2.StopLoss);
+    Assert.Equal("TP1", tp2.Label);
+    state = state with { CurrentStopLoss = tp2.StopLoss };
+
+    // TP3's own "ordinal - 2" step also lands on TP1 - already there, so
+    // this is a genuine no-op, not a missed trail.
+    Assert.Null(StopTrailPlanner.Plan(state, 2, Symbol, 0.1m, 6));
 
     var tp4 = Assert.IsType<StopTrailMove>(
       StopTrailPlanner.Plan(state, 3, Symbol, 0.1m, 6)
