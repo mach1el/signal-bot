@@ -1102,7 +1102,11 @@ public sealed partial class AutoTradeEngineTests
     );
 
     Assert.Equal((91, 200), Assert.Single(client.Closes));
-    Assert.Empty(client.StopAmendments);
+    // 2026-08 R:R dig: TP2 used to move the stop nowhere at all - it now
+    // trails to TP1's own price (entry 4000.2 + 30 pips = 4003.2), closing
+    // the gap that used to leave the position flat at breakeven all the
+    // way through to TP3.
+    Assert.Equal((91, 4003.2m), Assert.Single(client.StopAmendments));
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
@@ -2606,6 +2610,45 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoDerivesDeepLegAtMidpointOfEntryAndStopWhenZoneIsDegenerate()
+  {
+    // 2026-08 R:R redesign, confirmed directly against the owner's own
+    // worked example: BUY 4390 (typed as a single price, so entryLow ==
+    // entryHigh - no real zone to split) with SL 4384 -> Deep 4387 (exactly
+    // the midpoint between the typed entry and the stop), Mid 4388.5
+    // (midpoint of Shallow and Deep).
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "BUY",
+      entryLow: 4390.0m,
+      entryHigh: 4390.0m,
+      manualStopLoss: 4384.0m,
+      manualTakeProfits: [4396.0m, 4399.0m, 4403.0m]
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 50_000m },
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4380.0m, 4380.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(3, client.LimitOrders.Count);
+    Assert.Equal(
+      new[] { 4390.0m, 4388.5m, 4387.0m },
+      client.LimitOrders.Select(order => order.LimitPrice)
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoBypassesOpposingZoneAndKeepsOwnerStop()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -2624,8 +2667,23 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-    var order = Assert.Single(client.LimitOrders);
-    Assert.Equal(200_000, order.RelativeStopLoss);
+    // 2026-08 R:R redesign: a tight 25-pip owner stop sizes a position
+    // large enough for a real three-way entry split (Shallow 800 / Mid 500
+    // / Deep 200 - unlike the other manual-algo tests here, whose wider
+    // owner stops size too small and fall back to a single leg). Stop
+    // distance stays 25 pips (250000) on every leg regardless of its own
+    // fill price - StopTrailPlanner's absolute-stop pin on fill adoption
+    // corrects each leg to the owner's exact 4002.0 SL once filled.
+    Assert.Equal(3, client.LimitOrders.Count);
+    Assert.All(client.LimitOrders, order => Assert.Equal(250_000, order.RelativeStopLoss));
+    Assert.Equal(
+      new[] { 3999.5m, 4000.0m, 4000.5m },
+      client.LimitOrders.Select(order => order.LimitPrice)
+    );
+    Assert.Equal(
+      new[] { 800L, 500L, 200L },
+      client.LimitOrders.Select(order => order.Volume)
+    );
     Assert.DoesNotContain(store.Events, item => item.Type == "warning");
 
     cts.Cancel();
@@ -2652,8 +2710,12 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
+    // 2026-08 R:R redesign: the reference entry is now the zone's Shallow
+    // edge (zone.Low for a SELL, 3999.5) unconditionally, not the owner's
+    // current-price-if-already-inside-the-zone (previously 4000.0) - stop
+    // distance from 3999.5 to the 4006.0 owner stop is 65 pips, not 60.
     var order = Assert.Single(client.LimitOrders);
-    Assert.Equal(600_000, order.RelativeStopLoss);
+    Assert.Equal(650_000, order.RelativeStopLoss);
     Assert.DoesNotContain(logs, item => item.Contains("owner SL"));
     Assert.DoesNotContain(store.Events, item => item.Type == "rejected");
 
@@ -2737,11 +2799,17 @@ public sealed partial class AutoTradeEngineTests
   public async Task ManualAlgoFixesFirstLegToPointZeroFiveLotsAboveThreshold()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    // Balance 5000 -> table 0.30 lots; a 3.0-price-unit (30 pip) stop keeps
-    // risk-bound sizing (0.333 lots) from binding instead, so the table
-    // caps it at exactly 0.30 lots (3000 volume) - well above the 0.13
-    // threshold, and evenly across 3 targets would otherwise book 0.10
-    // lots (1000) on TP1.
+    // Balance 5000 -> table 0.30 lots total (3000 volume), split 50/30/20
+    // across three entry legs (2026-08 R:R redesign): Shallow 1500 (0.15
+    // lots, above the 0.13 threshold - FixFirstLegVolume runs on its own
+    // exit ladder), Mid 900 (0.09 lots) and Deep 600 (0.06 lots) both stay
+    // under threshold and keep an even three-way exit split. Each entry
+    // leg's exit ladder is fixed independently now, not a single-order
+    // property - Shallow's fixed TP1 (0.05 lots/500) happens to equal what
+    // an even three-way split of 1500 already gives, so the visible slice
+    // numbers do not change, but FixFirstLegVolume genuinely runs (proven
+    // by ManualAlgoKeepsEvenSplitAtOrBelowThreshold showing the untouched
+    // even split below threshold for comparison).
     var store = new FakeAutoTradeStore(ManualCandidateJson(
       direction: "SELL",
       entryLow: 3999.5m,
@@ -2761,11 +2829,22 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-    var order = Assert.Single(client.LimitOrders);
-    Assert.Equal(3_000, order.Volume);
-    // Comment layout: avm|candidate|group|volume|slices|targets|ordinals|barTs|expiresAt
-    var slices = order.Comment.Split('|')[4];
-    Assert.Equal("500,1300,1200", slices);
+    Assert.Equal(3, client.LimitOrders.Count);
+    var shallow = client.LimitOrders[0];
+    Assert.Equal(1_500, shallow.Volume);
+    // Comment layout: avm|candidate|group|volume|slices|targets|ordinals|barTs|expiresAt|legIndex|legCount
+    Assert.Equal("500,500,500", shallow.Comment.Split('|')[4]);
+    Assert.Equal(["1", "3"], shallow.Comment.Split('|')[9..]);
+
+    var mid = client.LimitOrders[1];
+    Assert.Equal(900, mid.Volume);
+    Assert.Equal("300,300,300", mid.Comment.Split('|')[4]);
+    Assert.Equal(["2", "3"], mid.Comment.Split('|')[9..]);
+
+    var deep = client.LimitOrders[2];
+    Assert.Equal(600, deep.Volume);
+    Assert.Equal("200,200,200", deep.Comment.Split('|')[4]);
+    Assert.Equal(["3", "3"], deep.Comment.Split('|')[9..]);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -2804,7 +2883,7 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task ManualAlgoPlacesLimitAtCurrentPriceWhenPriceAlreadyInsideZone()
+  public async Task ManualAlgoPlacesLimitAtShallowEdgeEvenWhenPriceAlreadyInsideZone()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var store = new FakeAutoTradeStore(ManualCandidateJson(
@@ -2824,8 +2903,12 @@ public sealed partial class AutoTradeEngineTests
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
+    // 2026-08 R:R redesign: entry legs are fixed at the owner's typed zone
+    // edges (Shallow/Mid/Deep), not adjusted to the current price even
+    // when it already sits inside the zone - Shallow for a SELL is
+    // zone.Low (3999.5), unconditionally.
     var order = Assert.Single(client.LimitOrders);
-    Assert.Equal(4000.0m, order.LimitPrice);
+    Assert.Equal(3999.5m, order.LimitPrice);
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
