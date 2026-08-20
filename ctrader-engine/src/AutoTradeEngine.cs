@@ -3518,20 +3518,14 @@ public sealed class AutoTradeEngine(
         var splitStopPlans = new StructureStopPlan[splitVolumes.Count];
         for (var index = 0; index < splitVolumes.Count; index++)
         {
-          var legTargetPlan = VolumePlanner.BuildTargetPlan(
-            splitVolumes[index], symbol, targetsPips, targetWeights
+          splitTargetPlans[index] = ManualAlgoTargetPlanForEntryLeg(
+            splitVolumes[index],
+            symbol,
+            targetsPips,
+            targetWeights,
+            legIndex: index,
+            legCount: splitVolumes.Count
           );
-          var legLots = splitVolumes[index] / (decimal)symbol.LotSize;
-          if (legLots > ManualAlgoFirstLegThresholdLots)
-          {
-            var fixedFirstLeg = VolumePlanner.VolumeForLots(
-              ManualAlgoFirstLegLots, symbol
-            );
-            legTargetPlan = VolumePlanner.FixFirstLegVolume(
-              legTargetPlan, splitVolumes[index], fixedFirstLeg, symbol
-            );
-          }
-          splitTargetPlans[index] = legTargetPlan;
           splitStopPlans[index] = splitPrices[index] == legPrices.Shallow
             ? manualStopPlan
             : ManualStop(candidate, direction, splitPrices[index], symbol);
@@ -8847,8 +8841,48 @@ public sealed class AutoTradeEngine(
   // owner's zone improves the realized average entry instead of touching
   // exits: shallow (near edge, most likely to actually fill) carries the
   // most size, deep (far edge, best price, least likely to fill) the least.
+  //
+  // Exit policy (2026-08 ladder PM): only the shallow leg books the partial
+  // TP ladder to lock profit. Mid/Deep keep full lot size as runners until
+  // the furthest configured target so the better-fill legs are not chipped
+  // away by the same early TP slices.
   private static readonly IReadOnlyList<decimal> ManualEntryLegRatios =
     [0.5m, 0.3m, 0.2m];
+
+  private static TargetVolumePlan ManualAlgoTargetPlanForEntryLeg(
+    long legVolume,
+    SymbolInfo symbol,
+    IReadOnlyList<int> targetsPips,
+    IReadOnlyList<int> targetWeights,
+    int legIndex,
+    int legCount
+  )
+  {
+    var isDeeperRunner = legCount > 1 && legIndex > 0;
+    if (isDeeperRunner)
+    {
+      return VolumePlanner.BuildTargetPlan(
+        legVolume,
+        symbol,
+        [targetsPips[^1]],
+        [100]
+      );
+    }
+    var plan = VolumePlanner.BuildTargetPlan(
+      legVolume, symbol, targetsPips, targetWeights
+    );
+    var legLots = legVolume / (decimal)symbol.LotSize;
+    if (legLots > ManualAlgoFirstLegThresholdLots)
+    {
+      var fixedFirstLeg = VolumePlanner.VolumeForLots(
+        ManualAlgoFirstLegLots, symbol
+      );
+      plan = VolumePlanner.FixFirstLegVolume(
+        plan, legVolume, fixedFirstLeg, symbol
+      );
+    }
+    return plan;
+  }
 
   private static bool UsesCandidateTargetPlan(TradeCandidate candidate) =>
     IsTrendCandidate(candidate) || IsStrategyMatchCandidate(candidate);
