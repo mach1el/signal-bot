@@ -251,6 +251,44 @@ async def test_set_execution_fill_records_broker_position_and_price():
 
 
 @pytest.mark.asyncio
+async def test_set_execution_fill_keeps_deepest_ladder_price():
+  """SELL: higher fill wins; BUY: lower fill wins; shallower cannot overwrite."""
+  await store.init_db()
+  sell = await store.store_manual_signal(
+    1_800_000_001, "SELL", 4500, 4503, 4506, [4497, 4494, 4490],
+    execution_mode="algo",
+  )
+  await store.set_execution_fill(
+    sell["id"], broker_position_id=1, broker_fill_price=4500.0,
+  )
+  await store.set_execution_fill(
+    sell["id"], broker_position_id=2, broker_fill_price=4503.0,
+  )
+  await store.set_execution_fill(
+    sell["id"], broker_position_id=3, broker_fill_price=4501.5,
+  )
+  sell_row = await store.get_manual_signal(sell["id"])
+  assert sell_row["broker_fill_price"] == pytest.approx(4503.0)
+  assert sell_row["broker_position_id"] == "1"
+
+  buy = await store.store_manual_signal(
+    1_800_000_002, "BUY", 4500, 4503, 4497, [4506, 4509, 4512],
+    execution_mode="algo",
+  )
+  await store.set_execution_fill(
+    buy["id"], broker_position_id=10, broker_fill_price=4503.0,
+  )
+  await store.set_execution_fill(
+    buy["id"], broker_position_id=11, broker_fill_price=4500.0,
+  )
+  await store.set_execution_fill(
+    buy["id"], broker_position_id=12, broker_fill_price=4501.0,
+  )
+  buy_row = await store.get_manual_signal(buy["id"])
+  assert buy_row["broker_fill_price"] == pytest.approx(4500.0)
+
+
+@pytest.mark.asyncio
 async def test_set_execution_fill_returns_none_for_missing_signal():
   await store.init_db()
 
