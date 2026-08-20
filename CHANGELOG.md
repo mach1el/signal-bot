@@ -18,9 +18,9 @@ dated section after deployment.
   pairs stay current without one symbol blocking another.
 - FX manual /algo channel cards show **Entry Price** (single entry-at level) instead
   of **Entry Zone** — FX uses entry-at, not XAU-style zones.
-- XAU manual /algo ladders keep full lot size on mid/deep entry legs (runner until
-  the furthest TP); only the shallow leg books the partial TP ladder to lock
-  profit.
+- XAU manual /algo ladders book the group TP ladder preferring shallow volume
+  first (keep mid/deep size for the better-fill run); when shallow cannot cover
+  a TP slice, volume spills into mid then deep.
 
 ### Fixed
 - XAU manual /algo ladder fills no longer spam the channel with one TP/SL

@@ -3506,26 +3506,18 @@ public sealed class AutoTradeEngine(
         var splitPrices = splitVolumes.Count == 1
           ? new[] { legPrices.Shallow }
           : new[] { legPrices.Shallow, legPrices.Mid, legPrices.Deep };
-        var splitTargetPlans = new TargetVolumePlan[splitVolumes.Count];
-        // Owner-reported live 2026-08-19: Mid/Deep legs' broker stop landed
-        // away from the declared price (eg. 4347) because the single
-        // Shallow-anchored manualStopPlan's *relative* distance (a
-        // stop-loss is submitted as a distance from that order's own fill,
-        // not an absolute price) was reused unchanged for every leg -
-        // correct only for Shallow itself. Each leg needs its own stop plan
-        // computed from its own entry so every leg's broker stop actually
-        // resolves to the one owner-declared absolute price.
+        // Owner-reported live 2026-08-19: Mid/Deep legs need their own stop
+        // plan from their own entry so the broker stop resolves to the one
+        // owner-declared absolute price (relative SL is fill-anchored).
         var splitStopPlans = new StructureStopPlan[splitVolumes.Count];
+        var splitTargetPlans = ManualAlgoAllocateTargetPlansAcrossLegs(
+          splitVolumes,
+          symbol,
+          targetsPips,
+          targetWeights
+        );
         for (var index = 0; index < splitVolumes.Count; index++)
         {
-          splitTargetPlans[index] = ManualAlgoTargetPlanForEntryLeg(
-            splitVolumes[index],
-            symbol,
-            targetsPips,
-            targetWeights,
-            legIndex: index,
-            legCount: splitVolumes.Count
-          );
           splitStopPlans[index] = splitPrices[index] == legPrices.Shallow
             ? manualStopPlan
             : ManualStop(candidate, direction, splitPrices[index], symbol);
@@ -8842,46 +8834,160 @@ public sealed class AutoTradeEngine(
   // exits: shallow (near edge, most likely to actually fill) carries the
   // most size, deep (far edge, best price, least likely to fill) the least.
   //
-  // Exit policy (2026-08 ladder PM): only the shallow leg books the partial
-  // TP ladder to lock profit. Mid/Deep keep full lot size as runners until
-  // the furthest configured target so the better-fill legs are not chipped
-  // away by the same early TP slices.
+  // Exit policy (2026-08 ladder PM): book the group TP ladder preferring
+  // shallow volume first so mid/deep keep size for the better-fill run.
+  // When shallow cannot cover a TP slice, spill into mid then deep.
   private static readonly IReadOnlyList<decimal> ManualEntryLegRatios =
     [0.5m, 0.3m, 0.2m];
 
-  private static TargetVolumePlan ManualAlgoTargetPlanForEntryLeg(
-    long legVolume,
+  private static TargetVolumePlan ManualAlgoBuildGroupTargetPlan(
+    long totalVolume,
     SymbolInfo symbol,
     IReadOnlyList<int> targetsPips,
-    IReadOnlyList<int> targetWeights,
-    int legIndex,
-    int legCount
+    IReadOnlyList<int> targetWeights
   )
   {
-    var isDeeperRunner = legCount > 1 && legIndex > 0;
-    if (isDeeperRunner)
-    {
-      return VolumePlanner.BuildTargetPlan(
-        legVolume,
-        symbol,
-        [targetsPips[^1]],
-        [100]
-      );
-    }
     var plan = VolumePlanner.BuildTargetPlan(
-      legVolume, symbol, targetsPips, targetWeights
+      totalVolume, symbol, targetsPips, targetWeights
     );
-    var legLots = legVolume / (decimal)symbol.LotSize;
-    if (legLots > ManualAlgoFirstLegThresholdLots)
+    var totalLots = totalVolume / (decimal)symbol.LotSize;
+    if (totalLots > ManualAlgoFirstLegThresholdLots)
     {
       var fixedFirstLeg = VolumePlanner.VolumeForLots(
         ManualAlgoFirstLegLots, symbol
       );
       plan = VolumePlanner.FixFirstLegVolume(
-        plan, legVolume, fixedFirstLeg, symbol
+        plan, totalVolume, fixedFirstLeg, symbol
       );
     }
     return plan;
+  }
+
+  /// <summary>
+  /// Distribute the group TP book across entry legs shallow → mid → deep.
+  /// Mid/deep only contribute when shallower capacity is exhausted for that
+  /// slice, so better-fill legs keep lot size unless needed to complete the
+  /// configured book.
+  /// </summary>
+  private static TargetVolumePlan[] ManualAlgoAllocateTargetPlansAcrossLegs(
+    IReadOnlyList<long> legVolumes,
+    SymbolInfo symbol,
+    IReadOnlyList<int> targetsPips,
+    IReadOnlyList<int> targetWeights
+  )
+  {
+    if (legVolumes.Count == 1)
+    {
+      return [
+        ManualAlgoBuildGroupTargetPlan(
+          legVolumes[0], symbol, targetsPips, targetWeights
+        )
+      ];
+    }
+    var totalVolume = legVolumes.Sum();
+    var groupPlan = ManualAlgoBuildGroupTargetPlan(
+      totalVolume, symbol, targetsPips, targetWeights
+    );
+    var remaining = legVolumes.ToArray();
+    var assigned = Enumerable.Range(0, legVolumes.Count)
+      .Select(_ => new List<(int Pips, int Ordinal, long Volume)>())
+      .ToArray();
+
+    for (var sliceIndex = 0; sliceIndex < groupPlan.Slices.Count; sliceIndex++)
+    {
+      var need = groupPlan.Slices[sliceIndex];
+      var pips = groupPlan.TargetsPips[sliceIndex];
+      var ordinal = groupPlan.TargetOrdinals[sliceIndex];
+      for (var leg = 0; leg < remaining.Length && need > 0; leg++)
+      {
+        if (remaining[leg] <= 0)
+        {
+          continue;
+        }
+        var take = Math.Min(need, remaining[leg]);
+        take = take / symbol.StepVolume * symbol.StepVolume;
+        if (take <= 0)
+        {
+          continue;
+        }
+        var after = remaining[leg] - take;
+        if (after > 0 && after < symbol.MinVolume)
+        {
+          // Absorb dust into this book so the leg does not leave an
+          // untradeable remainder.
+          take = remaining[leg];
+        }
+        assigned[leg].Add((pips, ordinal, take));
+        remaining[leg] -= take;
+        need -= take;
+        if (need < 0)
+        {
+          // Dust absorption can slightly overfill this slice from one leg.
+          need = 0;
+        }
+      }
+      if (need > 0)
+      {
+        throw new VolumePlanningException(
+          $"manual algo TP slice {sliceIndex + 1} could not be fully "
+            + $"allocated ({need} volume short)"
+        );
+      }
+    }
+
+    for (var leg = 0; leg < remaining.Length; leg++)
+    {
+      if (remaining[leg] <= 0)
+      {
+        continue;
+      }
+      var finalPips = groupPlan.TargetsPips[^1];
+      var finalOrdinal = groupPlan.TargetOrdinals[^1];
+      if (
+        assigned[leg].Count > 0
+        && assigned[leg][^1].Pips == finalPips
+      )
+      {
+        var last = assigned[leg][^1];
+        assigned[leg][^1] = (
+          last.Pips,
+          last.Ordinal,
+          last.Volume + remaining[leg]
+        );
+      }
+      else
+      {
+        assigned[leg].Add((finalPips, finalOrdinal, remaining[leg]));
+      }
+      remaining[leg] = 0;
+    }
+
+    var plans = new TargetVolumePlan[legVolumes.Count];
+    for (var leg = 0; leg < legVolumes.Count; leg++)
+    {
+      if (assigned[leg].Count == 0)
+      {
+        plans[leg] = new TargetVolumePlan(
+          [legVolumes[leg]],
+          [targetsPips[^1]],
+          [targetsPips.Count]
+        );
+        continue;
+      }
+      plans[leg] = new TargetVolumePlan(
+        assigned[leg].Select(item => item.Volume).ToArray(),
+        assigned[leg].Select(item => item.Pips).ToArray(),
+        assigned[leg].Select(item => item.Ordinal).ToArray()
+      );
+      if (plans[leg].Slices.Sum() != legVolumes[leg])
+      {
+        throw new VolumePlanningException(
+          $"manual algo leg {leg + 1} target slices "
+            + $"{plans[leg].Slices.Sum()} != entry volume {legVolumes[leg]}"
+        );
+      }
+    }
+    return plans;
   }
 
   private static bool UsesCandidateTargetPlan(TradeCandidate candidate) =>
