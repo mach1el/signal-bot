@@ -3308,7 +3308,8 @@ public sealed partial class AutoTradeEngineTests
       manualStopLoss: 4006.0m,
       targetsPips: new[] { 30, 60, 90 },
       expiresAt: 1_787_126_400,
-      barTs: 1_787_106_159
+      barTs: 1_787_106_159,
+      manualSingleEntry: false
     ));
     var client = new FakeTradingClient
     {
