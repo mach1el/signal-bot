@@ -614,6 +614,32 @@ async def test_multi_leg_further_tp_still_fans_out(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_take_profit_unresolved_ordinal_is_dropped_not_spammed(monkeypatch):
+  """Regression for live signal 99 (XAU SELL, 2026-08-20): before the
+  reached==0 guard, a take_profit event whose target_pips did not match any
+  configured TP ordinal fell through and booked+posted anyway with no dedup
+  and no TP label - production logged TP1 booked twice (+39p, +38p, 2s
+  apart) and TP2 booked twice (+68p, +66p, 3s apart) from a code path that
+  predated this guard. An unresolved ordinal must now be dropped outright.
+  """
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+
+  # Configured targets [50, 100, 200]p (see _algo_signal defaults) - 5 is
+  # below every configured ordinal, same shape as a stale/mismatched
+  # target_pips that cannot resolve to TP1/TP2/TP3.
+  event = {"type": "take_profit", "position_id": 555, "price": 4099.5, "target_pips": 5}
+  await manual_execution._handle_event(client, event, positions)
+
+  row = await store.get_manual_signal(sid)
+  assert row["legs"] == []
+  send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_multi_leg_same_sl_move_only_fans_out_furthest_once(monkeypatch):
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()
