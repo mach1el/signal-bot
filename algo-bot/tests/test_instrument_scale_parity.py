@@ -59,7 +59,13 @@ def test_effective_runtime_exposes_symbol_geometry(
   assert cfg.units.pip_size == pytest.approx(pip_size)
   assert cfg.units.price_digits == digits
   assert cfg.analysis.market_map.change_min == pytest.approx(map_change)
-  assert is_hfs_symbol(symbol, cfg)
+  # HFS remains gold-only; FX fixed_rr instrument views must not opt in.
+  from app.configuration.models.instruments import InstrumentTargetMode
+
+  if cfg.targeting.mode is InstrumentTargetMode.FIXED_RR:
+    assert not is_hfs_symbol(symbol, cfg)
+  else:
+    assert is_hfs_symbol(symbol, cfg)
 
 
 @pytest.mark.parametrize(
