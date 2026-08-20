@@ -251,6 +251,43 @@ def test_is_manual_algo_event_filters_autonomous_stream():
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_enqueue_event_prefers_db_symbol_over_bad_xau_stamp(monkeypatch):
+  """Scale-up: FX fills stamped XAU must still route to the FX worker."""
+  manual_execution._symbol_queues.clear()
+  for task in list(manual_execution._symbol_worker_tasks.values()):
+    task.cancel()
+  manual_execution._symbol_worker_tasks.clear()
+
+  async def fake_symbol(_event):
+    return "USDJPY"
+
+  monkeypatch.setattr(
+    manual_execution, "_symbol_from_manual_candidate", fake_symbol
+  )
+  # Don't start a real worker loop — just assert which queue receives the event.
+  ensured: list[str] = []
+
+  def capture_ensure(symbol: str) -> None:
+    ensured.append(symbol)
+    if symbol not in manual_execution._symbol_queues:
+      manual_execution._symbol_queues[symbol] = asyncio.Queue()
+
+  monkeypatch.setattr(manual_execution, "_ensure_symbol_worker", capture_ensure)
+
+  await manual_execution._enqueue_event({
+    "type": "manual_limit_placed",
+    "stream": "algo_manual",
+    "candidate_id": "manual:103:0",
+    "symbol": "XAU",
+  })
+
+  assert ensured == ["USDJPY"]
+  assert manual_execution._symbol_queues["USDJPY"].qsize() == 1
+  assert "XAU" not in manual_execution._symbol_queues
+
+
+@pytest.mark.asyncio
 async def test_bridge_intents_loop_is_a_no_op_when_disabled():
   # manual_algo_enabled defaults False and conftest doesn't override it.
   await asyncio.wait_for(manual_execution.bridge_intents_loop(), timeout=2)
