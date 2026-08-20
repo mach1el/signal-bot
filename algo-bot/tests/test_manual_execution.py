@@ -882,6 +882,65 @@ async def test_handle_event_position_closed_full_close_defers_to_group_result(
   send.assert_awaited_once()
 
 
+@pytest.mark.no_database
+@pytest.mark.asyncio
+async def test_resolve_group_close_pips_prefers_booked_peak(monkeypatch):
+  monkeypatch.setattr(
+    manual_execution,
+    "get_manual_signal",
+    AsyncMock(return_value={
+      "legs": [
+        {"frac": 0.2, "pips": 60},
+        {"frac": 0.2, "pips": 160},
+      ],
+    }),
+  )
+  monkeypatch.setattr(
+    redis_state,
+    "get_progress",
+    AsyncMock(return_value={"tp": 4, "runner_pips": 160, "sl": False}),
+  )
+  resolved = await manual_execution._resolve_group_close_pips(100, 130.0)
+  assert resolved == 160
+
+
+@pytest.mark.asyncio
+async def test_handle_event_group_result_keeps_peak_tp_not_shallow_blend(
+  monkeypatch,
+  sql,
+):
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  tp_legs = [
+    {"frac": 0.2, "pips": 60, "ts": 1},
+    {"frac": 0.2, "pips": 90, "ts": 2},
+    {"frac": 0.2, "pips": 130, "ts": 3},
+    {"frac": 0.2, "pips": 160, "ts": 4},
+  ]
+  await sql.exec(
+    "UPDATE manual_signals SET legs = $1 WHERE id = $2",
+    json.dumps(tp_legs),
+    sid,
+  )
+  client = redis_state.get_client()
+  await redis_state.set_runner_pips(sid, 160)
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "group_result",
+      "candidate_id": f"manual:{sid}:0",
+      "group_realized_pips": 130,
+    },
+    {},
+  )
+  row = await store.get_manual_signal(sid)
+  assert row["status"] == "closed"
+  assert row["result_pips"] == 160
+  text = send.call_args.args[0]
+  assert "+160" in text
+  assert "achieved +160" in text
+
+
 @pytest.mark.asyncio
 async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_broker_fill(
   monkeypatch,

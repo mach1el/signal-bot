@@ -149,6 +149,36 @@ async def test_partial_profit_then_breakeven_stop_preserves_peak_tp():
 
 
 @pytest.mark.asyncio
+async def test_finalize_manual_group_keeps_highest_booked_tp_not_group_blend(sql):
+  """group_realized_pips from the last leg must not downgrade a close card
+  below TPs already booked on the channel (deep fill +160, shallow blend 130).
+  """
+  await store.init_db()
+  rec = await store.store_manual_signal(
+    1, "SELL", 4500.0, 4503.0, 4506.0, [4497.0, 4494.0, 4490.0, 4487.0],
+  )
+  tp_legs = [
+    {"frac": 0.2, "pips": 60, "ts": 1},
+    {"frac": 0.2, "pips": 90, "ts": 2},
+    {"frac": 0.2, "pips": 130, "ts": 3},
+    {"frac": 0.2, "pips": 160, "ts": 4},
+  ]
+  await sql.exec(
+    "UPDATE manual_signals SET legs = $1 WHERE id = $2",
+    json.dumps(tp_legs),
+    rec["id"],
+  )
+
+  row = await store.finalize_manual_group(rec["id"], 130)
+
+  assert row["closed"] is True
+  assert row["net"] == 160
+  assert row["net"] != 130
+  stored = await store.get_manual_signal(rec["id"])
+  assert stored["result_pips"] == 160
+
+
+@pytest.mark.asyncio
 async def test_close_leg_rejects_overbook():
   await store.init_db()
   rec = await store.store_manual_signal(
