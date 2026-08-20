@@ -23,6 +23,9 @@ dated section after deployment.
   a TP slice, volume spills into mid then deep.
 
 ### Fixed
+- Manual-algo / FX CI tests no longer assume a single limit order or brittle
+  TP-slice comment strings after the XAU ladder redesign — smoke checks verify
+  placement; multi-leg cases opt in with ``manualSingleEntry: false``.
 - XAU manual /algo ladder fills no longer spam the channel with one TP/SL
   update per entry leg — progress is booked and posted from the furthest
   signal-level TP/SL only (trailing legs at the same level are ignored).

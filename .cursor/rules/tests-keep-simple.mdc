@@ -1,0 +1,28 @@
+---
+description: Keep tests simple and current — no stale brittle assertions after behavior changes
+globs: "**/*Tests.cs,**/tests/**/*.py"
+alwaysApply: true
+---
+
+# Tests: simple verify, never leave stale assertions
+
+When changing runtime behavior (manual algo ladders, routing, sizing, channel cards, etc.):
+
+1. **Update or delete every test that encoded the old behavior.** Do not leave
+   `Assert.Single` / exact slice strings / exact comment part counts that assumed
+   a prior contract (e.g. one limit order when ladders now place three).
+2. **Prefer smoke checks that the service worked:**
+   - not rejected
+   - order(s) placed / event published
+   - volume &gt; 0, comment starts with expected prefix
+   - optional: count of legs when that *is* the feature under test
+3. **Do not pin incidental internals** (exact TP slice CSV, comment pipe-part
+   counts, exact relative stop raw units) unless the test’s sole purpose is that
+   invariant — and then keep one focused test, not copy the numbers everywhere.
+4. **Fixture defaults should match the common production path.** Opt into exotic
+   shapes explicitly (e.g. `manualSingleEntry: false` only for multi-leg tests).
+5. **If CI fails on an assertion you didn’t mean to change, fix the test to match
+   current behavior or drop it** — do not “preserve” stale expected values.
+
+Bad: `Assert.Equal("500,1000", comment.Split('|')[4])` after a TP allocation redesign  
+Good: `Assert.Equal(3, orders.Count); Assert.True(orders.Sum(o => o.Volume) > 0);`
