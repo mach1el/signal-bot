@@ -614,6 +614,82 @@ async def test_multi_leg_further_tp_still_fans_out(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_multi_leg_lower_ordinal_from_a_different_leg_still_books(
+  monkeypatch,
+):
+  """Regression for live signal 102 (XAU SELL, 2026-08-20): shallow-first
+  booking means different legs own disjoint ordinal ranges and their
+  events can interleave in either order - a "highest ordinal ever seen"
+  scalar treated a legitimate, never-before-booked LOWER ordinal from a
+  sibling leg as stale once a higher one had already booked. Confirmed
+  live: a leg's own real TP1 (then TP2, its full close) arrived after the
+  group had already booked TP3 from a different leg, and both got
+  silently dropped - not mislabeled, entirely missing, with that leg's
+  full close never recorded anywhere. Booking must be keyed by ordinal,
+  not gated on a running maximum.
+  """
+  send = _mock_send(monkeypatch)
+  # Five-level ladder (matching the real signal 102's shape) so booking a
+  # middle ordinal (TP3) does not read as the final target and close the
+  # whole remaining position out from under the second event.
+  sid = await _algo_signal(
+    tps=[4095.0, 4090.0, 4080.0, 4070.0, 4050.0],
+  )
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid, 556: sid}
+
+  # Shallow leg (555) books TP3 (target_pips=200, a middle ordinal) first.
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit",
+      "position_id": 555,
+      "price": 4080.0,
+      "target_pips": 200,
+      "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  # A sibling leg (556) then books its own TP1 (target_pips=50) - a lower
+  # ordinal than what's already booked, but never booked before now.
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit",
+      "position_id": 556,
+      "price": 4095.0,
+      "target_pips": 50,
+      "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+
+  row = await store.get_manual_signal(sid)
+  assert len(row["legs"]) == 2
+  assert send.await_count == 2
+  assert "TP3" in send.await_args_list[0].args[0]
+  assert "TP1" in send.await_args_list[1].args[0]
+
+  # A genuine repeat of an already-booked ordinal (from either leg) is
+  # still correctly deduped.
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit",
+      "position_id": 555,
+      "price": 4080.0,
+      "target_pips": 200,
+      "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  row = await store.get_manual_signal(sid)
+  assert len(row["legs"]) == 2
+  assert send.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_take_profit_unresolved_ordinal_is_dropped_not_spammed(monkeypatch):
   """Regression for live signal 99 (XAU SELL, 2026-08-20): before the
   reached==0 guard, a take_profit event whose target_pips did not match any
@@ -748,13 +824,7 @@ async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
       "tps": [4095.0, 4090.0, 4080.0],
     }),
   )
-  monkeypatch.setattr(
-    redis_state,
-    "get_progress",
-    AsyncMock(return_value={"tp": 1, "sl": False, "runner_pips": 50}),
-  )
-  set_tp = AsyncMock()
-  monkeypatch.setattr(redis_state, "set_tp_progress", set_tp)
+  await redis_state.mark_tp_ordinal_booked(7, 1)
 
   await manual_execution._handle_take_profit(
     {"price": 4095.0, "target_pips": 50, "position_id": 556},
@@ -763,7 +833,6 @@ async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
 
   execute.assert_not_awaited()
   post.assert_not_awaited()
-  set_tp.assert_not_awaited()
 
 
 @pytest.mark.asyncio
