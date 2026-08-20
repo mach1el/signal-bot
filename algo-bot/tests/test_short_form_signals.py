@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.symbols import pip_for
+from app.signals.fx_manual_algo import build_fx_manual_contract
 from app.signals.parsing import (
   DEFAULT_SETUP_TYPE,
   DEFAULT_SL_PIPS,
@@ -71,18 +72,35 @@ def test_short_form_explicit_tp_only_still_defaults_sl_and_setup():
   assert parsed["tps"] == [4088.0, 4098.0]
 
 
-def test_full_form_signal_with_both_sl_and_tp_is_unaffected():
-  # Full-form (both sl and tp given) must never trigger the short-form
-  # setup default - regression for the existing "leaves untagged" contract.
+def test_full_form_signal_with_both_sl_and_tp_defaults_key_level():
+  # Setup is always key-level unless the command tags something else —
+  # SL/TP being present does not leave it untagged.
   parsed = _parse_manual("gold sell 4100-4105 / sl 4110 / tp 95/90/80")
 
   assert parsed is not None
-  assert parsed["setup_type"] is None
+  assert parsed["setup_type"] == DEFAULT_SETUP_TYPE
   assert parsed["sl"] == pytest.approx(4110.0)
   assert parsed["tps"] == [4095.0, 4090.0, 4080.0]
+  assert parsed["execution_mode"] == "notify"
 
 
-def test_xauusd_trigger_word_also_accepted():
+def test_full_form_algo_defaults_setup_to_key_level():
+  parsed = _parse_manual(
+    "gold sell 4100-4105 / sl 4110 / tp 95/90/80 / algo"
+  )
+
+  assert parsed is not None
+  assert parsed["execution_mode"] == "algo"
+  assert parsed["setup_type"] == DEFAULT_SETUP_TYPE
+
+
+def test_explicit_setup_overrides_default():
+  parsed = _parse_manual(
+    "gold sell 4100-4105 / sl 4110 / tp 95/90/80 / supply / algo"
+  )
+
+  assert parsed is not None
+  assert parsed["setup_type"] == "supply"
   parsed = _parse_manual("xauusd buy 4078-75 / algo")
 
   assert parsed is not None

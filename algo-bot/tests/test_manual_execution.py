@@ -78,6 +78,7 @@ def test_intent_to_candidate_payload_buy_uses_entry_high_reference_edge():
   # Untagged manual signals default confluence to 1, exempt from the
   # global MinConfluence gate on the C# side (see AutoTradeEngine.cs).
   assert payload["confluence"] == 1
+  assert payload["setup"] == "key-level"
   # BUY reference edge = entry_high (2000.5): |2000.5-2010|=9.5 -> 95p,
   # |2000.5-2020|=19.5 -> 195p.
   assert payload["targets_pips"] == [95, 195]

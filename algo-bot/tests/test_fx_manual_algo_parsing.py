@@ -74,7 +74,7 @@ def test_eurusd_explicit_sl_and_tp_override_defaults():
     pytest.approx(1.15200),
     pytest.approx(1.15300),
   ]
-  assert parsed["setup_type"] is None
+  assert parsed["setup_type"] == "key-level"
 
 
 def test_xau_single_price_algo_accepted():

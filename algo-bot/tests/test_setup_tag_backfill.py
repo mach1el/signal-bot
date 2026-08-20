@@ -72,15 +72,20 @@ def test_real_incident_messages_parse_setup_tags(incident_messages):
 
 
 @pytest.mark.parametrize(
-  "suffix",
-  [" vip", " scalp", " sl", " 4048", " chờ London"],
+  "suffix, expected_setup",
+  [
+    (" vip", "key-level"),
+    (" scalp", "key-level"),  # reserved word, not /scalp
+    (" sl", "key-level"),
+    (" 4048", "key-level"),
+    (" chờ London", "key-level"),
+  ],
 )
-def test_setup_suffix_guards_leave_trade_fields_intact(suffix):
+def test_setup_suffix_guards_leave_trade_fields_intact(suffix, expected_setup):
   parsed = wiring._parse_manual(BASE_SIGNAL + suffix)
 
   assert parsed is not None
-  assert parsed["setup_type"] is None
-  assert parsed["confluence"] is None
+  assert parsed["setup_type"] == expected_setup
   assert parsed["action"] == "SELL"
   assert parsed["entry"] == pytest.approx(4100)
   assert parsed["entry_end"] == pytest.approx(4105)
@@ -141,11 +146,11 @@ def test_algo_suffix_composes_with_scalp():
   assert parsed["setup_type"] == "scalp"
 
 
-def test_manual_signal_without_trailing_tag_is_unchanged():
+def test_manual_signal_without_trailing_tag_defaults_key_level():
   parsed = wiring._parse_manual(BASE_SIGNAL)
 
   assert parsed is not None
-  assert parsed["setup_type"] is None
+  assert parsed["setup_type"] == "key-level"
   assert parsed["confluence"] is None
   assert parsed["visibility"] == "both"
   assert parsed["risk"] == pytest.approx(10)
