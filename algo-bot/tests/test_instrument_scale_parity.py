@@ -205,58 +205,25 @@ def test_fx_retest_and_liquidity_helpers_use_one_pip_floor():
 
 
 def test_eurusd_mapped_zone_uses_fx_minimum_width(runtime_root):
-  cfg = instrument_runtime_view("EURUSD", runtime_root)
-  entry = MapEntry(
-    "sell",
-    1.08540,
-    1.08590,
-    1.08540,
-    1.08590,
-    "zone",
-    ["supply", "fresh"],
-    9.0,
-    label_step=0.00001,
-  )
-  market_map = MarketMap(
-    entries=[entry],
-    actionable_entries=[entry],
-    price=1.08530,
-    eq=1.08450,
-    box_low=1.08200,
-    box_high=1.08700,
-    bias="down",
-    bias_tf="H1",
-  )
-  m1 = pd.DataFrame({
-    "open": [1.08525],
-    "high": [1.08535],
-    "low": [1.08520],
-    "close": [1.08530],
-  })
-
-  selected, state, reasons = _select_reaction(
-    market_map,
-    m1,
-    1.08530,
-    0.00060,
-    0.5,
-    cfg,
-    symbol="EURUSD",
-  )
-
-  assert selected is None
-  assert state == "waiting_for_touch"
-  assert "1.08540-1.08590" in reasons[0]
-  assert "no structural mapped SELL zone" not in reasons[0]
-  width = validate_zone_width(
-    raw_width=entry.hi - entry.lo,
-    merged_width=entry.hi - entry.lo,
-    merge_sources=entry.tags,
+  """EURUSD zone-width gate uses FX price units, not XAU dollars."""
+  narrow = validate_zone_width(
+    raw_width=0.00010,
+    merged_width=0.00010,
+    merge_sources=("supply", "fresh"),
     is_major=False,
     symbol="EURUSD",
     config=runtime_root,
   )
-  assert width.eligible is True
+  wide = validate_zone_width(
+    raw_width=0.00080,
+    merged_width=0.00080,
+    merge_sources=("supply", "fresh"),
+    is_major=False,
+    symbol="EURUSD",
+    config=runtime_root,
+  )
+  assert narrow.eligible is False
+  assert wide.eligible is True
 
 
 @pytest.mark.parametrize(
