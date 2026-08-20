@@ -335,6 +335,51 @@ def test_render_payload_and_material_change_are_deterministic():
   assert map_materially_changed(market_map, moved_large, 1.0)
 
 
+def test_material_change_ignores_tag_flips_below_the_render_cap():
+  """Regression for the owner-DM scan loop resending an outwardly identical
+  card every tick: an entry already carrying MAP_TAG_LIMIT (4) higher-
+  priority tags gains "price inside" (the lowest _tag_priority) as live
+  price crosses its edge - _compact_tags/_render_side never show a 5th tag,
+  so the rendered card is unchanged, and map_materially_changed must not
+  treat this as a material change.
+  """
+  entry = MapEntry(
+    "buy", 4025.31, 4027.8, 4025, 4028, "zone",
+    ["OB", "breaker", "flip", "demand"], 9,
+  )
+  market_map = MarketMap([entry], 4041, 4047, 4032, 4062, "down", "M30")
+  price_now_inside = replace(
+    market_map,
+    entries=[replace(entry, tags=[*entry.tags, "price inside"], contains_price=True)],
+  )
+
+  assert not map_materially_changed(market_map, price_now_inside, 1.0)
+
+  # A tag that DOES rank inside the render cap still counts as a change.
+  visibly_retagged = replace(
+    market_map,
+    entries=[replace(entry, tags=["OB", "breaker", "flip", "fvg"])],
+  )
+  assert map_materially_changed(market_map, visibly_retagged, 1.0)
+
+
+def test_rail_material_change_ignores_tag_flips_below_the_render_cap():
+  rail = ScalpRail(4030.0, 4029.5, 4030.5, 4030, "BUY", ["micro", "box", "session"], 5.0)
+  market_map = MarketMap([], 4041, None, None, None, "down", None, rails=[rail])
+  extra_low_priority_tag = replace(
+    market_map,
+    rails=[replace(rail, tags=[*rail.tags, "round 4030"])],
+  )
+
+  assert not map_materially_changed(market_map, extra_low_priority_tag, 1.0)
+
+  visibly_retagged = replace(
+    market_map,
+    rails=[replace(rail, tags=["micro", "box", "tl support"])],
+  )
+  assert map_materially_changed(market_map, visibly_retagged, 1.0)
+
+
 def test_build_map_flags_and_tags_zone_containing_price():
   zones = [Zone(4039.5, 4042.5, "demand", source="supply_demand", score=9)]
 

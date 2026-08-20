@@ -24,9 +24,9 @@ _CONFIG = Path(__file__).resolve().parents[3] / "config" / "trading-bot.yml"
 def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   payload = build_resolved_runtime_manifest(config_file=str(_CONFIG))
   assert payload["manifest_version"] == MANIFEST_VERSION == 2
-  assert payload["live_instruments"] == ["EURUSD", "GBPJPY", "USDJPY", "XAU"]
+  assert payload["live_instruments"] == ["EURUSD", "GBPJPY", "GBPUSD", "USDJPY", "XAU"]
   assert set(payload["instrument_runtimes"]) == {
-    "EURUSD", "GBPJPY", "USDJPY", "XAU",
+    "EURUSD", "GBPJPY", "GBPUSD", "USDJPY", "XAU",
   }
   xau = payload["instrument_runtimes"]["XAU"]
   assert xau["rollout"] == "live"
