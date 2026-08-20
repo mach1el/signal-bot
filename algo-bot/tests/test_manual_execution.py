@@ -98,6 +98,34 @@ def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
   assert payload["targets_pips"] == [1]
 
 
+@pytest.mark.no_database
+def test_intent_to_candidate_payload_fx_includes_volume_multiplier(monkeypatch):
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  cfg = _load_production_example().config
+  for target in (
+    "app.signals.manual_execution.runtime_config",
+    "app.signals.fx_manual_algo.runtime_config",
+    "app.core.symbols.runtime_config",
+    "app.signals.pips_format.runtime_config",
+  ):
+    monkeypatch.setattr(target, cfg, raising=False)
+
+  payload = manual_execution._intent_to_candidate_payload(_intent(
+    symbol="EURUSD",
+    entry_low=1.15007,
+    entry_high=1.15007,
+    sl=1.14867,
+    tps=(1.15147, 1.15217, 1.15287),
+  ))
+
+  assert payload["manual_single_entry"] is True
+  assert payload["manual_target_weights"] == [25, 25, 50]
+  assert payload["risk_multiplier"] == pytest.approx(
+    float(cfg.manual_algo.sizing.fx_volume_multiplier),
+  )
+
+
 # ---------------------------------------------------------------------------
 # bridge_intents_loop / _process_intent_entries
 # ---------------------------------------------------------------------------
@@ -310,9 +338,10 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
 @pytest.mark.asyncio
 async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
   """The owner-only "LIMIT ORDER PLACED" debug DM duplicates the real VIP/
-  public channel update the executor's own fill event already posts - it
-  must stay silent unless explicitly re-enabled."""
+  public channel update — it must stay silent unless explicitly re-enabled,
+  but the channel thread must still get the limit-pending reply."""
   sid = await _algo_signal()
+  send = _mock_send(monkeypatch)
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
   event = {
@@ -334,6 +363,9 @@ async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
   row = await store.get_manual_signal(sid)
   assert row["execution_status"] == "pending"
   truth.assert_not_awaited()
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "limit placed" in text.lower()
 
 
 @pytest.mark.asyncio

@@ -3451,6 +3451,20 @@ public sealed class AutoTradeEngine(
     {
       return await RejectAsync(candidate, exception.Message, cancellationToken);
     }
+    try
+    {
+      sizing = ApplyManualVolumeMultiplier(
+        sizing,
+        candidate.RiskMultiplier ?? 1m,
+        symbol,
+        targetsPips,
+        targetWeights
+      );
+    }
+    catch (VolumePlanningException exception)
+    {
+      return await RejectAsync(candidate, exception.Message, cancellationToken);
+    }
     // Split the sized total across three entry legs (2026-08 R:R redesign):
     // Shallow 50% / Mid 30% / Deep 20%. SplitEntryVolume already collapses
     // to a single slice when the total can't support three broker-minimum
@@ -8774,6 +8788,45 @@ public sealed class AutoTradeEngine(
 
   private static bool IsManualAlgoCandidate(TradeCandidate candidate) =>
     candidate.Mode == "manual_algo";
+
+  private static InitialSizingResult ApplyManualVolumeMultiplier(
+    InitialSizingResult sizing,
+    decimal multiplier,
+    SymbolInfo symbol,
+    IReadOnlyList<int> targetsPips,
+    IReadOnlyList<int> targetWeights
+  )
+  {
+    if (multiplier <= 0m || multiplier == 1m)
+    {
+      return sizing;
+    }
+    var scaledLots = decimal.Round(
+      sizing.Lots * multiplier,
+      2,
+      MidpointRounding.AwayFromZero
+    );
+    var scaledVolume = VolumePlanner.VolumeForLots(scaledLots, symbol);
+    if (scaledVolume <= 0)
+    {
+      throw new VolumePlanningException(
+        $"manual algo volume multiplier {multiplier:0.####} produced "
+          + $"non-tradeable volume (lots={scaledLots:0.####})"
+      );
+    }
+    var targetPlan = VolumePlanner.BuildTargetPlan(
+      scaledVolume,
+      symbol,
+      targetsPips,
+      targetWeights
+    );
+    return sizing with
+    {
+      Lots = scaledLots,
+      Volume = scaledVolume,
+      TargetPlan = targetPlan,
+    };
+  }
 
   private decimal EffectiveInitialRiskPercent(TradeCandidate candidate)
   {

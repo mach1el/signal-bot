@@ -31,7 +31,7 @@ from app.signals.broadcast import (
 from app.bot.keyboards import build_tp_close_kb
 from app.signals.pips_format import wing_icons
 from app.persistence.redis_state import clear_sl_alert, mark_tp_alert
-from app.core.symbols import SYMBOLS, channel_for_symbol
+from app.core.symbols import digits_for, channel_for_symbol
 
 
 def _display_seq(row: dict) -> int:
@@ -39,7 +39,7 @@ def _display_seq(row: dict) -> int:
 
 
 def _price(value: float, symbol: str) -> str:
-  digits = int(SYMBOLS[symbol]["digits"])
+  digits = digits_for(symbol)
   return f"{value:,.{digits}f}".rstrip("0").rstrip(".")
 
 
@@ -54,6 +54,23 @@ async def do_active(ctx: dict) -> dict:
     return {"action": "active", "ok": False, "error": "not_pending"}
   return {
     "action": "active",
+    "ok": True,
+    "row": row,
+    "reply_to": row.get("channel_message_id") or ctx.get("reply_to"),
+  }
+
+
+async def do_limit_pending(ctx: dict) -> dict:
+  """Mark broker limit placement on an algo-armed signal for channel fan-out."""
+  from app.persistence.store import get_manual_signal
+
+  row = await get_manual_signal(ctx["sid"])
+  if row is None:
+    return {"action": "limit_pending", "ok": False, "error": "not_found"}
+  if row.get("execution_mode") != "algo":
+    return {"action": "limit_pending", "ok": False, "error": "not_algo"}
+  return {
+    "action": "limit_pending",
     "ok": True,
     "row": row,
     "reply_to": row.get("channel_message_id") or ctx.get("reply_to"),
@@ -649,6 +666,9 @@ def render_result(
   if action == "active":
     seq = f"#{_display_seq(result['row'])} " if tier == "vip" else ""
     return f"🟢 {seq}active — order filled"
+  if action == "limit_pending":
+    seq = f"#{_display_seq(result['row'])} " if tier == "vip" else ""
+    return f"⏳ {seq}limit placed — waiting for fill"
   if action == "cancel":
     seq = f"#{_display_seq(result['row'])} " if tier == "vip" else ""
     if result.get("pending"):

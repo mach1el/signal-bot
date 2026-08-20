@@ -9,14 +9,14 @@ from app.persistence.store import (
   insert_signal_post,
 )
 from app.signals.pips_format import rr_entry
-from app.core.symbols import SYMBOLS, channels_for
+from app.core.symbols import digits_for, channels_for
 from app.bot.client import delete_message, send_sticker, send_with_retry
 
 log = logging.getLogger(__name__)
 
 
 def _price(value: float, symbol: str) -> str:
-  digits = int(SYMBOLS[symbol]["digits"])
+  digits = digits_for(symbol)
   return f"{value:,.{digits}f}".rstrip("0").rstrip(".")
 
 

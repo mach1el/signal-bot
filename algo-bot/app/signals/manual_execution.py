@@ -112,12 +112,15 @@ async def _send_executor_truth(text: str) -> None:
 
 
 async def _handle_limit_placed(event: dict) -> None:
+  from app.signals import trade_ops
+
   candidate_id = str(event.get("candidate_id") or "")
   if not candidate_id:
     return
   sig = await get_signal_by_execution_intent_id(candidate_id)
-  if sig is not None:
-    await set_execution_status(sig["id"], "pending")
+  if sig is None:
+    return
+  await set_execution_status(sig["id"], "pending")
   entry_low = event.get("entry_low")
   entry_high = event.get("entry_high")
   entry = (
@@ -135,6 +138,8 @@ async def _handle_limit_placed(event: dict) -> None:
       f"Order ID: <code>{event.get('order_id') or 'n/a'}</code>\n"
       f"Candidate ID: <code>{candidate_id}</code>"
     )
+  result = await trade_ops.do_limit_pending({"sid": sig["id"]})
+  await trade_ops.post_result(result, sig.get("symbol", "XAU"))
 
 
 async def _handle_execution_rejected(event: dict) -> None:
@@ -235,6 +240,9 @@ def _intent_to_candidate_payload(intent: ManualTradeIntent) -> dict:
   if intent.symbol.upper() in fx_manual_symbols():
     payload["manual_target_weights"] = close_ratio_weights(intent.symbol)
     payload["manual_single_entry"] = True
+    multiplier = float(runtime_config.manual_algo.sizing.fx_volume_multiplier)
+    if multiplier > 0 and multiplier != 1.0:
+      payload["risk_multiplier"] = multiplier
   return payload
 
 
