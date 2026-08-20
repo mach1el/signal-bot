@@ -403,10 +403,12 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
-  """The owner-only "LIMIT ORDER PLACED" debug DM duplicates the real VIP/
-  public channel update — it must stay silent unless explicitly re-enabled,
-  but the channel thread must still get the limit-pending reply."""
+async def test_limit_placed_never_posts_to_channel(monkeypatch):
+  """manual_limit_placed must never reach the VIP/public channel - a manual
+  /algo signal's entry can be several independent legs (shallow/mid/deep),
+  each publishing its own manual_limit_placed event with no dedup, so a
+  channel post here would spam an identical "waiting for fill" card 2-3x
+  per signal. The owner-only DM (off by default) is the only surface."""
   sid = await _algo_signal()
   send = _mock_send(monkeypatch)
   truth = AsyncMock()
@@ -430,9 +432,7 @@ async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
   row = await store.get_manual_signal(sid)
   assert row["execution_status"] == "pending"
   truth.assert_not_awaited()
-  send.assert_awaited_once()
-  text = send.await_args.args[0]
-  assert "limit placed" in text.lower()
+  send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
