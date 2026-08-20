@@ -1068,6 +1068,116 @@ public sealed class TradePlanRuntimeTests
   """;
 
   [Fact]
+  public async Task OnePollCycleReusesOneAccountWideSnapshotAcrossReconcileAndManage()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(LadderPlanJson);
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    // Both ladder legs rest at the broker. Fill one between cycles so the
+    // next poll must both reconcile Submitted -> PartiallyOpen and manage
+    // the newly-open position.
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4095.00m, 4095.20m, 1),
+      CancellationToken.None
+    );
+    var submitted = Assert.Single(runtime.TrackedStates);
+    var firstOrder = Assert.Single(
+      submitted.Legs!, leg => leg.LegId == "L1"
+    ).BrokerOrderId!.Value;
+    client.FillPendingOrder(firstOrder);
+    client.ResetReconcileAccountCalls();
+
+    var cycle = new AccountReconcileSnapshotCycle(client);
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4095.00m, 4095.20m, 2),
+      CancellationToken.None,
+      cycle.GetAsync
+    );
+
+    Assert.Equal(1, client.ReconcileAccountCalls);
+    Assert.Equal(
+      TradePlanRuntimeStage.PartiallyOpen,
+      Assert.Single(runtime.TrackedStates).Stage
+    );
+  }
+
+  [Fact]
+  public async Task ANewSymbolPollCycleObservesBrokerMutationsAfterPriorSnapshot()
+  {
+    var client = new FakeV7TradingClient();
+    var firstCycle = new AccountReconcileSnapshotCycle(client);
+    var before = await firstCycle.GetAsync(CancellationToken.None);
+    Assert.Empty(before.Positions);
+
+    client.SeedPosition(
+      positionId: 9901,
+      direction: TradeDirection.Buy,
+      volume: 1_000
+    );
+
+    // AutoTradeEngine creates a separate cycle inside each per-symbol poll.
+    // A mutation after symbol A's snapshot must therefore be visible when
+    // symbol B starts; sharing one cycle across symbols would fail this.
+    var secondCycle = new AccountReconcileSnapshotCycle(client);
+    var after = await secondCycle.GetAsync(CancellationToken.None);
+
+    Assert.Equal(2, client.ReconcileAccountCalls);
+    Assert.Equal(9901, Assert.Single(after.Positions).PositionId);
+  }
+
+  [Fact]
+  public async Task IdleFxPollTargetsDoNotReconcileForAnActiveXauPlan()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson());
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4089.05m, 4089.10m, 1),
+      CancellationToken.None
+    );
+    Assert.Equal(
+      TradePlanRuntimeStage.FullyOpen,
+      Assert.Single(runtime.TrackedStates).Stage
+    );
+    client.ResetReconcileAccountCalls();
+
+    var targets = new[]
+    {
+      Symbol,
+      new SymbolInfo("EURUSD", "EURUSD", 8, 5),
+      new SymbolInfo("GBPUSD", "GBPUSD", 9, 5),
+      new SymbolInfo("USDJPY", "USDJPY", 10, 3),
+      new SymbolInfo("GBPJPY", "GBPJPY", 11, 3),
+    };
+    foreach (var target in targets)
+    {
+      var cycle = new AccountReconcileSnapshotCycle(client);
+      await runtime.PollAsync(
+        client,
+        target,
+        new SpotPrice(target.RedisSymbol, 1.0m, 1.1m, 2),
+        CancellationToken.None,
+        cycle.GetAsync
+      );
+    }
+
+    Assert.Equal(1, client.ReconcileAccountCalls);
+  }
+
+  [Fact]
   public void RelativeStopLossForEntryDiffersPerEntryButSharesAbsoluteStop()
   {
     const decimal absolute = 4079.00m;
@@ -2630,6 +2740,9 @@ public sealed class TradePlanRuntimeTests
       PositionCloseReason.Unknown;
     public decimal? PositionCloseExecutionPriceToReturn { get; set; }
     public List<long> PositionCloseReasonLookups { get; } = [];
+    public int ReconcileAccountCalls { get; private set; }
+
+    public void ResetReconcileAccountCalls() => ReconcileAccountCalls = 0;
 
     // Mirrors the real cTrader behaviour a duplicate leg ClientOrderId
     // actually triggers: the broker rejects the SECOND order carrying an
@@ -2693,6 +2806,16 @@ public sealed class TradePlanRuntimeTests
     public Task<IReadOnlyList<TradingPendingOrder>> ReconcilePendingOrdersAsync(
       CancellationToken ct
     ) => Task.FromResult<IReadOnlyList<TradingPendingOrder>>(PendingOrders.ToArray());
+
+    public Task<TradingReconcileSnapshot> ReconcileAccountAsync(
+      CancellationToken ct
+    )
+    {
+      ReconcileAccountCalls++;
+      return Task.FromResult(new TradingReconcileSnapshot(
+        _positions.ToArray(), PendingOrders.ToArray()
+      ));
+    }
 
     public Task CancelPendingOrderAsync(long orderId, CancellationToken ct)
     {

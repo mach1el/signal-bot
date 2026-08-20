@@ -379,3 +379,69 @@ async def test_load_active_exposures_filters_by_symbol():
   gbp = await load_active_exposures(FakeRedis(), symbol="GBPJPY")
   assert len(gbp) == 1
   assert gbp[0].plan_id == "v8:gbp"
+
+
+@pytest.mark.asyncio
+async def test_load_active_exposures_batches_position_and_plan_payloads():
+  class CountingRedis:
+    def __init__(self):
+      self.get_calls: list[str] = []
+      self.mget_calls: list[list[str]] = []
+      self.values = {
+        "auto_trade:position:47": json.dumps({
+          "PositionId": 47,
+          "Symbol": "XAU",
+          "Direction": "BUY",
+          "EntryPrice": 4100.0,
+          "RemainingVolume": 100,
+        }).encode(),
+        "auto_trade:position:48": json.dumps({
+          "PositionId": 48,
+          "Symbol": "EURUSD",
+          "Direction": "SELL",
+          "EntryPrice": 1.17,
+          "RemainingVolume": 100,
+        }).encode(),
+        "execution:plan_runtime:v8:gbp": json.dumps({
+          "PlanId": "v8:gbp",
+          "Symbol": "GBPJPY",
+          "Direction": "SELL",
+          "Stage": "Submitted",
+          "GroupStage": "submitted",
+          "IntendedEntryPrice": 215.9,
+        }).encode(),
+        "execution:plan_runtime:v8:jpy": json.dumps({
+          "PlanId": "v8:jpy",
+          "Symbol": "USDJPY",
+          "Direction": "BUY",
+          "Stage": "FullyOpen",
+          "GroupStage": "fully_open",
+          "GroupWeightedFillPrice": 148.2,
+          "TotalFilledVolume": 100,
+          "RemainingVolume": 100,
+        }).encode(),
+      }
+
+    async def smembers(self, key: str):
+      assert key == "auto_trade:positions"
+      return {b"47", b"48"}
+
+    async def get(self, key: str):
+      self.get_calls.append(key)
+      if key == "execution:trade_plan_runtime_ids":
+        return b"v8:gbp,v8:jpy"
+      return self.values.get(key)
+
+    async def mget(self, keys: list[str]):
+      self.mget_calls.append(list(keys))
+      return [self.values.get(key) for key in keys]
+
+  client = CountingRedis()
+  exposures = await load_active_exposures(client)
+
+  assert {item.symbol for item in exposures} == {
+    "XAU", "EURUSD", "GBPJPY", "USDJPY",
+  }
+  assert client.get_calls == ["execution:trade_plan_runtime_ids"]
+  assert len(client.mget_calls) == 2
+  assert {len(keys) for keys in client.mget_calls} == {2}

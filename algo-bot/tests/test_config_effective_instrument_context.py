@@ -255,6 +255,86 @@ def test_for_instrument_case_normalization():
   b = loaded.config.for_instrument("XAU")
   assert a.identity.canonical_symbol == b.identity.canonical_symbol
   assert a.units.model_dump() == b.units.model_dump()
+  assert a is b
+  assert loaded.config.for_instrument("XAUUSD") is a
+
+
+def test_for_instrument_cache_is_thread_safe(monkeypatch):
+  from concurrent.futures import ThreadPoolExecutor
+  from threading import Lock
+  from time import sleep
+
+  from app.configuration import effective_instrument as effective_module
+
+  cfg = _load_production_example().config
+  original_builder = effective_module.build_effective_instrument
+  calls = 0
+  calls_lock = Lock()
+
+  def counting_builder(*args, **kwargs):
+    nonlocal calls
+    with calls_lock:
+      calls += 1
+    # Make overlapping uncached callers deterministic; the runtime cache must
+    # serialize this first composition and let every other caller reuse it.
+    sleep(0.01)
+    return original_builder(*args, **kwargs)
+
+  monkeypatch.setattr(
+    effective_module,
+    "build_effective_instrument",
+    counting_builder,
+  )
+  with ThreadPoolExecutor(max_workers=8) as executor:
+    results = tuple(executor.map(cfg.for_instrument, ("XAU",) * 24))
+
+  assert calls == 1
+  assert all(result is results[0] for result in results)
+
+
+def test_direct_lookup_cache_does_not_hide_ambiguous_alias():
+  from app.configuration.effective_instrument import EffectiveInstrumentError
+
+  cfg = _load_production_example().config
+  eurusd = cfg.instruments.root["EURUSD"]
+  conflicting = eurusd.model_copy(update={"aliases": ("XAUUSD",)})
+  instruments = cfg.instruments.model_copy(
+    update={
+      "root": {
+        **cfg.instruments.root,
+        "EURUSD": conflicting,
+      },
+    },
+  )
+  ambiguous = cfg.model_copy(update={"instruments": instruments})
+
+  assert ambiguous.for_instrument("EURUSD").instrument_id == "EURUSD"
+  with pytest.raises(EffectiveInstrumentError, match="ambiguous symbol"):
+    ambiguous.for_instrument("XAUUSD")
+
+
+def test_model_copy_does_not_inherit_effective_instrument_cache():
+  cfg = _load_production_example().config
+  original = cfg.for_instrument("XAU")
+  xau = cfg.instruments.root["XAU"]
+  assert xau.contract is not None
+  updated_contract = xau.contract.model_copy(update={"price_digits": 4})
+  updated_xau = xau.model_copy(update={"contract": updated_contract})
+  updated_instruments = cfg.instruments.model_copy(
+    update={"root": {**cfg.instruments.root, "XAU": updated_xau}},
+  )
+
+  copied = cfg.model_copy(update={"instruments": updated_instruments})
+  copied_effective = copied.for_instrument("XAU")
+  assert copied_effective is not original
+  assert copied_effective.units.price_digits == 4
+  assert cfg.for_instrument("XAU") is original
+  assert original.units.price_digits == 2
+
+  deep_copied = cfg.model_copy(deep=True)
+  deep_effective = deep_copied.for_instrument("XAU")
+  assert deep_effective is not original
+  assert deep_effective.units.price_digits == original.units.price_digits
 
 
 @pytest.mark.parametrize(

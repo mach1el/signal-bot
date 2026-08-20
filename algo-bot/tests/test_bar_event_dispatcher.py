@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -29,6 +30,93 @@ def test_parse_closed_bar():
     "XAU", "M1", "1700000000",
   )
   assert dispatcher.parse_closed_bar("bad") is None
+
+
+@pytest.mark.asyncio
+async def test_per_symbol_dispatch_is_concurrent_and_same_symbol_fifo(monkeypatch):
+  xau_started = asyncio.Event()
+  eur_started = asyncio.Event()
+  xau_second_started = asyncio.Event()
+  release_xau = asyncio.Event()
+  release_eur = asyncio.Event()
+
+  async def fake_dispatch(data, **kwargs):
+    text = data.decode() if isinstance(data, bytes) else str(data)
+    if text == "XAU:M1:1":
+      xau_started.set()
+      await release_xau.wait()
+    elif text == "EURUSD:M1:1":
+      eur_started.set()
+      await release_eur.wait()
+    elif text == "XAU:M5:2":
+      xau_second_started.set()
+    return []
+
+  monkeypatch.setattr(dispatcher, "dispatch_closed_bar", fake_dispatch)
+  per_symbol = dispatcher._PerSymbolBarDispatcher(SimpleNamespace())
+  try:
+    assert await per_symbol.submit("XAU:M1:1") is True
+    assert await per_symbol.submit("XAU:M5:2") is True
+    assert await per_symbol.submit("EURUSD:M1:1") is True
+
+    await asyncio.wait_for(xau_started.wait(), timeout=1)
+    await asyncio.wait_for(eur_started.wait(), timeout=1)
+    assert not xau_second_started.is_set()
+
+    release_xau.set()
+    await asyncio.wait_for(xau_second_started.wait(), timeout=1)
+    release_eur.set()
+    await asyncio.wait_for(per_symbol.wait_idle(), timeout=1)
+  finally:
+    release_xau.set()
+    release_eur.set()
+    await per_symbol.close()
+
+
+@pytest.mark.asyncio
+async def test_per_symbol_dispatch_uses_independent_ohlc_sources(monkeypatch):
+  sources: dict[str, object] = {}
+
+  async def fake_dispatch(data, *, source, **kwargs):
+    symbol = dispatcher.parse_closed_bar(data)[0]
+    sources[symbol] = source
+    return []
+
+  monkeypatch.setattr(dispatcher, "dispatch_closed_bar", fake_dispatch)
+  per_symbol = dispatcher._PerSymbolBarDispatcher(SimpleNamespace())
+  try:
+    await per_symbol.submit("XAU:M1:1")
+    await per_symbol.submit("EURUSD:M1:1")
+    await per_symbol.wait_idle()
+  finally:
+    await per_symbol.close()
+
+  assert set(sources) == {"XAU", "EURUSD"}
+  assert sources["XAU"] is not sources["EURUSD"]
+
+
+@pytest.mark.asyncio
+async def test_forced_dispatcher_close_balances_abandoned_queue(monkeypatch):
+  started = asyncio.Event()
+  never_release = asyncio.Event()
+
+  async def blocked_dispatch(*args, **kwargs):
+    started.set()
+    await never_release.wait()
+    return []
+
+  monkeypatch.setattr(dispatcher, "dispatch_closed_bar", blocked_dispatch)
+  per_symbol = dispatcher._PerSymbolBarDispatcher(SimpleNamespace())
+  await per_symbol.submit("XAU:M1:1")
+  await per_symbol.submit("XAU:M5:2")
+  await asyncio.wait_for(started.wait(), timeout=1)
+  queue = per_symbol._queues["XAU"]
+
+  await per_symbol.close(drain_timeout=0.01)
+
+  # close() cancels the in-flight handler and calls task_done() for the queued
+  # bar it intentionally abandons, so an embedding caller can never hang.
+  await asyncio.wait_for(queue.join(), timeout=1)
 
 
 @pytest.mark.asyncio

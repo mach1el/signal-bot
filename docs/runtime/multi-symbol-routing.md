@@ -101,7 +101,7 @@ CTraderAccountRuntimeHost / FeedRunner
 ├── one authenticated Open API connection
 ├── one account authorization state
 ├── one request serialization gate
-├── one account reconciliation coordinator (AccountRiskCoordinator)
+├── one account snapshot/reconciliation partitioner
 ├── one candidate stream consumer
 └── InstrumentRuntimeRegistry
     └── InstrumentRuntime (XAU, EURUSD, GBPJPY, USDJPY, GBPUSD live on demo)
@@ -153,6 +153,28 @@ normalized. Paper instruments never place broker orders.
 Account positions/orders are fetched once, then partitioned by resolved
 instrument. Unknown-symbol broker positions are logged as unmanaged and are
 not adopted into XAU.
+
+The periodic legacy/manual reconcile uses one account-wide snapshot for all
+bound instruments. TradePlan polling has a narrower freshness boundary: one
+lazy account snapshot is shared by submitted-leg reconciliation and open
+position management for an **active** symbol, while symbols with no relevant
+state do not touch the broker snapshot at all. The snapshot is not reused
+across active symbols because pending-entry evaluation may submit or cancel an
+order before reconciliation; reusing an earlier symbol's snapshot would make
+the later symbol reconcile against pre-mutation broker state.
+
+Python market-data work follows the same symbol boundary:
+
+- effective instrument contexts are cached on the immutable resolved runtime;
+- ZoneWatch membership is indexed per canonical symbol (the global index is
+  retained for migration/recovery);
+- closed bars keep FIFO order within a symbol but use independent workers and
+  OHLC caches across symbols;
+- spot wakes are latest-only per symbol because the wake contains no price and
+  evaluation always reads the latest Redis quote.
+
+Broker mutations remain serialized by the account request gate. Cross-symbol
+analysis concurrency must not be treated as an account-risk lock.
 
 ## Source-mode boundary
 

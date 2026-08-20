@@ -269,12 +269,15 @@ async def test_list_active_uses_membership_index_not_keyspace_scan(client):
     grade=zw.GRADE_A,
   )
   assert await client.sismember(zw.ZONE_WATCH_INDEX_KEY, zone_id)
+  symbol_index = zw.zone_watch_symbol_index_key("XAU")
+  assert await client.sismember(symbol_index, zone_id)
 
   listed = await zw.list_active_zone_watches(client, symbol="XAU")
   assert [item.zone_id for item in listed] == [zone_id]
 
   await zw.transition_zone_watch(client, zone_id, zw.INVALIDATED)
   assert not await client.sismember(zw.ZONE_WATCH_INDEX_KEY, zone_id)
+  assert not await client.sismember(symbol_index, zone_id)
   assert await zw.list_active_zone_watches(client) == []
 
 

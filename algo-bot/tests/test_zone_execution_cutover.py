@@ -2,6 +2,7 @@ from __future__ import annotations
 from app.core.config import runtime_config
 from tests.configuration.canonical_fixtures import install_runtime_overrides, leaf
 
+import asyncio
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -18,6 +19,43 @@ from app.autotrade import zone_watch as zw
 
 
 pytestmark = [pytest.mark.no_database, pytest.mark.real_redis]
+
+
+@pytest.mark.asyncio
+async def test_latest_spot_dispatcher_coalesces_per_symbol(monkeypatch):
+  first_started = asyncio.Event()
+  release_first = asyncio.Event()
+  calls: list[tuple[str, str]] = []
+
+  async def evaluate(_client, *, symbol, event_ts, **_kwargs):
+    calls.append((symbol, event_ts))
+    if event_ts == "1":
+      first_started.set()
+      await release_first.wait()
+
+  monkeypatch.setattr(cutover, "_evaluate_spot_zone_event", evaluate)
+  dispatcher = cutover._LatestSpotZoneDispatcher(SimpleNamespace())
+  try:
+    assert dispatcher.submit("XAU", "1") is True
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+    dispatcher.submit("XAU", "2")
+    dispatcher.submit("XAU", "3")
+    dispatcher.submit("EURUSD", "4")
+    await asyncio.sleep(0)
+    assert ("EURUSD", "4") in calls
+    assert ("XAU", "2") not in calls
+
+    release_first.set()
+    for _ in range(20):
+      if ("XAU", "3") in calls:
+        break
+      await asyncio.sleep(0)
+    assert calls.count(("XAU", "1")) == 1
+    assert ("XAU", "2") not in calls
+    assert calls.count(("XAU", "3")) == 1
+  finally:
+    release_first.set()
+    await dispatcher.close()
 
 
 @pytest.fixture(autouse=True)

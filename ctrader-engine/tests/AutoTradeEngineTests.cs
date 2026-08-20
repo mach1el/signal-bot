@@ -1077,8 +1077,11 @@ public sealed partial class AutoTradeEngineTests
     );
 
     Assert.Equal(3, client.Closes.Count);
+    // The group-wide TP1 protection attempt is the injected failure. The
+    // booking leg then applies its own TP1 trail, so the engine must recover
+    // to protected BE before continuing to TP1 on the next target.
     Assert.Equal(
-      new decimal[] { 3993.7m, 4003.2m },
+      new decimal[] { 3993.7m, 4000.26m, 4003.2m },
       client.StopAmendments.Select(item => item.StopLoss)
     );
     var error = Assert.Single(store.Events, item => item.Type == "error");
@@ -2840,6 +2843,120 @@ public sealed partial class AutoTradeEngineTests
     Assert.DoesNotContain(
       store.Events,
       item => item.Type == "manual_limit_placed" && item.Symbol == "XAU"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task PeriodicReconcileAdoptsFilledFxManualOrderInItsOwnPartition()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      manualStopLoss: 4.002m,
+      entryLow: 3.9995m,
+      entryHigh: 4.0005m,
+      manualTakeProfits: new[] { 3.9965m, 3.9935m, 3.9905m },
+      symbol: "EURUSD"
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    engine.BindInstrumentSymbols([Symbol, EurUsdSymbol]);
+    engine.InstrumentRegistry = new InstrumentRuntimeRegistry([
+      new InstrumentRuntime
+      {
+        InstrumentId = "EURUSD",
+        Feed = new FeedInstrumentOptions(
+          InstrumentId: "EURUSD",
+          CanonicalSymbol: "EURUSD",
+          CTraderSymbol: "EURUSD",
+          RedisSymbol: "EURUSD",
+          Timeframes: ["M1", "M5"],
+          BackfillBars: 100,
+          BarsWindowMax: 100,
+          BarsChannel: "bars:new",
+          BarQualityLookback: 6,
+          Rollout: InstrumentRollout.Live
+        ),
+        Execution = new ExecutionInstrumentOptions(
+          InstrumentId: "EURUSD",
+          CanonicalSymbol: "EURUSD",
+          Rollout: InstrumentRollout.Live,
+          PipSize: 0.0001m,
+          ContractSize: 100_000m,
+          EffectiveSymbols: ["EURUSD"]
+        ),
+      },
+    ]);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("EURUSD", 4.0000m, 4.0002m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var pending = Assert.Single(client.PendingOrders);
+    client.FillPendingOrder(pending.OrderId);
+
+    // RunSession's periodic reconciliation is account-wide but partitioned
+    // by each bound SymbolInfo. Before this regression fix it only filtered
+    // the account snapshot to the session XAU SymbolId, so this EURUSD fill
+    // remained invisible forever.
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "manual_opened");
+
+    var opened = Assert.Single(
+      store.Events, item => item.Type == "manual_opened"
+    );
+    Assert.Equal("EURUSD", opened.Symbol);
+    Assert.Equal("EURUSD", Assert.Single(store.Positions.Values).Symbol);
+    Assert.True(store.Values.ContainsKey("auto_trade:executor_snapshot:EURUSD"));
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "manual_opened" && item.Symbol == "XAU"
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ReconcileNeverTreatsUnknownTrackedSymbolAsSessionXau()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore("{}");
+    store.Positions[9001] = new AutoTradePositionState(
+      CandidateId: "unknown-symbol-position",
+      PositionId: 9001,
+      SymbolId: 999_999,
+      Direction: TradeDirection.Buy,
+      EntryPrice: 1.2m,
+      InitialVolume: 1_000,
+      RemainingVolume: 1_000,
+      Slices: [1_000],
+      TargetsPips: [30],
+      NextTargetIndex: 0,
+      OpenedAt: Now.ToUnixTimeSeconds(),
+      Symbol: "NOT_BOUND"
+    );
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    engine.BindInstrumentSymbols([Symbol, EurUsdSymbol]);
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitUntilAsync(() =>
+      store.Values.ContainsKey("auto_trade:executor_snapshot:EURUSD")
+    );
+    await Task.Delay(50, cts.Token);
+
+    Assert.Contains(9001, store.Positions.Keys);
+    Assert.DoesNotContain(9001, store.PositionMissing.Keys);
+    Assert.DoesNotContain(
+      "position_missing_snapshot_suspected",
+      store.MetricsSnapshot()
     );
 
     cts.Cancel();
