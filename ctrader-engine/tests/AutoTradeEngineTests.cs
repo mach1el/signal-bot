@@ -2831,6 +2831,16 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal(3.9995m, order.LimitPrice);
     Assert.True(order.Volume > 0);
     Assert.True(order.RelativeStopLoss > 0);
+    // Scale-up: FX manual events must stamp EURUSD, not the session XAU
+    // symbol, or Python's per-symbol worker never sees the fill/notify.
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "manual_limit_placed" && item.Symbol == "EURUSD"
+    );
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "manual_limit_placed" && item.Symbol == "XAU"
+    );
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);

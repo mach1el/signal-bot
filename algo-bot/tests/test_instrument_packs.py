@@ -105,3 +105,72 @@ def test_live_instrument_symbol_csv_includes_xau():
     }
   )
   assert "EURUSD" in csv.split(",")
+  assert csv.split(",")[0] == "XAU"
+
+
+def test_load_config_file_syncs_legacy_symbol_csvs_from_live_rollout(tmp_path):
+  """Go-live is instruments.*.rollout=live; stale CSV leaves must not win."""
+  path = tmp_path / "trading-bot.yml"
+  path.write_text(
+    """
+version: 1
+contract:
+  instrument:
+    symbols: "XAU"
+market_data:
+  scanner:
+    symbols: "XAU"
+instruments:
+  XAU:
+    enabled: true
+    rollout: live
+    canonical_symbol: XAU
+    broker_symbol: XAUUSD
+    contract:
+      pip_size: 0.1
+      contract_units_per_lot: 100.0
+      price_digits: 2
+  EURUSD:
+    enabled: true
+    rollout: live
+    canonical_symbol: EURUSD
+    broker_symbol: EURUSD
+    policy: fx_fixed_2r_v1
+    reaction_session: london_ny
+    targeting:
+      mode: fixed_rr
+      reward_risk: 2.0
+      target_r_multiples: [1.0, 1.5, 2.0]
+      close_ratios: [0.25, 0.25, 0.50]
+      trail_after_r: 1.5
+      trail_to_r: 1.0
+      entry_clips: 2
+    stop_envelope: {min_pips: 10, max_pips: 18, sl_distance: 0.0018}
+    activation:
+      require_sweep_body: true
+      trigger_maximum_age_bars: 3
+      max_spread_pips: 1
+    price_scale:
+      round_step: 0.001
+      market_map:
+        change_min: 0.0001
+        fallback_radius_price: 0.01
+        scalp_radius_price: 0.006
+      zone_merge_gap_price: 0.0005
+      zone_merge_max_width: 0.0015
+      opposing_minimum_separation_price: 0.0015
+      fvg_entry_max_width_price: 0.0015
+    contract:
+      pip_size: 0.0001
+      contract_units_per_lot: 100000.0
+      price_digits: 5
+      volume_units_per_lot: 10000000
+""",
+    encoding="utf-8",
+  )
+  loaded = load_config_file(path, missing_ok=False)
+  symbols = loaded.flat_values["contract.instrument.symbols"].split(",")
+  scanner = loaded.flat_values["market_data.scanner.symbols"].split(",")
+  assert "EURUSD" in symbols
+  assert "XAU" in symbols
+  assert symbols == scanner
