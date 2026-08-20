@@ -3023,16 +3023,12 @@ public sealed partial class AutoTradeEngineTests
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     // Balance 5000 -> table 0.30 lots total (3000 volume), split 50/30/20
-    // across three entry legs (2026-08 R:R redesign): Shallow 1500 (0.15
-    // lots, above the 0.13 threshold - FixFirstLegVolume runs on its own
-    // exit ladder), Mid 900 (0.09 lots) and Deep 600 (0.06 lots) both stay
-    // under threshold and keep an even three-way exit split. Each entry
-    // leg's exit ladder is fixed independently now, not a single-order
-    // property - Shallow's fixed TP1 (0.05 lots/500) happens to equal what
-    // an even three-way split of 1500 already gives, so the visible slice
-    // numbers do not change, but FixFirstLegVolume genuinely runs (proven
-    // by ManualAlgoKeepsEvenSplitAtOrBelowThreshold showing the untouched
-    // even split below threshold for comparison).
+    // across three entry legs. Group TP book prefers shallow, then spills
+    // into mid/deep when shallow capacity is exhausted (FixFirstLeg on the
+    // group plan → TP1 500 / TP2 1300 / TP3 1200):
+    //   shallow 1500 → 500 + 1000
+    //   mid 900 → 300 + 600
+    //   deep 600 → 600 (final only)
     var store = new FakeAutoTradeStore(ManualCandidateJson(
       direction: "SELL",
       entryLow: 3999.5m,
@@ -3056,17 +3052,17 @@ public sealed partial class AutoTradeEngineTests
     var shallow = client.LimitOrders[0];
     Assert.Equal(1_500, shallow.Volume);
     // Comment layout: avm|candidate|group|volume|slices|targets|ordinals|barTs|expiresAt|legIndex|legCount
-    Assert.Equal("500,500,500", shallow.Comment.Split('|')[4]);
+    Assert.Equal("500,1000", shallow.Comment.Split('|')[4]);
     Assert.Equal(["1", "3"], shallow.Comment.Split('|')[9..]);
 
     var mid = client.LimitOrders[1];
     Assert.Equal(900, mid.Volume);
-    Assert.Equal("300,300,300", mid.Comment.Split('|')[4]);
+    Assert.Equal("300,600", mid.Comment.Split('|')[4]);
     Assert.Equal(["2", "3"], mid.Comment.Split('|')[9..]);
 
     var deep = client.LimitOrders[2];
     Assert.Equal(600, deep.Volume);
-    Assert.Equal("200,200,200", deep.Comment.Split('|')[4]);
+    Assert.Equal("600", deep.Comment.Split('|')[4]);
     Assert.Equal(["3", "3"], deep.Comment.Split('|')[9..]);
 
     cts.Cancel();

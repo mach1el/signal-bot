@@ -98,6 +98,34 @@ def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
   assert payload["targets_pips"] == [1]
 
 
+@pytest.mark.no_database
+def test_intent_to_candidate_payload_fx_includes_volume_multiplier(monkeypatch):
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  cfg = _load_production_example().config
+  for target in (
+    "app.signals.manual_execution.runtime_config",
+    "app.signals.fx_manual_algo.runtime_config",
+    "app.core.symbols.runtime_config",
+    "app.signals.pips_format.runtime_config",
+  ):
+    monkeypatch.setattr(target, cfg, raising=False)
+
+  payload = manual_execution._intent_to_candidate_payload(_intent(
+    symbol="EURUSD",
+    entry_low=1.15007,
+    entry_high=1.15007,
+    sl=1.14867,
+    tps=(1.15147, 1.15217, 1.15287),
+  ))
+
+  assert payload["manual_single_entry"] is True
+  assert payload["manual_target_weights"] == [25, 25, 50]
+  assert payload["risk_multiplier"] == pytest.approx(
+    float(cfg.manual_algo.sizing.fx_volume_multiplier),
+  )
+
+
 # ---------------------------------------------------------------------------
 # bridge_intents_loop / _process_intent_entries
 # ---------------------------------------------------------------------------
@@ -112,6 +140,7 @@ async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeyp
     "manual_signal_id": 5,
     "revision": 0,
     "direction": "SELL",
+    "symbol": "XAU",
     "entry_low": 4100.0,
     "entry_high": 4105.0,
     "sl": 4110.0,
@@ -156,6 +185,71 @@ async def test_process_intent_entries_skips_malformed_payload_but_advances_curso
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_dispatch_intent_entries_routes_to_symbol_worker(monkeypatch):
+  manual_execution._symbol_queues.clear()
+  manual_execution._symbol_worker_tasks.clear()
+  published: list[ManualTradeIntent] = []
+
+  async def _capture(_client, intent):
+    published.append(intent)
+
+  monkeypatch.setattr(manual_execution, "_publish_intent", _capture)
+  client = redis_state.get_client()
+  intent_payload = {
+    "intent_id": "manual:12:0",
+    "manual_signal_id": 12,
+    "revision": 0,
+    "direction": "BUY",
+    "symbol": "EURUSD",
+    "entry_low": 1.15007,
+    "entry_high": 1.15007,
+    "sl": 1.14867,
+    "tps": [1.15147],
+    "created_at": 1_800_000_000,
+    "expires_at": None,
+    "setup_type": "key-level",
+    "confluence": 1,
+    "execution_mode": "algo",
+  }
+  entries = [("301-0", {"payload": json.dumps(intent_payload)})]
+
+  cursor = await manual_execution._dispatch_intent_entries(
+    client, entries, cursor="0-0",
+  )
+
+  assert cursor == "301-0"
+  await asyncio.sleep(0.05)
+  assert len(published) == 1
+  assert published[0].symbol == "EURUSD"
+  for task in manual_execution._symbol_worker_tasks.values():
+    task.cancel()
+  await asyncio.gather(
+    *manual_execution._symbol_worker_tasks.values(),
+    return_exceptions=True,
+  )
+
+
+@pytest.mark.no_database
+def test_is_manual_algo_event_filters_autonomous_stream():
+  assert manual_execution._is_manual_algo_event({
+    "type": "opened",
+    "stream": "algo_auto",
+    "candidate_id": "cand:1",
+  }) is False
+  assert manual_execution._is_manual_algo_event({
+    "type": "manual_limit_placed",
+    "stream": "algo_manual",
+    "symbol": "EURUSD",
+  }) is True
+  assert manual_execution._is_manual_algo_event({
+    "type": "take_profit",
+    "candidate_id": "manual:5:0",
+    "symbol": "USDJPY",
+  }) is True
+
+
+@pytest.mark.asyncio
 async def test_bridge_intents_loop_is_a_no_op_when_disabled():
   # manual_algo_enabled defaults False and conftest doesn't override it.
   await asyncio.wait_for(manual_execution.bridge_intents_loop(), timeout=2)
@@ -182,6 +276,7 @@ async def test_manual_intent_bypasses_worker_strategy_gates(
     "manual_signal_id": 9,
     "revision": 0,
     "direction": "BUY",
+    "symbol": "XAU",
     "entry_low": 4116.5,
     "entry_high": 4117.0,
     "sl": 4111.5,
@@ -310,9 +405,10 @@ async def test_limit_placed_event_is_the_first_broker_confirmation(monkeypatch):
 @pytest.mark.asyncio
 async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
   """The owner-only "LIMIT ORDER PLACED" debug DM duplicates the real VIP/
-  public channel update the executor's own fill event already posts - it
-  must stay silent unless explicitly re-enabled."""
+  public channel update — it must stay silent unless explicitly re-enabled,
+  but the channel thread must still get the limit-pending reply."""
   sid = await _algo_signal()
+  send = _mock_send(monkeypatch)
   truth = AsyncMock()
   monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
   event = {
@@ -334,6 +430,9 @@ async def test_limit_placed_owner_dm_is_off_by_default(monkeypatch):
   row = await store.get_manual_signal(sid)
   assert row["execution_status"] == "pending"
   truth.assert_not_awaited()
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "limit placed" in text.lower()
 
 
 @pytest.mark.asyncio
@@ -445,6 +544,230 @@ async def test_handle_event_take_profit_books_equal_weight_partial_leg(monkeypat
   assert legs[0]["pips"] == 50
   send.assert_awaited_once()
   assert "TP1" in send.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_multi_leg_same_tp_only_fans_out_furthest_once(monkeypatch):
+  """Two filled ladder legs both hitting TP1 must post once, not twice."""
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid, 556: sid}
+
+  for position_id in (555, 556):
+    await manual_execution._handle_event(
+      client,
+      {
+        "type": "take_profit",
+        "position_id": position_id,
+        "candidate_id": f"manual:{sid}:0",
+        "price": 4095.0,
+        "target_pips": 50,
+      },
+      positions,
+    )
+
+  row = await store.get_manual_signal(sid)
+  assert len(row["legs"]) == 1
+  assert row["legs"][0]["frac"] == pytest.approx(1 / 3, rel=1e-3)
+  send.assert_awaited_once()
+  assert "TP1" in send.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_multi_leg_further_tp_still_fans_out(monkeypatch):
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid, 556: sid}
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit",
+      "position_id": 555,
+      "price": 4095.0,
+      "target_pips": 50,
+      "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit",
+      "position_id": 556,
+      "price": 4090.0,
+      "target_pips": 100,
+      "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+
+  row = await store.get_manual_signal(sid)
+  assert len(row["legs"]) == 2
+  assert send.await_count == 2
+  assert "TP1" in send.await_args_list[0].args[0]
+  assert "TP2" in send.await_args_list[1].args[0]
+
+
+@pytest.mark.asyncio
+async def test_multi_leg_same_sl_move_only_fans_out_furthest_once(monkeypatch):
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid, 556: sid}
+
+  for position_id in (555, 556):
+    await manual_execution._handle_event(
+      client,
+      {
+        "type": "stop_moved",
+        "position_id": position_id,
+        "candidate_id": f"manual:{sid}:0",
+        "price": 4103.06,
+        "message": "🛡 ApexVoid Algo stop → 4,103.06 (BE+6 ticks)",
+      },
+      positions,
+    )
+
+  row = await store.get_manual_signal(sid)
+  assert row["sl"] == pytest.approx(4103.06)
+  send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_multi_leg_further_sl_move_still_fans_out(monkeypatch):
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()  # SELL: further SL = lower
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid, 556: sid}
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "stop_moved",
+      "position_id": 555,
+      "candidate_id": f"manual:{sid}:0",
+      "price": 4103.06,
+      "message": "BE",
+    },
+    positions,
+  )
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "stop_moved",
+      "position_id": 556,
+      "candidate_id": f"manual:{sid}:0",
+      "price": 4095.0,
+      "message": "trail after TP2",
+    },
+    positions,
+  )
+
+  row = await store.get_manual_signal(sid)
+  assert row["sl"] == pytest.approx(4095.0)
+  assert send.await_count == 2
+
+
+@pytest.mark.no_database
+def test_stop_is_further_direction_aware():
+  buy = {"action": "BUY", "symbol": "XAU"}
+  sell = {"action": "SELL", "symbol": "XAU"}
+  assert manual_execution._stop_is_further(buy, 2010.0, 2000.0) is True
+  assert manual_execution._stop_is_further(buy, 1990.0, 2000.0) is False
+  assert manual_execution._stop_is_further(sell, 4090.0, 4100.0) is True
+  assert manual_execution._stop_is_further(sell, 4110.0, 4100.0) is False
+  assert manual_execution._stop_is_further(sell, 4100.02, 4100.0) is False
+
+
+@pytest.mark.no_database
+def test_tp_ordinal_reached_maps_target_pips():
+  sig = {
+    "action": "SELL",
+    "symbol": "XAU",
+    "entry": 4100.0,
+    "entry_end": 4105.0,
+    "sl": 4110.0,
+    "tps": [4095.0, 4090.0, 4080.0],
+  }
+  assert manual_execution._tp_ordinal_reached(sig, 50) == 1
+  assert manual_execution._tp_ordinal_reached(sig, 100) == 2
+  assert manual_execution._tp_ordinal_reached(sig, 200) == 3
+  assert manual_execution._tp_ordinal_reached(sig, 10) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
+  execute = AsyncMock()
+  post = AsyncMock()
+  monkeypatch.setattr("app.signals.trade_ops._execute_close", execute)
+  monkeypatch.setattr("app.signals.trade_ops.post_result", post)
+  monkeypatch.setattr(
+    manual_execution,
+    "get_manual_signal",
+    AsyncMock(return_value={
+      "id": 7,
+      "action": "SELL",
+      "symbol": "XAU",
+      "entry": 4100.0,
+      "entry_end": 4105.0,
+      "sl": 4110.0,
+      "tps": [4095.0, 4090.0, 4080.0],
+    }),
+  )
+  monkeypatch.setattr(
+    redis_state,
+    "get_progress",
+    AsyncMock(return_value={"tp": 1, "sl": False, "runner_pips": 50}),
+  )
+  set_tp = AsyncMock()
+  monkeypatch.setattr(redis_state, "set_tp_progress", set_tp)
+
+  await manual_execution._handle_take_profit(
+    {"price": 4095.0, "target_pips": 50, "position_id": 556},
+    7,
+  )
+
+  execute.assert_not_awaited()
+  post.assert_not_awaited()
+  set_tp.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_stop_moved_skips_when_not_further(monkeypatch):
+  execute = AsyncMock()
+  post = AsyncMock()
+  monkeypatch.setattr("app.signals.trade_ops._execute_sl", execute)
+  monkeypatch.setattr("app.signals.trade_ops.post_result", post)
+  monkeypatch.setattr(
+    manual_execution,
+    "get_manual_signal",
+    AsyncMock(return_value={
+      "id": 7,
+      "action": "SELL",
+      "symbol": "XAU",
+      "entry": 4100.0,
+      "entry_end": 4105.0,
+      "sl": 4103.06,
+      "tps": [4095.0],
+    }),
+  )
+
+  await manual_execution._handle_stop_moved(
+    {"price": 4103.06, "position_id": 556, "message": "BE"},
+    7,
+  )
+
+  execute.assert_not_awaited()
+  post.assert_not_awaited()
 
 
 @pytest.mark.asyncio
