@@ -521,7 +521,50 @@ async def _handle_fill_event(
   await trade_ops.post_result(result, sig.get("symbol", "XAU"))
 
 
+def _tp_ordinal_reached(sig: dict, target_pips: object) -> int:
+  """Highest configured TP ordinal covered by ``target_pips`` (0 if none)."""
+  if target_pips is None:
+    return 0
+  configured = [
+    pips_format.pips_between(sig, tp) for tp in sig.get("tps") or []
+  ]
+  if not configured:
+    return 0
+  return max(
+    (
+      index + 1
+      for index, configured_pips in enumerate(configured)
+      if configured_pips <= int(target_pips)
+    ),
+    default=0,
+  )
+
+
+def _stop_is_further(sig: dict, new_sl: float, current_sl: float) -> bool:
+  """True when ``new_sl`` locks more profit than ``current_sl`` (direction-aware).
+
+  Ladder fills publish one ``stop_moved`` per entry leg. Channel updates must
+  follow the furthest stop only — trailing legs at the same or worse level
+  are ignored.
+  """
+  from app.core.symbols import pip_for
+
+  pip = pip_for(sig.get("symbol", "XAU"))
+  if abs(new_sl - current_sl) <= pip * 0.5:
+    return False
+  if str(sig.get("action") or "").upper() == "BUY":
+    return new_sl > current_sl
+  return new_sl < current_sl
+
+
 async def _handle_take_profit(event: dict, signal_id: int) -> None:
+  """Book + fan out when signal-level TP progress advances.
+
+  A XAU ladder can fill several entry legs that share one channel card. Each
+  leg publishes its own ``take_profit`` events; only the furthest TP ordinal
+  for the signal is booked and posted — sibling legs at the same (or lower)
+  TP are ignored so the channel is not spammed and frac is not double-counted.
+  """
   from app.signals import trade_ops
 
   sig = await get_manual_signal(signal_id)
@@ -531,24 +574,28 @@ async def _handle_take_profit(event: dict, signal_id: int) -> None:
   if price is None:
     log.error("take_profit event missing price for signal %s", signal_id)
     return
-  pips = pips_format.signed_result_pips(sig, float(price))
   configured = [
     pips_format.pips_between(sig, tp) for tp in sig.get("tps") or []
   ]
   target_pips = event.get("target_pips")
-  reached = 0
-  if target_pips is not None and configured:
-    reached = max(
-      (
-        index + 1
-        for index, configured_pips in enumerate(configured)
-        if configured_pips <= int(target_pips)
-      ),
-      default=0,
-    )
-    if reached:
-      await redis_state.set_tp_progress(signal_id, reached)
+  reached = _tp_ordinal_reached(sig, target_pips)
+  if reached:
+    progress = await redis_state.get_progress(signal_id)
+    current_tp = int(progress.get("tp") or 0)
+    if reached <= current_tp:
+      log.info(
+        "manual-algo take_profit skipped signal=%s tp=%s already=%s "
+        "position_id=%s",
+        signal_id,
+        reached,
+        current_tp,
+        event.get("position_id"),
+      )
+      return
+    await redis_state.set_tp_progress(signal_id, reached)
+    if target_pips is not None:
       await redis_state.set_runner_pips(signal_id, int(target_pips))
+  pips = pips_format.signed_result_pips(sig, float(price))
   # The broker's real target ladder can collapse (BuildTargetPlan skips
   # middle targets when volume is too small for every configured exit), so
   # "is this the last leg" is decided by comparing against the LARGEST
@@ -698,6 +745,10 @@ async def _handle_stop_moved(event: dict, signal_id: int) -> None:
   Owner-initiated /trade_sl publishes ``manual_sl_moved`` instead; both paths
   must fan out through ``trade_ops.post_result`` because delivery.py suppresses
   manual-algo ``stop_moved`` events to avoid duplicate owner DMs.
+
+  Multi-leg ladders emit one stop amend per filled entry leg. Only a stop that
+  is further (more profit locked) than the signal's current SL is applied and
+  posted — trailing legs at the same level are ignored.
   """
   from app.signals import trade_ops
 
@@ -709,6 +760,17 @@ async def _handle_stop_moved(event: dict, signal_id: int) -> None:
   if sig is None:
     return
   new_sl = float(price)
+  current_sl = sig.get("sl")
+  if current_sl is not None and not _stop_is_further(sig, new_sl, float(current_sl)):
+    log.info(
+      "manual-algo stop_moved skipped signal=%s new=%s current=%s "
+      "position_id=%s",
+      signal_id,
+      new_sl,
+      current_sl,
+      event.get("position_id"),
+    )
+    return
   is_be = _stop_move_is_breakeven(sig, new_sl, event)
   result = await trade_ops._execute_sl(signal_id, new_sl, is_be=is_be)
   await trade_ops.post_result(result, sig.get("symbol", "XAU"))

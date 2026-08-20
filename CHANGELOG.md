@@ -20,6 +20,9 @@ dated section after deployment.
   of **Entry Zone** — FX uses entry-at, not XAU-style zones.
 
 ### Fixed
+- XAU manual /algo ladder fills no longer spam the channel with one TP/SL
+  update per entry leg — progress is booked and posted from the furthest
+  signal-level TP/SL only (trailing legs at the same level are ignored).
 - FX manual /algo channel threads now get a ``⏳ limit placed — waiting for fill``
   reply when the broker accepts the resting entry order (``manual_limit_placed``),
   not only after a fill — so USDJPY/EURUSD algo signals show lifecycle progress
