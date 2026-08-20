@@ -12,6 +12,13 @@ dated section after deployment.
 
 ## Unreleased
 
+### Changed
+- Manual /algo execution now runs one dedicated asyncio worker per live symbol
+  (intent bridge + event reconcile dispatch into per-symbol queues) so many FX
+  pairs stay current without one symbol blocking another.
+- FX manual /algo channel cards show **Entry Price** (single entry-at level) instead
+  of **Entry Zone** — FX uses entry-at, not XAU-style zones.
+
 ### Fixed
 - FX manual /algo channel threads now get a ``⏳ limit placed — waiting for fill``
   reply when the broker accepts the resting entry order (``manual_limit_placed``),

@@ -28,6 +28,7 @@ from app.signals.broadcast import (
   fanout_update,
   replace_entry_posts,
 )
+from app.signals.fx_manual_algo import uses_entry_price_display
 from app.bot.keyboards import build_tp_close_kb
 from app.signals.pips_format import wing_icons
 from app.persistence.redis_state import clear_sl_alert, mark_tp_alert
@@ -43,7 +44,14 @@ def _price(value: float, symbol: str) -> str:
   return f"{value:,.{digits}f}".rstrip("0").rstrip(".")
 
 
-def _win_wings(pips: int) -> str:
+def _entry_range_text(
+  entry: float,
+  entry_end: float,
+  symbol: str,
+) -> str:
+  if uses_entry_price_display(symbol, entry, entry_end):
+    return _price(entry, symbol)
+  return f"{_price(entry, symbol)}–{_price(entry_end, symbol)}"
   icons = wing_icons(pips)
   return f" {icons}" if icons else ""
 
@@ -689,7 +697,7 @@ def render_result(
       entry_end = row["entry"]
     return (
       f"🔧 {seq}modified — entry "
-      f"{_price(row['entry'], symbol)}-{_price(entry_end, symbol)} · "
+      f"{_entry_range_text(row['entry'], entry_end, symbol)} · "
       f"sl {_price(row['sl'], symbol)}"
     )
   if action == "uncclose":
@@ -787,8 +795,7 @@ def render_result(
     return (
       f"♻️ <b>{seq}round {result['round']}{source_seq}</b> — "
       f"{source['action']} "
-      f"{_price(result['entry'], symbol)}–"
-      f"{_price(result['entry_end'], symbol)} / "
+      f"{_entry_range_text(result['entry'], result['entry_end'], symbol)} / "
       # The reopened round's own stop (the source's ORIGINAL stop, not its
       # possibly-trailed current sl - see do_reopen's original_sl comment)
       f"🛡 {_price(result['sl'], symbol)} / TP {tps}"

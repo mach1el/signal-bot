@@ -135,6 +135,50 @@ def test_tier_rendering_hides_public_id():
   assert "#7" not in trade_ops.render_result(result, "XAU", "public")
 
 
+@pytest.mark.no_database
+def test_fx_manual_algo_entry_card_uses_entry_price_not_zone(monkeypatch):
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  cfg = _load_production_example().config
+  for target in (
+    "app.core.config.runtime_config",
+    "app.core.symbols.runtime_config",
+    "app.signals.fx_manual_algo.runtime_config",
+  ):
+    monkeypatch.setattr(target, cfg, raising=False)
+  signal = {
+    "daily_seq": 3,
+    "symbol": "EURUSD",
+    "action": "BUY",
+    "entry": 1.15007,
+    "entry_end": 1.15007,
+    "sl": 1.14867,
+    "tps": [1.15147, 1.15217, 1.15287],
+  }
+  card = broadcast.render_entry(signal, "vip")
+
+  assert "Entry Price:" in card
+  assert "Entry Zone:" not in card
+  assert "1.15007 - " not in card
+
+
+@pytest.mark.no_database
+def test_xau_entry_card_still_uses_entry_zone():
+  signal = {
+    "daily_seq": 7,
+    "symbol": "XAU",
+    "action": "BUY",
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 1990.0,
+    "tps": [2010.0],
+  }
+  card = broadcast.render_entry(signal, "vip")
+
+  assert "Entry Zone:" in card
+  assert "Entry Price:" not in card
+
+
 def test_public_close_pips_toggle_never_reveals_id(monkeypatch):
   result = {
     "action": "close",

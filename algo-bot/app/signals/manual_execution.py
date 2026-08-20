@@ -1,18 +1,21 @@
 """Consumer + real broker execution for owner-armed manual /algo signals.
 
-Two independent loops, both no-ops unless ``runtime_config.manual_algo.runtime.enabled``:
+Two independent dispatch loops, both no-ops unless
+``runtime_config.manual_algo.runtime.enabled``:
 
-- ``bridge_intents_loop``: translates each published ``ManualTradeIntent``
-  into the dedicated ``mode=manual_algo`` owner-execution contract. The C#
-  executor routes that mode before autonomous strategy, bias and scale-in
-  gates while retaining broker validation and candidate idempotency.
-- ``reconcile_events_loop``: reads ``auto_trade:events`` (the SAME stream
-  ``app.autotrade.delivery``'s owner-DM loop reads — a second independent
-  ``XREAD`` reader with its own cursor key is safe, there are no consumer
-  groups) and drives broker fill/TP/SL/close events through the SAME
-  ``trade_ops.py -> post_result -> broadcast.fanout_update`` path a
-  manually-typed close/active command already uses, so VIP/public channel
-  posts update exactly like a manual command would.
+- ``bridge_intents_loop``: reads ``manual_trade:intents`` and routes each
+  intent to a dedicated per-symbol worker queue.
+- ``reconcile_events_loop``: reads ``auto_trade:events`` and routes manual-
+  algo lifecycle events to the matching symbol worker.
+
+Each live symbol runs ``_symbol_worker_loop`` — one asyncio task per symbol
+with its own event queue and ``position_id → signal_id`` cache so many FX
+pairs stay current without one slow symbol blocking the rest.
+
+Both paths drive broker fill/TP/SL/close events through the SAME
+``trade_ops.py -> post_result -> broadcast.fanout_update`` path a
+manually-typed close/active command already uses, so VIP/public channel
+posts update exactly like a manual command would.
 
 Also publishes owner-override commands (``/trade_close``/``/trade_sl``/
 ``/trade_cancel`` on an algo-armed/filled signal, routed here by
@@ -23,6 +26,7 @@ command poll to execute against the real broker.
 import asyncio
 import json
 import logging
+from typing import Any
 
 from app.bot.client import send_scanner_with_retry
 from app.core.config import runtime_config
@@ -34,13 +38,20 @@ from app.persistence.store import (
   set_execution_status,
 )
 from app.signals import pips_format
+from app.signals.fx_manual_algo import (
+  close_ratio_weights,
+  fx_manual_symbols,
+  uses_entry_price_display,
+)
 from app.signals.manual_intent import ManualTradeIntent
-from app.signals.fx_manual_algo import close_ratio_weights, fx_manual_symbols
 
 log = logging.getLogger(__name__)
 
 _INTENT_BRIDGE_CURSOR_KEY = "manual_trade:intent_bridge_cursor"
 _EVENT_CURSOR_KEY = "manual_trade:algo_event_cursor"
+
+_symbol_queues: dict[str, asyncio.Queue[tuple[str, Any]]] = {}
+_symbol_worker_tasks: dict[str, asyncio.Task[None]] = {}
 
 # The distinct fill-event type AutoTradeEngine.cs publishes the FIRST time a
 # manual-algo limit order fills (see AdoptPositionAsync in
@@ -92,15 +103,122 @@ async def consume_pending_modify(intent_id: str) -> bool:
   return True
 
 
-def _price(value: object) -> str:
+def _price(value: object, symbol: str = "XAU") -> str:
   if value is None:
     return "n/a"
-  return f"{float(value):,.2f}"
+  from app.core.symbols import digits_for
+
+  digits = digits_for(symbol)
+  return f"{float(value):,.{digits}f}".rstrip("0").rstrip(".")
 
 
-def _target_text(event: dict) -> str:
+def _entry_event_text(
+  event: dict,
+  *,
+  symbol: str,
+  entry_low: object,
+  entry_high: object,
+) -> str:
+  if entry_low is not None and entry_high is not None:
+    low = float(entry_low)
+    high = float(entry_high)
+    if uses_entry_price_display(symbol, low, high):
+      return _price(low, symbol)
+    return f"{_price(low, symbol)}-{_price(high, symbol)}"
+  return _price(event.get("price"), symbol)
+
+
+def _manual_algo_symbols() -> tuple[str, ...]:
+  symbols = set(runtime_config.live_instruments() or ())
+  symbols.update(fx_manual_symbols())
+  if not symbols:
+    symbols.add("XAU")
+  return tuple(sorted(symbol.upper() for symbol in symbols))
+
+
+def _symbol_queue(symbol: str) -> asyncio.Queue[tuple[str, Any]]:
+  symbol = symbol.upper()
+  queue = _symbol_queues.get(symbol)
+  if queue is None:
+    queue = asyncio.Queue()
+    _symbol_queues[symbol] = queue
+  return queue
+
+
+def _ensure_symbol_worker(symbol: str) -> None:
+  symbol = symbol.upper()
+  task = _symbol_worker_tasks.get(symbol)
+  if task is not None and not task.done():
+    return
+  _symbol_worker_tasks[symbol] = asyncio.create_task(
+    _symbol_worker_loop(symbol),
+    name=f"manual_algo_worker_{symbol}",
+  )
+
+
+def _ensure_manual_algo_workers() -> None:
+  for symbol in _manual_algo_symbols():
+    _symbol_queue(symbol)
+    _ensure_symbol_worker(symbol)
+
+
+def _is_manual_algo_event(event: dict) -> bool:
+  if event.get("stream") == "algo_manual":
+    return True
+  candidate_id = str(event.get("candidate_id") or "")
+  return candidate_id.startswith("manual:")
+
+
+def _event_route_symbol(event: dict) -> str | None:
+  raw = event.get("symbol")
+  if raw:
+    return str(raw).upper()
+  return None
+
+
+async def _symbol_worker_loop(symbol: str) -> None:
+  queue = _symbol_queue(symbol)
+  client = redis_state.get_client()
+  positions: dict[int, int] = {}
+  log.info("Manual-algo symbol worker started symbol=%s", symbol)
+  while True:
+    kind, payload = await queue.get()
+    try:
+      if kind == "intent":
+        await _publish_intent(client, payload)
+      elif kind == "event":
+        await _handle_event(client, payload, positions)
+    except asyncio.CancelledError:
+      raise
+    except Exception:
+      log.exception(
+        "Manual-algo symbol worker failed symbol=%s kind=%s",
+        symbol,
+        kind,
+      )
+      await asyncio.sleep(1)
+    finally:
+      queue.task_done()
+
+
+async def _enqueue_intent(intent: ManualTradeIntent) -> None:
+  symbol = intent.symbol.upper()
+  _ensure_symbol_worker(symbol)
+  await _symbol_queue(symbol).put(("intent", intent))
+
+
+async def _enqueue_event(event: dict) -> None:
+  symbol = _event_route_symbol(event)
+  if symbol is None:
+    return
+  _ensure_symbol_worker(symbol)
+  await _symbol_queue(symbol).put(("event", event))
+
+
+
+def _target_text(event: dict, symbol: str) -> str:
   targets = event.get("target_prices") or []
-  return " / ".join(_price(value) for value in targets) or "n/a"
+  return " / ".join(_price(value, symbol) for value in targets) or "n/a"
 
 
 async def _send_executor_truth(text: str) -> None:
@@ -121,20 +239,20 @@ async def _handle_limit_placed(event: dict) -> None:
   if sig is None:
     return
   await set_execution_status(sig["id"], "pending")
-  entry_low = event.get("entry_low")
-  entry_high = event.get("entry_high")
-  entry = (
-    f"{_price(entry_low)}-{_price(entry_high)}"
-    if entry_low is not None and entry_high is not None
-    else _price(event.get("price"))
+  symbol = sig.get("symbol", "XAU")
+  entry = _entry_event_text(
+    event,
+    symbol=symbol,
+    entry_low=event.get("entry_low"),
+    entry_high=event.get("entry_high"),
   )
   if runtime_config.manual_algo.runtime.owner_execution_dm_enabled:
     await _send_executor_truth(
       "✅ <b>LIMIT ORDER PLACED</b>\n"
       f"Direction: <b>{event.get('direction') or 'n/a'}</b>\n"
       f"Entry: <code>{entry}</code>\n"
-      f"SL: <code>{_price(event.get('stop_loss'))}</code>\n"
-      f"TPs: <code>{_target_text(event)}</code>\n"
+      f"SL: <code>{_price(event.get('stop_loss'), symbol)}</code>\n"
+      f"TPs: <code>{_target_text(event, symbol)}</code>\n"
       f"Order ID: <code>{event.get('order_id') or 'n/a'}</code>\n"
       f"Candidate ID: <code>{candidate_id}</code>"
     )
@@ -246,18 +364,35 @@ def _intent_to_candidate_payload(intent: ManualTradeIntent) -> dict:
   return payload
 
 
+async def _publish_intent(client, intent: ManualTradeIntent) -> None:
+  candidate = _intent_to_candidate_payload(intent)
+  await client.xadd(
+    runtime_config.contract.streams.candidates,
+    {"payload": json.dumps(candidate, separators=(",", ":"))},
+    maxlen=max(100, runtime_config.contract.streams.candidate_maximum_length),
+    approximate=True,
+  )
+
+
 async def _process_intent_entries(client, entries, *, cursor: str) -> str:
   for entry_id, fields in entries:
     try:
       payload = json.loads(fields["payload"])
       intent = ManualTradeIntent(**payload)
-      candidate = _intent_to_candidate_payload(intent)
-      await client.xadd(
-        runtime_config.contract.streams.candidates,
-        {"payload": json.dumps(candidate, separators=(",", ":"))},
-        maxlen=max(100, runtime_config.contract.streams.candidate_maximum_length),
-        approximate=True,
-      )
+      await _publish_intent(client, intent)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+      log.warning("Invalid manual trade intent %s: %s", entry_id, exc)
+    cursor = entry_id
+    await client.set(_INTENT_BRIDGE_CURSOR_KEY, cursor)
+  return cursor
+
+
+async def _dispatch_intent_entries(client, entries, *, cursor: str) -> str:
+  for entry_id, fields in entries:
+    try:
+      payload = json.loads(fields["payload"])
+      intent = ManualTradeIntent(**payload)
+      await _enqueue_intent(intent)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
       log.warning("Invalid manual trade intent %s: %s", entry_id, exc)
     cursor = entry_id
@@ -268,13 +403,18 @@ async def _process_intent_entries(client, entries, *, cursor: str) -> str:
 async def bridge_intents_loop() -> None:
   if not runtime_config.manual_algo.runtime.enabled:
     return
+  _ensure_manual_algo_workers()
   client = redis_state.get_client()
   cursor = await client.get(_INTENT_BRIDGE_CURSOR_KEY)
   if not cursor:
     latest = await client.xrevrange(runtime_config.manual_algo.streams.intents, count=1)
     cursor = latest[0][0] if latest else "0-0"
     await client.set(_INTENT_BRIDGE_CURSOR_KEY, cursor)
-  log.info("Manual-algo intent bridge active from Redis cursor %s", cursor)
+  log.info(
+    "Manual-algo intent bridge active from Redis cursor %s workers=%s",
+    cursor,
+    ",".join(_manual_algo_symbols()),
+  )
 
   while True:
     try:
@@ -284,7 +424,7 @@ async def bridge_intents_loop() -> None:
         block=5000,
       )
       for _, entries in batches:
-        cursor = await _process_intent_entries(client, entries, cursor=cursor)
+        cursor = await _dispatch_intent_entries(client, entries, cursor=cursor)
     except asyncio.CancelledError:
       raise
     except Exception:
@@ -369,7 +509,7 @@ async def _handle_fill_event(
     await _send_executor_truth(
       "✅ <b>POSITION OPENED</b>\n"
       f"Direction: <b>{event.get('direction') or sig.get('action')}</b>\n"
-      f"Fill price: <code>{_price(price)}</code>\n"
+      f"Fill price: <code>{_price(price, sig.get('symbol', 'XAU'))}</code>\n"
       f"Volume: <code>{event.get('volume') or 'n/a'}</code>\n"
       f"Position ID: <code>{position_id}</code>"
     )
@@ -726,8 +866,28 @@ async def _process_event_entries(
   entries,
   *,
   cursor: str,
+) -> str:
+  for entry_id, fields in entries:
+    try:
+      event = json.loads(fields["payload"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+      log.warning("Invalid auto-trade event %s: %s", entry_id, exc)
+    else:
+      if _is_manual_algo_event(event):
+        await _enqueue_event(event)
+    cursor = entry_id
+    await client.set(_EVENT_CURSOR_KEY, cursor)
+  return cursor
+
+
+async def _process_event_entries_inline(
+  client,
+  entries,
+  *,
+  cursor: str,
   positions: dict[int, int],
 ) -> str:
+  """Direct handler path used by unit tests (bypasses per-symbol queues)."""
   for entry_id, fields in entries:
     try:
       event = json.loads(fields["payload"])
@@ -743,14 +903,18 @@ async def _process_event_entries(
 async def reconcile_events_loop() -> None:
   if not runtime_config.manual_algo.runtime.enabled:
     return
+  _ensure_manual_algo_workers()
   client = redis_state.get_client()
   cursor = await client.get(_EVENT_CURSOR_KEY)
   if not cursor:
     latest = await client.xrevrange(runtime_config.contract.streams.events, count=1)
     cursor = latest[0][0] if latest else "0-0"
     await client.set(_EVENT_CURSOR_KEY, cursor)
-  log.info("Manual-algo reconcile loop active from Redis cursor %s", cursor)
-  positions: dict[int, int] = {}
+  log.info(
+    "Manual-algo reconcile loop active from Redis cursor %s workers=%s",
+    cursor,
+    ",".join(_manual_algo_symbols()),
+  )
 
   while True:
     try:
@@ -761,7 +925,7 @@ async def reconcile_events_loop() -> None:
       )
       for _, entries in batches:
         cursor = await _process_event_entries(
-          client, entries, cursor=cursor, positions=positions,
+          client, entries, cursor=cursor,
         )
     except asyncio.CancelledError:
       raise

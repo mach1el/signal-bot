@@ -140,6 +140,7 @@ async def test_process_intent_entries_publishes_candidate_shaped_payload(monkeyp
     "manual_signal_id": 5,
     "revision": 0,
     "direction": "SELL",
+    "symbol": "XAU",
     "entry_low": 4100.0,
     "entry_high": 4105.0,
     "sl": 4110.0,
@@ -184,6 +185,71 @@ async def test_process_intent_entries_skips_malformed_payload_but_advances_curso
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_dispatch_intent_entries_routes_to_symbol_worker(monkeypatch):
+  manual_execution._symbol_queues.clear()
+  manual_execution._symbol_worker_tasks.clear()
+  published: list[ManualTradeIntent] = []
+
+  async def _capture(_client, intent):
+    published.append(intent)
+
+  monkeypatch.setattr(manual_execution, "_publish_intent", _capture)
+  client = redis_state.get_client()
+  intent_payload = {
+    "intent_id": "manual:12:0",
+    "manual_signal_id": 12,
+    "revision": 0,
+    "direction": "BUY",
+    "symbol": "EURUSD",
+    "entry_low": 1.15007,
+    "entry_high": 1.15007,
+    "sl": 1.14867,
+    "tps": [1.15147],
+    "created_at": 1_800_000_000,
+    "expires_at": None,
+    "setup_type": "key-level",
+    "confluence": 1,
+    "execution_mode": "algo",
+  }
+  entries = [("301-0", {"payload": json.dumps(intent_payload)})]
+
+  cursor = await manual_execution._dispatch_intent_entries(
+    client, entries, cursor="0-0",
+  )
+
+  assert cursor == "301-0"
+  await asyncio.sleep(0.05)
+  assert len(published) == 1
+  assert published[0].symbol == "EURUSD"
+  for task in manual_execution._symbol_worker_tasks.values():
+    task.cancel()
+  await asyncio.gather(
+    *manual_execution._symbol_worker_tasks.values(),
+    return_exceptions=True,
+  )
+
+
+@pytest.mark.no_database
+def test_is_manual_algo_event_filters_autonomous_stream():
+  assert manual_execution._is_manual_algo_event({
+    "type": "opened",
+    "stream": "algo_auto",
+    "candidate_id": "cand:1",
+  }) is False
+  assert manual_execution._is_manual_algo_event({
+    "type": "manual_limit_placed",
+    "stream": "algo_manual",
+    "symbol": "EURUSD",
+  }) is True
+  assert manual_execution._is_manual_algo_event({
+    "type": "take_profit",
+    "candidate_id": "manual:5:0",
+    "symbol": "USDJPY",
+  }) is True
+
+
+@pytest.mark.asyncio
 async def test_bridge_intents_loop_is_a_no_op_when_disabled():
   # manual_algo_enabled defaults False and conftest doesn't override it.
   await asyncio.wait_for(manual_execution.bridge_intents_loop(), timeout=2)
@@ -210,6 +276,7 @@ async def test_manual_intent_bypasses_worker_strategy_gates(
     "manual_signal_id": 9,
     "revision": 0,
     "direction": "BUY",
+    "symbol": "XAU",
     "entry_low": 4116.5,
     "entry_high": 4117.0,
     "sl": 4111.5,
