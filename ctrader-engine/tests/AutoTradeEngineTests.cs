@@ -1077,8 +1077,11 @@ public sealed partial class AutoTradeEngineTests
     );
 
     Assert.Equal(3, client.Closes.Count);
+    // The group-wide TP1 protection attempt is the injected failure. The
+    // booking leg then applies its own TP1 trail, so the engine must recover
+    // to protected BE before continuing to TP1 on the next target.
     Assert.Equal(
-      new decimal[] { 3993.7m, 4003.2m },
+      new decimal[] { 3993.7m, 4000.26m, 4003.2m },
       client.StopAmendments.Select(item => item.StopLoss)
     );
     var error = Assert.Single(store.Events, item => item.Type == "error");
