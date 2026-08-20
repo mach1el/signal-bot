@@ -166,6 +166,28 @@ public sealed class StopTrailPlannerTests
     Assert.Equal("TP2", afterTp4.Label);
   }
 
+  [Fact]
+  public void MidLegFullGroupLadderTrailsByOrdinalNotLocalIndex()
+  {
+    // Manual Mid owns TP3/TP4 only, but TargetPrices is the full owner
+    // ladder. After Mid books TP3, trail must lock to group TP1 (ordinal 1
+    // → prices[0]), not prices[localIndex] which would be TP1 by accident
+    // for index 0 and wrong for any later ordinal lookup.
+    var state = State(TradeDirection.Buy, 4441.5m, 4437.0m) with
+    {
+      TargetsPips = [100, 130],
+      TargetOrdinals = [3, 4],
+      TargetPrices = [4446.0m, 4449.0m, 4453.0m, 4456.0m, 4463.0m],
+      CurrentStopLoss = 4437.0m,
+    };
+
+    var afterTp3 = Assert.IsType<StopTrailMove>(
+      StopTrailPlanner.Plan(state, 0, Symbol, 0.1m, 6)
+    );
+    Assert.Equal(4446.0m, afterTp3.StopLoss);
+    Assert.Equal("TP1", afterTp3.Label);
+  }
+
   [Theory]
   [InlineData(TradeDirection.Buy, 4000.26, 4000.25)]
   [InlineData(TradeDirection.Sell, 4000.14, 4000.15)]

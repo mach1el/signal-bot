@@ -2691,9 +2691,57 @@ public sealed partial class AutoTradeEngineTests
       new[] { 3999.5m, 4000.0m, 4000.5m },
       client.LimitOrders.Select(order => order.LimitPrice)
     );
+    // SELL shallow/mid/deep vs absolute SL 4002.0 — each leg's relative
+    // distance must resolve to that one Shallow-derived absolute price.
+    Assert.Equal(
+      new long[] { 250_000, 200_000, 150_000 },
+      client.LimitOrders.Select(order => order.RelativeStopLoss).ToArray()
+    );
     Assert.True(client.LimitOrders.Sum(order => order.Volume) > 0);
-    Assert.True(client.LimitOrders.All(order => order.RelativeStopLoss > 0));
     Assert.DoesNotContain(store.Events, item => item.Type == "warning");
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ManualAlgoBuyLegsShareAbsoluteStopFromShallowEntry()
+  {
+    // Owner: "buy 4353-50 SL for all orders must be 4347" / live #104-105.
+    // Shallow is zone.High; Mid/Deep relative distances differ but every
+    // RelativeStopLoss must resolve to the same absolute VIP stop.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: "BUY",
+      entryLow: 4350.0m,
+      entryHigh: 4353.0m,
+      manualStopLoss: 4347.0m,
+      manualSingleEntry: false
+    ));
+    var client = new FakeTradingClient();
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4360.0m, 4360.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(3, client.LimitOrders.Count);
+    Assert.Equal(
+      new[] { 4353.0m, 4351.5m, 4350.0m },
+      client.LimitOrders.Select(order => order.LimitPrice)
+    );
+    Assert.Equal(
+      new long[] { 600_000, 450_000, 300_000 },
+      client.LimitOrders.Select(order => order.RelativeStopLoss).ToArray()
+    );
+    foreach (var order in client.LimitOrders)
+    {
+      var distance = order.RelativeStopLoss / 100_000m;
+      Assert.Equal(4347.0m, order.LimitPrice - distance);
+    }
 
     cts.Cancel();
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
