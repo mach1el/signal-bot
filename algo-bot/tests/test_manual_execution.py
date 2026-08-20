@@ -1010,7 +1010,11 @@ async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_br
 
 
 @pytest.mark.asyncio
-async def test_handle_take_profit_uses_broker_fill_for_leg_pips(monkeypatch):
+async def test_handle_take_profit_falls_back_to_broker_fill_without_leg_pips(
+  monkeypatch,
+):
+  """Fallback path only: an event predating leg_realized_pips (e.g. mid-
+  deploy replay) still books using the stored broker_fill_price."""
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()
   sig = await store.get_manual_signal(sid)
@@ -1031,6 +1035,38 @@ async def test_handle_take_profit_uses_broker_fill_for_leg_pips(monkeypatch):
   row = await store.get_manual_signal(sid)
   assert row["status"] == "open"
   assert row["legs"][0]["pips"] == 90
+
+
+@pytest.mark.asyncio
+async def test_handle_take_profit_uses_the_booking_legs_own_pips(monkeypatch):
+  """Owner-reported 2026-08-20: a multi-leg group's TP pips must reflect
+  the booking leg's OWN entry-to-exit distance, not a shared "deepest
+  filled" reference blended across the whole group. AutoTradeEngine.cs
+  already computes and publishes this correctly per leg as
+  leg_realized_pips - it must win over broker_fill_price whenever present,
+  even when the two would otherwise disagree wildly (deep leg filled far
+  better than this shallow leg's own +30p target)."""
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()
+  # Deepest stored fill (4104) is a DIFFERENT leg's price - if the group
+  # net calc were still used here it would report +90p, not this leg's
+  # real +30p.
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4104.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+  event = {
+    "type": "take_profit",
+    "position_id": 555,
+    "price": 4095.0,
+    "target_pips": 50,
+    "leg_realized_pips": 30,
+  }
+  await manual_execution._handle_event(client, event, positions)
+  assert send.await_count >= 1
+  text = send.call_args.args[0]
+  assert "+30 pips" in text
+  row = await store.get_manual_signal(sid)
+  assert row["legs"][0]["pips"] == 30
 
 
 
