@@ -3324,6 +3324,9 @@ public sealed partial class AutoTradeEngineTests
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
     Assert.Equal(3, client.PendingOrders.Count);
 
+    // Legs place shallow/mid/deep in order (ManualEntryLegPrices), so
+    // PendingOrders[0] is the shallow leg - the most-likely-to-fill,
+    // largest (50%) leg. Only it fills here; mid/deep never do.
     var filled = client.PendingOrders[0].OrderId;
     client.FillPendingOrder(filled);
     now = Now.AddSeconds(16);
@@ -3335,7 +3338,17 @@ public sealed partial class AutoTradeEngineTests
       new SpotPrice("XAU", 3996.40m, 3996.45m, now.ToUnixTimeSeconds()),
       cts.Token
     );
-    Assert.Contains(store.Events, item => item.Type == "take_profit");
+    // Owner-reported 2026-08-19: deep-first booking assigned the group's
+    // earliest ordinal (TP1) to the deepest (smallest, least-likely-to-
+    // fill) leg. Since only shallow ever filled here, a deep-first plan
+    // would have shallow itself owning a LATER ordinal (or none at all if
+    // mid/deep were meant to fully cover TP1+TP2) - this hit would either
+    // book under the wrong label or never fire, and the real TP1/TP2
+    // never appear on the channel because no order was ever placed to
+    // reach them. Shallow-first booking means the leg that actually
+    // filled owns TP1.
+    var tp = Assert.Single(store.Events, item => item.Type == "take_profit");
+    Assert.StartsWith("TP1 ", tp.Message);
     Assert.Contains(store.Events, item => item.Type == "unfilled_legs_cancelled");
     Assert.Empty(client.PendingOrders);
     Assert.Equal(2, client.CancelledOrders.Count);
@@ -3347,8 +3360,8 @@ public sealed partial class AutoTradeEngineTests
   [Fact]
   public async Task ManualAlgoTp1MovesRemainingLadderLegsToBreakEven()
   {
-    // Deep-first TP1 can fully close the deep clip. Remaining mid/shallow
-    // must still move to BE+6 and publish stop_moved.
+    // Shallow-first TP1 can fully close the shallow clip. Remaining
+    // mid/deep must still move to BE+6 and publish stop_moved.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
     var now = Now;
     var store = new FakeAutoTradeStore(ManualCandidateJson(
