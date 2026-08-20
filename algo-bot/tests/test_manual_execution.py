@@ -742,6 +742,47 @@ async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
+async def test_handle_event_sl_moved_is_treated_as_stop_moved(monkeypatch):
+  execute = AsyncMock()
+  post = AsyncMock()
+  sig = {
+    "id": 7,
+    "action": "SELL",
+    "symbol": "XAU",
+    "entry": 4500.0,
+    "entry_end": 4503.0,
+    "sl": 4506.0,
+    "broker_fill_price": 4503.0,
+    "execution_mode": "algo",
+    "execution_intent_id": "manual:7:0",
+    "tps": [4497.0],
+  }
+  monkeypatch.setattr("app.signals.trade_ops._execute_sl", execute)
+  monkeypatch.setattr("app.signals.trade_ops.post_result", post)
+  monkeypatch.setattr(manual_execution, "get_manual_signal", AsyncMock(return_value=sig))
+  monkeypatch.setattr(
+    manual_execution,
+    "get_signal_by_execution_intent_id",
+    AsyncMock(return_value=sig),
+  )
+
+  await manual_execution._handle_event(
+    None,
+    {
+      "type": "sl_moved",
+      "candidate_id": "manual:7:0",
+      "price": 4502.94,
+      "message": "GROUP SL MOVED TO BE 4502.94",
+    },
+    {},
+  )
+
+  execute.assert_awaited()
+  post.assert_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_stop_moved_skips_when_not_further(monkeypatch):
   execute = AsyncMock()
   post = AsyncMock()
@@ -849,8 +890,9 @@ async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_br
   a broker-side liquidity partial-fill on an owner flatten) is still
   booked immediately via the existing close_leg ledger - but from the
   event's OWN leg_realized_pips/volume/group_initial_volume, not the
-  whole-signal broker_fill_price (which, for a multi-leg group, is only
-  ever the FIRST leg to fill and would give the wrong number here).
+  whole-signal broker_fill_price (which, for a multi-leg group, tracks the
+  deepest filled entry for channel TP math and would give the wrong number
+  for a per-leg partial).
   """
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()  # SELL entry zone 4100-4105
