@@ -135,18 +135,27 @@ outside the cap and retains the setup; C# re-checks before broker mutation.
 
 ### Break-even after confirmed TP1
 
-After a broker-confirmed partial close at TP1, the stop moves to **BE+N
-broker ticks** anchored to the actual fill. This is **not** trading pips.
+After a broker-confirmed partial close at TP1, a single-position route moves
+the stop to **BE+N broker ticks** anchored to the actual fill. This is **not**
+trading pips.
 
 Canonical config: `AUTO_TRADE_BE_BUFFER_TICKS` (default `6`).
 
-For XAU with `digits=2`, tick size is `0.01`. The BE buffer stays on the
-**adverse** side of the broker fill (spread cushion), not locked profit:
+For XAU with `digits=2`, tick size is `0.01`. The buffer is on the profit side
+of the broker fill:
 
-- BUY: `entry - ticks × tick_size` → BE+6 = `entry - 0.06`
-- SELL: `entry + ticks × tick_size` → BE+6 = `entry + 0.06`
+- BUY: `entry + ticks × tick_size` → BE+6 = `entry + 0.06`
+- SELL: `entry - ticks × tick_size` → BE+6 = `entry - 0.06`
 
-Examples: BUY `4087.66` → `4087.60`; SELL `4087.66` → `4087.72`.
+Examples: BUY `4087.66` → `4087.72`; SELL `4087.66` → `4087.60`.
+
+Manual multi-leg ladders are the deliberate exception. TP1 does not bunch
+each runner at its own fill-level BE. The executor solves one shared absolute
+stop from booked TP pip-volume, remaining-entry VWAP, remaining volume, and
+original group volume. If every remaining clip stops there, the complete
+group still retains the configured positive tick buffer. The stop is rounded
+toward protection and can never loosen an owner/current SL. After TP2, every
+surviving manual leg advances to the owner's absolute TP1 price.
 
 Never multiply the BE buffer by `AUTO_TRADE_XAU_PIP_SIZE` (0.1). The deprecated
 alias `AUTO_TRADE_BE_BUFFER_PIPS` is interpreted as a tick count during

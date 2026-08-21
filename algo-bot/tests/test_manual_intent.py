@@ -105,6 +105,7 @@ async def test_publish_intent_xadds_full_payload_to_configured_stream(monkeypatc
     "manual_signal_id": 47,
     "revision": 0,
     "direction": "SELL",
+    "symbol": "XAU",
     "entry_low": 4100.0,
     "entry_high": 4105.0,
     "sl": 4110.0,
@@ -251,8 +252,8 @@ async def test_set_execution_fill_records_broker_position_and_price():
 
 
 @pytest.mark.asyncio
-async def test_set_execution_fill_keeps_deepest_ladder_price():
-  """SELL: higher fill wins; BUY: lower fill wins; shallower cannot overwrite."""
+async def test_set_execution_fill_keeps_shallow_ladder_risk_reference():
+  """SELL: lower fill wins; BUY: higher fill wins; deep cannot shrink risk."""
   await store.init_db()
   sell = await store.store_manual_signal(
     1_800_000_001, "SELL", 4500, 4503, 4506, [4497, 4494, 4490],
@@ -268,7 +269,7 @@ async def test_set_execution_fill_keeps_deepest_ladder_price():
     sell["id"], broker_position_id=3, broker_fill_price=4501.5,
   )
   sell_row = await store.get_manual_signal(sell["id"])
-  assert sell_row["broker_fill_price"] == pytest.approx(4503.0)
+  assert sell_row["broker_fill_price"] == pytest.approx(4500.0)
   assert sell_row["broker_position_id"] == "1"
 
   buy = await store.store_manual_signal(
@@ -285,7 +286,7 @@ async def test_set_execution_fill_keeps_deepest_ladder_price():
     buy["id"], broker_position_id=12, broker_fill_price=4501.0,
   )
   buy_row = await store.get_manual_signal(buy["id"])
-  assert buy_row["broker_fill_price"] == pytest.approx(4500.0)
+  assert buy_row["broker_fill_price"] == pytest.approx(4503.0)
 
 
 @pytest.mark.asyncio

@@ -50,8 +50,10 @@ async def test_scoped_command_menu(monkeypatch):
   assert second.args[0] == wiring.OWNER_COMMANDS
   assert second.kwargs["scope"].chat_id == 42
   assert {command.command for command in wiring.OWNER_COMMANDS} == {
+    "trade",
     "trade_active", "trade_close", "trade_uncclose", "trade_tp",
     "trade_sl", "trade_cancel", "trade_delete",
+    "trade_modify",
     "trade_reopen", "trade_tag", "trade_untagged", "trade_note", "trade_review",
     "trade_map", "algo_status", "algo_pause", "algo_resume", "algo_close_all",
     "trade_stats", "trade_pips", "help",
@@ -155,6 +157,97 @@ async def test_trade_open_lists_open_signals(monkeypatch):
   out = msg.answer.await_args.args[0]
   assert "#6 XAU BUY 4100–4105" in out
   assert "SL 4088" in out and "filled" in out and "50% open" in out
+
+
+@pytest.mark.asyncio
+async def test_trade_lists_runtime_symbols_and_manual_modes(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  from app.bot.handlers import dm as dm_handlers
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  monkeypatch.setattr(dm_handlers, "runtime_config", _load_production_example().config)
+  msg = _dm("/trade")
+
+  await wiring.handle_trade(msg)
+
+  out = msg.answer.await_args.args[0]
+  assert "ApexVoid trade symbols" in out
+  assert "<b>XAU</b>" in out
+  assert "<b>EURUSD</b>" in out
+  assert "/trade XAU buy" in out
+
+
+@pytest.mark.asyncio
+async def test_trade_alias_submits_through_shared_manual_flow(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  from app.bot.handlers import fallback
+
+  submit = AsyncMock(return_value=True)
+  monkeypatch.setattr(fallback, "submit_manual_signal", submit)
+  msg = _dm("/trade xauusd buy 4473-4470 / sl 4467 / algo")
+
+  await wiring.handle_trade(msg)
+
+  submit.assert_awaited_once_with(
+    msg,
+    "XAU buy 4473-4470 / sl 4467 / algo",
+  )
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+@pytest.mark.parametrize(
+  ("text", "manual_enabled", "algo_enabled", "expected"),
+  [
+    ("gold buy 4473-4470 / sl 4467", False, False, "Manual trading is disabled"),
+    ("gold buy 4473-4470 / sl 4467 / algo", True, False, "Algo execution is disabled"),
+  ],
+)
+async def test_legacy_manual_text_cannot_bypass_instrument_capability(
+  monkeypatch,
+  text,
+  manual_enabled,
+  algo_enabled,
+  expected,
+):
+  from app.bot.handlers import fallback
+
+  effective = SimpleNamespace(
+    manual=SimpleNamespace(
+      enabled=manual_enabled,
+      algo_enabled=algo_enabled,
+    ),
+  )
+  config = SimpleNamespace(
+    for_instrument=lambda _symbol: effective,
+    live_instruments=lambda: ("XAU",),
+  )
+  monkeypatch.setattr(fallback, "runtime_config", config)
+  msg = _dm(text)
+
+  assert await fallback.submit_manual_signal(msg, text) is True
+  assert expected in msg.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
+async def test_trade_command_rejects_algo_when_instrument_disables_it(monkeypatch):
+  install_runtime_overrides(monkeypatch, legacy_overrides={"telegram_owner_id": 42})
+  from app.bot.handlers import dm as dm_handlers
+
+  effective = SimpleNamespace(
+    manual=SimpleNamespace(enabled=True, algo_enabled=False),
+  )
+  config = SimpleNamespace(
+    for_instrument=lambda _symbol: effective,
+    live_instruments=lambda: ("XAU",),
+  )
+  monkeypatch.setattr(dm_handlers, "runtime_config", config)
+  msg = _dm("/trade XAU buy 4473-4470 / sl 4467 / algo")
+
+  await wiring.handle_trade(msg)
+
+  assert "Algo execution is disabled" in msg.answer.await_args.args[0]
 
 
 @pytest.mark.asyncio

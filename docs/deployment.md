@@ -18,8 +18,8 @@ CTRADER_MANIFEST_PARITY_MODE=off
 ENV retains secrets and bootstrap only. See
 `docs/configuration/manifest-authority-cutover.md`.
 
-Multi-symbol: production **live** on the demo account is XAU, EURUSD, and
-GBPJPY. See `docs/runtime/multi-symbol-routing.md`.
+Multi-symbol: production **live** on the demo account is XAU, EURUSD, GBPUSD,
+GBPJPY, and USDJPY. See `docs/runtime/multi-symbol-routing.md`.
 
 ## Prerequisites
 
