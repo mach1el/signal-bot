@@ -51,6 +51,36 @@ def test_parse_modify_body_entry_sl_tp():
   assert fields["tps"] == [4394.0, 4397.0, 4401.0]
 
 
+def test_parse_modify_body_accepts_bare_zone_without_entry_keyword():
+  # Owner-reported: "/trade_modify xau #19 4586-83" hit the Usage fallback
+  # because the literal "entry" keyword was required here even though the
+  # primary signal parser already accepts a bare zone the same way.
+  fields = _parse_modify_body(
+    "4586-83",
+    action="BUY",
+    entry=4580.0,
+    entry_end=4583.0,
+  )
+  assert fields is not None
+  assert fields["entry"] == pytest.approx(4583.0)
+  assert fields["entry_end"] == pytest.approx(4586.0)
+
+
+def test_parse_modify_body_ignores_stray_direction_word_before_bare_zone():
+  # "/trade_modify xau #19 buy 4586-83" - modify never changes direction,
+  # so a leading buy/sell the owner typed out of habit must be harmless,
+  # not treated as an unrecognized field that fails the whole parse.
+  fields = _parse_modify_body(
+    "buy 4586-83",
+    action="BUY",
+    entry=4580.0,
+    entry_end=4583.0,
+  )
+  assert fields is not None
+  assert fields["entry"] == pytest.approx(4583.0)
+  assert fields["entry_end"] == pytest.approx(4586.0)
+
+
 def test_parse_modify_body_partial_sl_only():
   fields = _parse_modify_body(
     "sl 4384",
