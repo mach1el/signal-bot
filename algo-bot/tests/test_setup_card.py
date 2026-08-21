@@ -1111,6 +1111,45 @@ def _strategy_match_for_card(setup_id: str = "setup-publish-card") -> object:
   )
 
 
+def test_fx_root_card_uses_instrument_price_digits(monkeypatch):
+  """Live 2026-08-21 GBPUSD cards collapsed 1.36447 → 1.36 via hardcoded .2f."""
+  from dataclasses import replace
+
+  monkeypatch.setattr(setup_card, "digits_for", lambda symbol: {
+    "GBPUSD": 5, "EURUSD": 5, "XAU": 2, "GBPJPY": 3, "USDJPY": 3,
+  }[str(symbol).upper()])
+  monkeypatch.setattr(setup_card, "pip_for", lambda symbol: {
+    "GBPUSD": 0.0001, "EURUSD": 0.0001, "XAU": 0.1, "GBPJPY": 0.01, "USDJPY": 0.01,
+  }[str(symbol).upper()])
+
+  match = replace(
+    _strategy_match_for_card("fx-card-digits"),
+    symbol="GBPUSD",
+    key_level=1.36447,
+    entry_low=1.36420,
+    entry_high=1.36480,
+    current_price=1.36447,
+    reasons=("demand ifvg 1.36420-1.36480",),
+  )
+  text = setup_card.format_plan_published_root_card(
+    match, stop_price=1.36380,
+  )
+  assert "1.36–1.36" not in text
+  assert "1.36447" in text
+  assert "1.36420–1.36480" in text
+  assert "1.36380" in text
+  assert setup_card.card_price_digits("GBPUSD") == 5
+  assert setup_card.card_min_price_move("GBPUSD") == pytest.approx(0.0001)
+
+
+def test_detector_number_keeps_fx_precision():
+  from app.analysis.detectors import _number
+
+  assert _number(1.36447) == "1.36447"
+  assert _number(216.917) == "216.917"
+  assert _number(4530.12) == "4530.12"
+
+
 @pytest.mark.asyncio
 async def test_ensure_plan_published_root_card_creates_missing_card():
   """Direct-publish path must create the first PLAN PUBLISHED root card."""
