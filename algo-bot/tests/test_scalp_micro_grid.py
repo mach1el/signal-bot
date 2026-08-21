@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.autotrade.execution_route import (
+  ROUTE_MARKET,
   ROUTE_MARKET_WITH_LIMIT_SCALE,
   SCALP_MICRO_CLIPS,
   resolve_execution_route_plan,
@@ -56,6 +57,46 @@ def test_hfs_route_is_five_equal_clips_not_one_market():
     pytest.approx(ratio, abs=1e-4) == 0.2
     for ratio in plan.planned_leg_volume_ratios
   )
+
+
+def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():
+  """Live 2026-08-21: quote below supply, five equal clips → only L1 rode TP."""
+  plan = resolve_execution_route_plan(
+    direction="SELL",
+    order_type_preference="market",
+    entry_distribution="single",
+    executable_quote=4563.98,
+    zone_low=4566.9775,
+    zone_high=4567.86625,
+    atr=4.0,
+    zone_fill_enabled=True,
+    strategy="HFS Range Sweep",
+    strategy_family="hfs",
+  )
+  assert plan.valid is True
+  assert plan.route == ROUTE_MARKET
+  assert plan.entry_geometry == "below"
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.planned_leg_volume_ratios == ()
+  assert plan.planned_entry_price == 4563.98
+
+
+def test_hfs_chase_buy_books_full_market_not_micro_grid():
+  plan = resolve_execution_route_plan(
+    direction="BUY",
+    order_type_preference="market",
+    entry_distribution="single",
+    executable_quote=4010.0,
+    zone_low=4000.0,
+    zone_high=4005.0,
+    atr=4.0,
+    zone_fill_enabled=True,
+    strategy="HFS Impulse Pullback",
+    strategy_family="hfs",
+  )
+  assert plan.route == ROUTE_MARKET
+  assert plan.entry_geometry == "above"
+  assert plan.planned_leg_entry_prices == ()
 
 
 def test_technique_fvg_uses_scalp_micro_grid():
