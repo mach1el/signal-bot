@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `0440df81e1e672947a5943b69e3a6dc30642e66f0ce073d0ab63e4c1c17be30e`
-- Document fingerprint: `c2398f84a01af2faa808822952cc8e502af9d8813196d4bddaeb7a6d7b80bf05`
-- Items: `525`
+- Contract fingerprint: `5872fae5b93b8ccef51aa9f8261821851afa4dd3f2dd4f7c9c9110902635337d`
+- Document fingerprint: `70b5615985bf41ca7f7c1a206f9c49de79c62b007a2565b6ff477edd54d7e16a`
+- Items: `528`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -379,6 +379,7 @@
 | `manual_algo.runtime.owner_execution_dm_enabled` | `MANUAL_ALGO_OWNER_EXECUTION_DM_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `manual_algo.scaling.first_leg_lots` | `—` | `float` | `lots` | `algorithm_constant` | `0.05` |
 | `manual_algo.scaling.first_leg_threshold_lots` | `—` | `float` | `lots` | `algorithm_constant` | `0.13` |
+| `manual_algo.sizing.fx_volume_multiplier` | `MANUAL_ALGO_FX_VOLUME_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.5` |
 | `manual_algo.sizing.risk_percent` | `MANUAL_ALGO_RISK_PCT` | `float` | `percent` | `configurable` | `2.0` |
 | `manual_algo.streams.intents` | `MANUAL_TRADE_INTENT_STREAM` | `str` | `identifier` | `configurable` | `"manual_trade:intents"` |
 | `manual_algo.streams.manual_trade_command_stream` | `MANUAL_TRADE_COMMAND_STREAM` | `str` | `identifier` | `configurable` | `"manual_trade:commands"` |
@@ -568,6 +569,8 @@
 | `strategies.selection.snap_back_enabled` | `AUTO_TRADE_SNAP_BACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.technique.confluence.enabled` | `AUTO_TRADE_CONFLUENCE_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.technique.crt.enabled` | `AUTO_TRADE_TECHNIQUE_CRT_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.technique.crt.entry_max_width_price` | `AUTO_TRADE_TECHNIQUE_CRT_ENTRY_MAX_WIDTH_PRICE` | `float` | `price` | `configurable` | `5.0` |
+| `strategies.technique.crt.h1_lookback_bars` | `AUTO_TRADE_TECHNIQUE_CRT_H1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `3` |
 | `strategies.technique.crt.min_atr` | `AUTO_TRADE_TECHNIQUE_CRT_MIN_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `strategies.technique.crt.reclaim_bars` | `AUTO_TRADE_TECHNIQUE_CRT_RECLAIM_BARS` | `int` | `bars` | `configurable` | `6` |
 | `strategies.technique.fvg.enabled` | `AUTO_TRADE_TECHNIQUE_FVG_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

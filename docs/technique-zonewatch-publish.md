@@ -11,7 +11,7 @@ TradePlan V8, and the gates that used to silence them in production.
 | Order Block | `order_block` | T2 OB band |
 | FVG | `fvg` | T3 fair-value gap (entry clipped to proximal width) |
 | iFVG | `ifvg` | T4 inversion FVG |
-| CRT | `crt` | T5 candle-range / reclaim technique |
+| CRT | `crt` | T5 candle-range / reclaim (entry clipped to proximal width; full H1 structural) |
 | Confluence Zone | *(composite)* | **2+ distinct** techniques overlapping on price |
 
 - Single technique → publish under that technique name.
@@ -33,6 +33,9 @@ Enable flags (schema defaults **true**):
 - `AUTO_TRADE_TECHNIQUE_FVG_ENABLED`
 - `AUTO_TRADE_TECHNIQUE_IFVG_ENABLED`
 - `AUTO_TRADE_TECHNIQUE_CRT_ENABLED`
+- `AUTO_TRADE_TECHNIQUE_CRT_ENTRY_MAX_WIDTH_PRICE` (proximal reclaim band;
+  packs inherit `price_scale.fvg_entry_max_width_price`)
+- `AUTO_TRADE_TECHNIQUE_CRT_H1_LOOKBACK_BARS` (closed H1 candles scanned)
 - `AUTO_TRADE_CONFLUENCE_ZONE_ENABLED`
 
 Geometry lives in `algo-bot/app/analysis/technique_geometry.py`; publishers in

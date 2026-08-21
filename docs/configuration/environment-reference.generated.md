@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `0440df81e1e672947a5943b69e3a6dc30642e66f0ce073d0ab63e4c1c17be30e`
-- Environment-bound fields: `458`
+- Contract fingerprint: `5872fae5b93b8ccef51aa9f8261821851afa4dd3f2dd4f7c9c9110902635337d`
+- Environment-bound fields: `461`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -173,6 +173,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_SYMBOLS` | `contract.instrument.symbols` | `str` | no | yes | — | `XAU` |
 | `AUTO_TRADE_TARGET_PLANS_PIPS` | `execution.targeting.default_ladder_pips` | `str` | no | yes | `AUTO_TRADE_TP_PIPS` | `30,60,90,120,200` |
 | `AUTO_TRADE_TECHNIQUE_CRT_ENABLED` | `strategies.technique.crt.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_CRT_ENTRY_MAX_WIDTH_PRICE` | `strategies.technique.crt.entry_max_width_price` | `float` | no | no | — | `5.0` |
+| `AUTO_TRADE_TECHNIQUE_CRT_H1_LOOKBACK_BARS` | `strategies.technique.crt.h1_lookback_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_TECHNIQUE_CRT_MIN_ATR` | `strategies.technique.crt.min_atr` | `float` | no | no | — | `1.5` |
 | `AUTO_TRADE_TECHNIQUE_CRT_RECLAIM_BARS` | `strategies.technique.crt.reclaim_bars` | `int` | no | no | — | `6` |
 | `AUTO_TRADE_TECHNIQUE_ENFORCE` | `execution.technique.enforce` | `bool` | no | no | — | `True` |
@@ -338,6 +340,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `M1_TRIGGER_WICK_FRACTION` | `analysis.triggers.m1.wick_fraction` | `float` | no | no | — | `0.5` |
 | `MANUAL_ALGO_DRY_RUN` | `manual_algo.runtime.dry_run` | `bool` | no | no | — | `True` |
 | `MANUAL_ALGO_ENABLED` | `manual_algo.runtime.enabled` | `bool` | no | yes | — | `False` |
+| `MANUAL_ALGO_FX_VOLUME_MULTIPLIER` | `manual_algo.sizing.fx_volume_multiplier` | `float` | no | no | — | `1.5` |
 | `MANUAL_ALGO_OWNER_EXECUTION_DM_ENABLED` | `manual_algo.runtime.owner_execution_dm_enabled` | `bool` | no | no | — | `False` |
 | `MANUAL_ALGO_RISK_PCT` | `manual_algo.sizing.risk_percent` | `float` | no | no | — | `2.0` |
 | `MANUAL_TRADE_COMMAND_STREAM` | `manual_algo.streams.manual_trade_command_stream` | `str` | no | yes | — | `manual_trade:commands` |
