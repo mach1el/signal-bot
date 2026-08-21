@@ -218,6 +218,102 @@ public sealed class StopTrailPlannerTests
     ));
   }
 
+  [Theory]
+  [InlineData(TradeDirection.Buy, 4350.02)]
+  [InlineData(TradeDirection.Sell, 4352.98)]
+  public void ManualLadderTp1UsesGroupEconomicBreakeven(
+    TradeDirection direction,
+    double expectedStop
+  )
+  {
+    // TP1 already booked 30p on the closed 500-volume shallow slice.
+    // Rather than bunch each runner at its own BE+6 ticks, solve one shared
+    // stop that leaves the full original 3,000-volume group +0.6p if hit.
+    var isBuy = direction == TradeDirection.Buy;
+    var states = new[]
+    {
+      State(direction, 4351.5m, isBuy ? 4347.0m : 4356.0m) with
+      {
+        PositionId = 92,
+        InitialVolume = 900,
+        RemainingVolume = 900,
+        GroupInitialVolume = 3_000,
+      },
+      State(direction, isBuy ? 4350.0m : 4353.0m, isBuy ? 4347.0m : 4356.0m) with
+      {
+        PositionId = 93,
+        InitialVolume = 600,
+        RemainingVolume = 600,
+        GroupInitialVolume = 3_000,
+      },
+    };
+    const decimal bookedPipVolume = 30m * 500m;
+
+    var move = Assert.IsType<StopTrailMove>(
+      StopTrailPlanner.PlanGroupEconomicBreakeven(
+        states,
+        groupInitialVolume: 3_000,
+        bookedPipVolume,
+        Symbol,
+        pipSize: 0.1m,
+        protectedBufferTicks: 6
+      )
+    );
+
+    Assert.Equal(Convert.ToDecimal(expectedStop), move.StopLoss);
+    Assert.Equal("group BE+6 ticks", move.Label);
+    var terminalPipVolume = bookedPipVolume + states.Sum(state => (
+      direction == TradeDirection.Buy
+        ? move.StopLoss - state.EntryPrice
+        : state.EntryPrice - move.StopLoss
+    ) / 0.1m * state.RemainingVolume);
+    Assert.Equal(0.6m, terminalPipVolume / 3_000m);
+    var remainingVwap = states.Sum(
+      state => state.EntryPrice * state.RemainingVolume
+    ) / states.Sum(state => state.RemainingVolume);
+    Assert.True(direction == TradeDirection.Buy
+      ? move.StopLoss < remainingVwap
+      : move.StopLoss > remainingVwap);
+  }
+
+  [Theory]
+  [InlineData(TradeDirection.Buy, 4350.50)]
+  [InlineData(TradeDirection.Sell, 4352.50)]
+  public void GroupEconomicBreakevenNeverWidensAnExistingStop(
+    TradeDirection direction,
+    double protectedStop
+  )
+  {
+    var current = Convert.ToDecimal(protectedStop);
+    var states = new[]
+    {
+      State(direction, 4351.5m, current) with
+      {
+        InitialVolume = 900,
+        RemainingVolume = 900,
+        GroupInitialVolume = 3_000,
+      },
+      State(direction, direction == TradeDirection.Buy ? 4350m : 4353m, current) with
+      {
+        PositionId = 93,
+        InitialVolume = 600,
+        RemainingVolume = 600,
+        GroupInitialVolume = 3_000,
+      },
+    };
+
+    Assert.Null(
+      StopTrailPlanner.PlanGroupEconomicBreakeven(
+        states,
+        groupInitialVolume: 3_000,
+        bookedPipVolume: 15_000m,
+        Symbol,
+        pipSize: 0.1m,
+        protectedBufferTicks: 6
+      )
+    );
+  }
+
   [Fact]
   public void UsesOriginalOrdinalsForAdaptiveTargetPlans()
   {

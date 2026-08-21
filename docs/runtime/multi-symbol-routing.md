@@ -38,6 +38,16 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
   hour strings. `overrides` remains an escape hatch for a single leaf not
   covered by a pack (e.g. a defended-level guard or the event-cluster
   news guard, neither of which is pack-composed).
+- Reusable `instrument_packs` contain market, contract, analysis, targeting,
+  and manual capability policy only. They may not contain identity or rollout
+  (`broker_symbol`, `canonical_symbol`, `aliases`, `enabled`, `rollout`). Every
+  concrete instrument that selects a pack must declare its own rollout,
+  preventing a newly declared symbol from becoming broker-live merely by
+  selecting that pack.
+- Manual owner execution has its own per-instrument capability profile; it is
+  not inferred from `targeting.mode`. `entry_mode: zone_ladder` keeps XAU's
+  shallow/mid/deep entry distribution, while `single` is the current FX
+  entry-at route. `risk_reference` is deliberately restricted to `shallow`.
 - FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R
   (GBPJPY: 40%/25%/35%). TP1 enables protected break-even; booking 1.5R
   trails the runner to 1R.
@@ -67,6 +77,13 @@ targeting:
   trail_after_r: 1.5
   trail_to_r: 1.0
   entry_clips: 2
+manual:
+  enabled: true
+  algo_enabled: true
+  entry_mode: single
+  risk_reference: shallow
+  risk_multiplier: 1.5
+  target_close_ratios: [0.25, 0.25, 0.50]
 ```
 
 The target is computed only after the entry route and protective stop are
@@ -186,12 +203,19 @@ analysis concurrency must not be treated as an account-risk lock.
 PR4 flips production to `manifest` with `CTRADER_MANIFEST_PARITY_MODE=off`.
 See [manifest authority cutover](../configuration/manifest-authority-cutover.md).
 
-## Future activation procedure
+## Instrument onboarding procedure
 
-1. Observe and approve manifest parity.
-2. Flip production cTrader authority to manifest.
-3. Onboard a second instrument as feed-only.
-4. Validate analysis-only.
-5. Validate paper.
-6. Activate live only after explicit trading-policy review.
-7. Remove duplicated shared ENV after successful cutover.
+1. Select or add a reusable instrument pack; keep identity and rollout out of
+   the pack.
+2. Add one concrete `instruments.<SYMBOL>` declaration with broker/canonical
+   identity, aliases, contract deltas, manual capability, and an explicit
+   initial rollout (`feed_only` is the safe default).
+3. Compile/check the manifest. Confirm the Python effective context and the
+   C# runtime registry both resolve every declared alias to the same book.
+4. Validate feed-only, then analysis-only, then paper behavior and per-symbol
+   pip/lot/stop geometry.
+5. Move to `live` only after explicit trading-policy review. `/trade` will then
+   list the symbol automatically; `/algo` remains fail-closed unless its manual
+   profile enables execution.
+6. Mirror the canonical config in deployment inventory until the remaining
+   duplicated Ansible artifact is removed.

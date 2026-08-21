@@ -8,11 +8,13 @@ public sealed class MultiInstrumentRoutingTests
     string id,
     InstrumentRollout rollout,
     string broker,
-    string canonical
+    string canonical,
+    IReadOnlyList<string>? aliases = null
   ) =>
     new()
     {
       InstrumentId = id,
+      Aliases = aliases ?? [],
       Feed = new FeedInstrumentOptions(
         InstrumentId: id,
         CanonicalSymbol: canonical,
@@ -118,6 +120,36 @@ public sealed class MultiInstrumentRoutingTests
         Make("XAG", InstrumentRollout.FeedOnly, "XAUUSD", "XAG"),
       ])
     );
+  }
+
+  [Fact]
+  public void Runtime_identity_alias_is_resolved_case_insensitively()
+  {
+    var registry = new InstrumentRuntimeRegistry([
+      Make(
+        "XAU",
+        InstrumentRollout.Live,
+        "XAUUSD",
+        "XAU",
+        ["GOLD", " XAUUSDm "]
+      ),
+    ]);
+
+    Assert.Equal("XAU", registry.Get("gold").InstrumentId);
+    Assert.Equal("XAU", registry.Get("xauusdm").InstrumentId);
+  }
+
+  [Fact]
+  public void Runtime_identity_alias_collision_fails_closed()
+  {
+    var exception = Assert.Throws<InvalidOperationException>(() =>
+      new InstrumentRuntimeRegistry([
+        Make("XAU", InstrumentRollout.Live, "XAUUSD", "XAU", ["METAL"]),
+        Make("XAG", InstrumentRollout.Live, "XAGUSD", "XAG", ["metal"]),
+      ])
+    );
+
+    Assert.Contains("duplicate alias", exception.Message);
   }
 
   [Fact]

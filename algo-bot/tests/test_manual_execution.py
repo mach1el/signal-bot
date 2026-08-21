@@ -37,6 +37,7 @@ def _intent(**overrides) -> ManualTradeIntent:
 # _intent_to_candidate_payload
 # ---------------------------------------------------------------------------
 
+@pytest.mark.no_database
 def test_intent_to_candidate_payload_sell_uses_entry_low_reference_edge():
   payload = manual_execution._intent_to_candidate_payload(_intent())
 
@@ -56,6 +57,9 @@ def test_intent_to_candidate_payload_sell_uses_entry_low_reference_edge():
   # 100p, |4100-4080|=20 -> 200p.
   assert payload["targets_pips"] == [50, 100, 200]
   assert payload["manual_take_profits"] == [4095.0, 4090.0, 4080.0]
+  assert payload["manual_target_weights"] == [33, 33, 34]
+  assert payload["manual_single_entry"] is False
+  assert payload["risk_multiplier"] == 1.0
   assert payload["group_id"] == "manual:47:0"
   assert payload["strategy_family"] == "manual"
   assert payload["parent_group_id"] is None
@@ -63,6 +67,7 @@ def test_intent_to_candidate_payload_sell_uses_entry_low_reference_edge():
   assert payload["key_level"] == pytest.approx(4100.0)
 
 
+@pytest.mark.no_database
 def test_intent_to_candidate_payload_buy_uses_entry_high_reference_edge():
   payload = manual_execution._intent_to_candidate_payload(_intent(
     direction="BUY",
@@ -82,10 +87,12 @@ def test_intent_to_candidate_payload_buy_uses_entry_high_reference_edge():
   # BUY reference edge = entry_high (2000.5): |2000.5-2010|=9.5 -> 95p,
   # |2000.5-2020|=19.5 -> 195p.
   assert payload["targets_pips"] == [95, 195]
+  assert payload["manual_target_weights"] == [50, 50]
   assert payload["current_price"] == pytest.approx(2000.5)
   assert payload["key_level"] == pytest.approx(2000.5)
 
 
+@pytest.mark.no_database
 def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
   # A TP exactly at the reference edge would otherwise round to 0, which
   # AutoTradeEngine.cs's manual-algo target-contract validation rejects.
@@ -97,6 +104,7 @@ def test_intent_to_candidate_payload_never_emits_zero_or_negative_pips():
   ))
 
   assert payload["targets_pips"] == [1]
+  assert payload["manual_target_weights"] == [100]
 
 
 @pytest.mark.no_database
@@ -125,6 +133,38 @@ def test_intent_to_candidate_payload_fx_includes_volume_multiplier(monkeypatch):
   assert payload["risk_multiplier"] == pytest.approx(
     float(cfg.manual_algo.sizing.fx_volume_multiplier),
   )
+
+
+@pytest.mark.no_database
+@pytest.mark.parametrize(
+  ("targets", "expected"),
+  [
+    ((4095.0,), [100]),
+    ((4095.0, 4090.0), [40, 60]),
+    ((4095.0, 4090.0, 4085.0), [40, 30, 30]),
+    ((4095.0, 4090.0, 4085.0, 4080.0, 4075.0), [40, 15, 15, 15, 15]),
+  ],
+)
+def test_xau_manual_tp1_fraction_adapts_to_any_tp_count(
+  monkeypatch,
+  targets,
+  expected,
+):
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  cfg = _load_production_example().config
+  for target in (
+    "app.signals.manual_execution.runtime_config",
+    "app.core.symbols.runtime_config",
+    "app.signals.pips_format.runtime_config",
+  ):
+    monkeypatch.setattr(target, cfg, raising=False)
+
+  payload = manual_execution._intent_to_candidate_payload(_intent(tps=targets))
+
+  assert payload["manual_target_weights"] == expected
+  assert payload["manual_single_entry"] is False
+  assert payload["risk_multiplier"] == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -1083,7 +1123,7 @@ async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_br
   booked immediately via the existing close_leg ledger - but from the
   event's OWN leg_realized_pips/volume/group_initial_volume, not the
   whole-signal broker_fill_price (which, for a multi-leg group, tracks the
-  deepest filled entry for channel TP math and would give the wrong number
+  shallow risk-reference entry and would give the wrong number
   for a per-leg partial).
   """
   send = _mock_send(monkeypatch)
@@ -1155,7 +1195,7 @@ async def test_handle_take_profit_uses_the_booking_legs_own_pips(monkeypatch):
   better than this shallow leg's own +30p target)."""
   send = _mock_send(monkeypatch)
   sid = await _algo_signal()
-  # Deepest stored fill (4104) is a DIFFERENT leg's price - if the group
+  # Stored shallow fill (4104) is a DIFFERENT leg's price - if the group
   # net calc were still used here it would report +90p, not this leg's
   # real +30p.
   await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4104.0)

@@ -16,12 +16,16 @@ from app.configuration.models.instruments import (
   InstrumentConfig,
   InstrumentContractConfig,
   InstrumentLookbacksConfig,
+  InstrumentManualConfig,
+  InstrumentManualEntryMode,
+  InstrumentManualRiskReference,
   InstrumentMarketDataConfig,
   InstrumentRollout,
   InstrumentTargetMode,
   InstrumentsConfig,
   XAU_CURRENT_V1_POLICY,
   effective_rollout,
+  resolve_manual_profile,
 )
 from app.configuration.python_loader import load_python_canonical_settings
 from app.configuration.python_sources import load_python_runtime_source_bundle
@@ -158,6 +162,21 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.targeting.entry_clips == 2
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
+  assert xau.manual.enabled is True
+  assert xau.manual.algo_enabled is True
+  assert xau.manual.entry_mode is InstrumentManualEntryMode.ZONE_LADDER
+  assert xau.manual.risk_reference is InstrumentManualRiskReference.SHALLOW
+  assert xau.manual.risk_multiplier == 1.0
+  assert xau.manual.target_close_ratios == ()
+  assert xau.manual.tp1_close_fraction == 0.4
+  assert eurusd.manual.enabled is True
+  assert eurusd.manual.algo_enabled is True
+  assert eurusd.manual.entry_mode is InstrumentManualEntryMode.SINGLE
+  assert eurusd.manual.risk_reference is InstrumentManualRiskReference.SHALLOW
+  assert eurusd.manual.risk_multiplier == 1.5
+  assert eurusd.manual.target_close_ratios == (0.25, 0.25, 0.50)
+  assert eurusd.manual.tp1_close_fraction is None
+  assert gbpjpy.manual.target_close_ratios == (0.40, 0.25, 0.35)
   assert float(eurusd.execution.range.min_rr) == 2.0
   assert int(eurusd.execution.reaction.stop_min_pips) == 10
   assert int(eurusd.execution.reaction.stop_max_pips) == 18
@@ -234,6 +253,56 @@ def test_fx_execution_pack_expands_and_explicit_override_wins():
   assert int(effective.execution.stops.trend.minimum_pips) == 15
   assert int(effective.execution.range.min_target_pips) == 30
   assert float(effective.execution.range.min_rr) == 2.0
+
+
+def test_manual_profile_compatibility_defaults_are_narrow():
+  loaded = _load_production_example()
+  cfg = loaded.config
+  xau = cfg.instruments.root["XAU"].model_copy(update={"manual": None})
+  eurusd = cfg.instruments.root["EURUSD"].model_copy(update={"manual": None})
+  xag = _make_second_instrument(manual=None)
+
+  xau_manual = resolve_manual_profile("XAU", xau)
+  eurusd_manual = resolve_manual_profile(
+    "EURUSD",
+    eurusd,
+    legacy_fixed_rr_risk_multiplier=1.5,
+  )
+  xag_manual = resolve_manual_profile("XAG", xag)
+
+  assert xau_manual.entry_mode is InstrumentManualEntryMode.ZONE_LADDER
+  assert xau_manual.risk_reference is InstrumentManualRiskReference.SHALLOW
+  assert xau_manual.risk_multiplier == 1.0
+  assert xau_manual.target_close_ratios == ()
+  assert xau_manual.tp1_close_fraction is None
+  assert eurusd_manual.entry_mode is InstrumentManualEntryMode.SINGLE
+  assert eurusd_manual.risk_multiplier == 1.5
+  assert eurusd_manual.target_close_ratios == (0.25, 0.25, 0.50)
+  assert eurusd_manual.tp1_close_fraction is None
+  assert xag_manual.enabled is False
+  assert xag_manual.algo_enabled is False
+
+
+def test_manual_profile_rejects_unsafe_combinations():
+  empty = InstrumentManualConfig()
+  assert empty.enabled is False
+  assert empty.algo_enabled is False
+  with pytest.raises(ValidationError, match="requires manual.enabled"):
+    InstrumentManualConfig(
+      enabled=False,
+      algo_enabled=True,
+    )
+  with pytest.raises(ValidationError, match="must be finite"):
+    InstrumentManualConfig(risk_multiplier=float("inf"))
+  with pytest.raises(ValidationError):
+    InstrumentManualConfig(tp1_close_fraction=1.0)
+  with pytest.raises(ValidationError, match="must sum to 1"):
+    InstrumentManualConfig(target_close_ratios=(0.25, 0.25))
+  with pytest.raises(ValidationError, match="mutually exclusive"):
+    InstrumentManualConfig(
+      target_close_ratios=(0.5, 0.5),
+      tp1_close_fraction=0.4,
+    )
 
 
 def test_live_fx_policy_requires_session_envelope_activation():

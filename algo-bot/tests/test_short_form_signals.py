@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from app.core.symbols import pip_for
 from app.signals.fx_manual_algo import build_fx_manual_contract
@@ -9,6 +10,8 @@ from app.signals.parsing import (
   _parse_manual,
 )
 
+
+pytestmark = pytest.mark.no_database
 
 PIP = pip_for("XAU")
 
@@ -108,7 +111,18 @@ def test_explicit_setup_overrides_default():
   assert parsed["sl"] == pytest.approx(4072.0)
 
 
-def test_gbpjpy_frontload_weights_from_policy():
+def test_gbpjpy_frontload_weights_from_manual_profile(monkeypatch):
+  from app.core import symbols
+  from app.signals import fx_manual_algo
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  config = _load_production_example().config
+  monkeypatch.setattr(
+    fx_manual_algo,
+    "runtime_config",
+    config,
+  )
+  monkeypatch.setattr(symbols, "runtime_config", config)
   contract = build_fx_manual_contract("GBPJPY", "BUY", 216.168)
 
   assert contract["target_weights"] == [40, 25, 35]
@@ -131,3 +145,47 @@ def test_short_form_without_algo_suffix_still_auto_fills():
   assert parsed["execution_mode"] == "notify"
   assert parsed["sl"] == pytest.approx(4072.0)
   assert parsed["setup_type"] == DEFAULT_SETUP_TYPE
+
+
+def test_configured_non_xau_zone_ladder_accepts_explicit_contract(monkeypatch):
+  from app.signals import parsing
+
+  effective = SimpleNamespace(
+    manual=SimpleNamespace(entry_mode=SimpleNamespace(value="zone_ladder")),
+  )
+  config = SimpleNamespace(
+    live_instruments=lambda: ("XAU", "XAG"),
+    for_instrument=lambda _symbol: effective,
+  )
+  monkeypatch.setattr(parsing, "runtime_config", config)
+  monkeypatch.setattr(
+    parsing,
+    "pip_for",
+    lambda symbol: 0.01 if symbol == "XAG" else PIP,
+  )
+
+  parsed = parsing._parse_manual(
+    "xag buy 31.80-32.10 / sl 31.50 / tp 32.80/33.50 / algo"
+  )
+
+  assert parsed is not None
+  assert parsed["symbol"] == "XAG"
+  assert parsed["entry"] == pytest.approx(31.80)
+  assert parsed["entry_end"] == pytest.approx(32.10)
+  assert parsed["sl"] == pytest.approx(31.50)
+  assert parsed["tps"] == [32.80, 33.50]
+
+
+def test_configured_non_xau_zone_ladder_requires_explicit_sl_and_tp(monkeypatch):
+  from app.signals import parsing
+
+  effective = SimpleNamespace(
+    manual=SimpleNamespace(entry_mode=SimpleNamespace(value="zone_ladder")),
+  )
+  config = SimpleNamespace(
+    live_instruments=lambda: ("XAG",),
+    for_instrument=lambda _symbol: effective,
+  )
+  monkeypatch.setattr(parsing, "runtime_config", config)
+
+  assert parsing._parse_manual("xag buy 31.80-32.10 / algo") is None

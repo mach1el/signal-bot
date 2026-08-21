@@ -3163,6 +3163,268 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualRestartRestoresTrancheCountFromPlanWhenCommentHasNoLegSuffix()
+  {
+    // cTrader persists the compact 9-part form when |legIndex|legCount would
+    // exceed its 100-char comment limit. A cold executor must recover the
+    // three-leg group from the durable client-order identities, rather than
+    // silently treating this broker position as a legacy single-entry trade.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const string groupId = "manual-res";
+    const string comment =
+      "avm|manual-res|manual-res|1000|300,300,400|30,60,90|1,2,3|1000|0";
+    Assert.Equal(9, comment.Split('|').Length);
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var plan = new AutoTradeGroupPlan(
+      CandidateId: "manual:restart:0",
+      GroupId: groupId,
+      MatchId: null,
+      StrategyFamily: "manual",
+      RangeId: null,
+      Setup: "Manual Algo",
+      Direction: "SELL",
+      CreatedAt: Now.ToUnixTimeSeconds(),
+      TargetPrices: [3997m, 3994m, 3991m],
+      ManualStopLoss: 4006m,
+      Route: "manual_limit",
+      ClientOrderIds: ["av-manual-res", "av-manual-res-L2", "av-manual-res-L3"],
+      ManualRiskStopPips: 60m
+    );
+    store.Values[$"auto_trade:group_plan:{groupId}"] = JsonSerializer.Serialize(
+      plan,
+      RedisJsonContext.Default.AutoTradeGroupPlan
+    );
+    var client = new FakeTradingClient();
+    client.SeedPosition(new TradingPosition(
+      PositionId: 91,
+      SymbolId: Symbol.SymbolId,
+      Direction: TradeDirection.Sell,
+      Volume: 1_000,
+      EntryPrice: 4000m,
+      StopLoss: 4006m,
+      Label: Options().Label,
+      Comment: comment,
+      ClientOrderId: "av-manual-res-L2"
+    ));
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000m, 4000.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitUntilAsync(() => store.Positions.ContainsKey(91));
+
+    var recovered = store.Positions[91];
+    Assert.Equal(3, recovered.GroupTrancheCount);
+    Assert.Equal(60m, recovered.InitialRiskStopPips);
+    Assert.Equal("manual:restart:0", recovered.CandidateId);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Theory]
+  [InlineData("BUY")]
+  [InlineData("SELL")]
+  public async Task ManualAlgoThreeLegRiskAndTerminalResultStayGroupCanonical(
+    string direction
+  )
+  {
+    // Production #101/#104: all three broker stops were correct, but the
+    // event/state risk pips shrank from Shallow to Mid/Deep and a shared-SL
+    // snapshot disappearance ultimately published only the final deep leg.
+    // One manual intent must retain Shallow's 60p risk contract while the
+    // result remains the volume-weighted actual PnL of all three fills.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    var now = Now;
+    var isBuy = direction == "BUY";
+    const decimal entryLow = 4350.0m;
+    const decimal entryHigh = 4353.0m;
+    var ownerStop = isBuy ? 4347.0m : 4356.0m;
+    var ownerTargets = isBuy
+      ? new[] { 4356.0m, 4359.0m, 4362.0m }
+      : new[] { 4347.0m, 4344.0m, 4341.0m };
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: direction,
+      candidateId: $"manual:risk:{direction.ToLowerInvariant()}",
+      entryLow: entryLow,
+      entryHigh: entryHigh,
+      manualStopLoss: ownerStop,
+      manualTakeProfits: ownerTargets,
+      manualSingleEntry: false
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 50_000m, Equity = 50_000m },
+      PositionCloseReasonToReturn = PositionCloseReason.StopLossOrTakeProfit,
+      PositionCloseExecutionPriceToReturn = ownerStop,
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice(
+        "XAU",
+        isBuy ? 4360.0m : 4340.0m,
+        isBuy ? 4360.2m : 4340.2m,
+        now.ToUnixTimeSeconds()
+      ),
+      cts.Token
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+    Assert.Equal(3, client.LimitOrders.Count);
+    var placed = store.Events
+      .Where(item => item.Type == "manual_limit_placed")
+      .ToArray();
+    Assert.Equal(3, placed.Length);
+    Assert.All(placed, item => Assert.Equal(60m, item.StopPips));
+    Assert.All(placed, item => Assert.Equal(1_000m, item.RiskBudget));
+    var totalVolume = client.LimitOrders.Sum(order => order.Volume);
+    Assert.True(client.LimitOrders[0].Volume > client.LimitOrders[1].Volume);
+    Assert.True(client.LimitOrders[1].Volume > client.LimitOrders[2].Volume);
+    Assert.All(placed, item => Assert.Equal(
+      -(totalVolume / (decimal)Symbol.LotSize) * 60m * 10m,
+      item.GroupWorstCase
+    ));
+    foreach (var order in client.LimitOrders)
+    {
+      var distance = order.RelativeStopLoss / 100_000m;
+      var resolvedStop = isBuy
+        ? order.LimitPrice - distance
+        : order.LimitPrice + distance;
+      Assert.Equal(ownerStop, resolvedStop);
+    }
+
+    foreach (var pending in client.PendingOrders.ToArray())
+    {
+      client.FillPendingOrder(pending.OrderId);
+    }
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.Events.Count(item => item.Type == "manual_opened") == 3
+    );
+    await Task.Delay(50, cts.Token);
+    var states = store.Positions.Values.ToArray();
+    Assert.Equal(3, states.Length);
+    Assert.All(states, state => Assert.Equal(60m, state.InitialRiskStopPips));
+    Assert.All(states, state => Assert.Equal(ownerStop, state.CurrentStopLoss));
+    Assert.All(
+      store.Events.Where(item => item.Type == "manual_opened"),
+      item => Assert.Equal(60m, item.StopPips)
+    );
+    var expectedActualGroupPips = states.Sum(state => (
+      isBuy
+        ? ownerStop - state.EntryPrice
+        : state.EntryPrice - ownerStop
+    ) / 0.1m * state.RemainingVolume) / totalVolume;
+
+    foreach (var state in states)
+    {
+      client.RemovePosition(state.PositionId);
+    }
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "group_result");
+
+    var result = Assert.Single(
+      store.Events,
+      item => item.Type == "group_result"
+    );
+    Assert.Equal(expectedActualGroupPips, result.GroupRealizedPips);
+    Assert.Equal(60m, result.StopPips);
+    Assert.Equal(totalVolume, result.GroupInitialVolume);
+    Assert.All(
+      store.Events.Where(item => item.Type == "position_closed"),
+      item => Assert.Equal(60m, item.StopPips)
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task SimultaneousGroupCloseSeedsFromCanonicalTrackedSibling()
+  {
+    // A crash can leave one durable sibling with a newer booked aggregate
+    // than another. If the whole ladder then disappears in one snapshot,
+    // the first stale leg must seed from the group max, not its own older
+    // field, before the in-pass close accumulator takes over.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const string groupId = "manual-see";
+    const decimal ownerStop = 4006m;
+    const long totalVolume = 1_000;
+    const decimal priorBookedPipVolume = totalVolume * 12m;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var entries = new[] { 4000m, 4000.5m, 4001m };
+    var volumes = new long[] { 500, 300, 200 };
+    for (var index = 0; index < entries.Length; index++)
+    {
+      var state = new AutoTradePositionState(
+        CandidateId: "manual:seed:0",
+        PositionId: 91 + index,
+        SymbolId: Symbol.SymbolId,
+        Direction: TradeDirection.Sell,
+        EntryPrice: entries[index],
+        InitialVolume: volumes[index],
+        RemainingVolume: volumes[index],
+        Slices: [volumes[index]],
+        TargetsPips: [30],
+        NextTargetIndex: 0,
+        OpenedAt: Now.ToUnixTimeSeconds(),
+        CurrentStopLoss: ownerStop,
+        TargetOrdinals: [1],
+        GroupId: groupId,
+        TrancheIndex: index + 1,
+        GroupTrancheCount: 3,
+        InitialStopLoss: ownerStop,
+        GroupRealizedPipVolume: index == entries.Length - 1
+          ? priorBookedPipVolume
+          : 0m,
+        GroupInitialVolume: totalVolume,
+        InitialTrancheVolume: index == 0 ? volumes[index] : 0,
+        Setup: "Manual Algo",
+        Stream: "algo_manual",
+        StrategyFamily: "manual",
+        Symbol: "XAU",
+        InitialRiskStopPips: 60m
+      );
+      store.Positions[state.PositionId] = state;
+    }
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.StopLossOrTakeProfit,
+      PositionCloseExecutionPriceToReturn = ownerStop,
+    };
+    var engine = new AutoTradeEngine(
+      Options() with { PositionMissingConfirmations = 1 },
+      store,
+      () => Now,
+      _ => { }
+    );
+
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitUntilAsync(() =>
+      store.Events.Count(item => item.Type == "position_closed") == 3
+    );
+
+    var closePipVolume = entries.Select((entry, index) =>
+      (entry - ownerStop) / 0.1m * volumes[index]
+    ).Sum();
+    var expected = (priorBookedPipVolume + closePipVolume) / totalVolume;
+    var result = Assert.Single(store.Events, item => item.Type == "group_result");
+    Assert.Equal(expected, result.GroupRealizedPips);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoFixesFirstLegToPointZeroFiveLotsAboveThreshold()
   {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -3533,10 +3795,11 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task ManualAlgoTp1MovesRemainingLadderLegsToBreakEven()
+  public async Task ManualAlgoTp1UsesSharedGroupEconomicBreakeven()
   {
-    // Shallow-first TP1 can fully close the shallow clip. Remaining
-    // mid/deep must still move to BE+6 and publish stop_moved.
+    // TP1 profit funds one shared stop for all remaining ladder volume.
+    // This guarantees the configured positive group buffer without bunching
+    // every clip at its own entry where an ordinary retest can sweep it.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
     var now = Now;
     var store = new FakeAutoTradeStore(ManualCandidateJson(
@@ -3553,6 +3816,7 @@ public sealed partial class AutoTradeEngineTests
     var client = new FakeTradingClient
     {
       Account = ValidAccount() with { Balance = 50_000m, Equity = 50_000m },
+      CloseExecutionPriceToReturn = 3996.4m,
     };
     var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
     await engine.ObserveSpotAsync(
@@ -3581,19 +3845,51 @@ public sealed partial class AutoTradeEngineTests
     Assert.Contains(store.Events, item => item.Type == "take_profit");
     Assert.Contains(
       store.Events,
-      item => item.Type == "stop_moved" && item.Message.Contains("BE+6")
+      item => item.Type == "stop_moved" && item.Message.Contains("group BE+6")
+    );
+    var remainingStates = store.Positions.Values.ToArray();
+    var sharedStop = Assert.Single(
+      remainingStates.Select(state => state.CurrentStopLoss).Distinct()
+    );
+    Assert.NotNull(sharedStop);
+    var bookedPipVolume = remainingStates.Max(
+      state => state.GroupRealizedPipVolume
+    );
+    var terminalPipVolume = bookedPipVolume + remainingStates.Sum(state => (
+      state.EntryPrice - sharedStop!.Value
+    ) / 0.1m * state.RemainingVolume);
+    var groupInitialVolume = remainingStates.Max(
+      state => state.GroupInitialVolume
     );
     Assert.True(
-      store.Positions.Values.All(position =>
-        StopTrailPlanner.IsAtLeastProtectedBreakeven(
-          position.Direction,
-          position.EntryPrice,
-          position.CurrentStopLoss ?? 0m,
-          Symbol,
-          6
-        )
-      ),
-      "remaining ladder legs must sit at protected BE after TP1"
+      terminalPipVolume / groupInitialVolume >= 0.6m,
+      "shared TP1 stop must protect the configured group-level profit buffer"
+    );
+    Assert.Contains(
+      remainingStates,
+      state => sharedStop!.Value > StopTrailPlanner.ProtectedBreakevenStop(
+        state.Direction,
+        state.EntryPrice,
+        Symbol,
+        6
+      )
+    );
+
+    // TP2 advances every surviving clip to the owner's absolute TP1, even
+    // when TP2 consumes the booking leg and its target loop exits.
+    client.CloseExecutionPriceToReturn = 3993.4m;
+    now = now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3993.4m, 3993.45m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    await WaitUntilAsync(() => store.Events.Any(item =>
+      item.Type == "take_profit" && item.TargetPips == 60
+    ));
+    Assert.NotEmpty(store.Positions);
+    Assert.All(
+      store.Positions.Values,
+      state => Assert.Equal(3996.5m, state.CurrentStopLoss)
     );
 
     cts.Cancel();
@@ -6288,6 +6584,7 @@ public sealed partial class AutoTradeEngineTests
     public PositionCloseReason PositionCloseReasonToReturn { get; set; } =
       PositionCloseReason.Unknown;
     public decimal? PositionCloseExecutionPriceToReturn { get; set; }
+    public decimal CloseExecutionPriceToReturn { get; set; } = 4013.2m;
     public List<long> PositionCloseReasonLookups { get; } = [];
     public List<long> PositionCloseOpenedAtTimestamps { get; } = [];
     public Task<PositionCloseLookup> DeterminePositionCloseReasonAsync(
@@ -6597,7 +6894,7 @@ public sealed partial class AutoTradeEngineTests
       return new TradeExecution(
         positionId,
         100 + Closes.Count,
-        4013.2m,
+        CloseExecutionPriceToReturn,
         volume,
         Math.Max(0, remaining)
       );

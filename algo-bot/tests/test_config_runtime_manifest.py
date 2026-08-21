@@ -88,6 +88,24 @@ def test_manifest_v2_instrument_runtimes_present():
   assert payload["manifest_version"] == 2
   assert "instrument_runtimes" in payload
   assert payload["instrument_runtimes"]["XAU"]["rollout"] == "live"
+  assert payload["instrument_runtimes"]["XAU"]["manual"] == {
+    "enabled": True,
+    "algo_enabled": True,
+    "entry_mode": "zone_ladder",
+    "risk_reference": "shallow",
+    "risk_multiplier": "1",
+    "target_close_ratios": [],
+    "tp1_close_fraction": "0.4",
+  }
+  assert payload["instrument_runtimes"]["EURUSD"]["manual"] == {
+    "enabled": True,
+    "algo_enabled": True,
+    "entry_mode": "single",
+    "risk_reference": "shallow",
+    "risk_multiplier": "1.5",
+    "target_close_ratios": ["0.25", "0.25", "0.5"],
+    "tp1_close_fraction": None,
+  }
 
 
 def test_xau_units_and_targets_parity_shape():

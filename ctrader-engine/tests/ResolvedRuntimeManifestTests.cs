@@ -32,7 +32,37 @@ public sealed class ResolvedRuntimeManifestTests
     Assert.Equal(0.1m, ManifestDecimal.Parse(manifest.AutoTrade.PipSize, "pip"));
     Assert.NotNull(manifest.InstrumentRuntimes);
     Assert.True(manifest.InstrumentRuntimes!.ContainsKey("XAU"));
+    var registry = InstrumentRuntimeRegistry.FromRuntimeManifestV2(
+      manifest,
+      SharedFeed(manifest)
+    );
+    Assert.Contains("XAUUSD", registry.Get("XAU").Aliases);
   }
+
+  private static FeedOptions SharedFeed(ResolvedRuntimeManifest manifest) => new(
+    ClientId: "id",
+    ClientSecret: "secret",
+    AccessToken: "access",
+    RefreshToken: "refresh",
+    AccountId: 1,
+    Host: "demo.ctraderapi.com",
+    Port: 5035,
+    CTraderSymbol: manifest.Feed.CTraderSymbol,
+    RedisSymbol: manifest.Feed.RedisSymbol,
+    Timeframes: manifest.Feed.Timeframes,
+    BackfillBars: manifest.Feed.BackfillBars,
+    RedisUrl: "redis://localhost:6379/0",
+    BarsWindowMax: manifest.Feed.BarsWindowMax,
+    BarsChannel: manifest.Feed.BarsChannel,
+    BarQualityLookback: manifest.Feed.BarQualityLookback,
+    HeartbeatFile: "/tmp/ctrader-feed-heartbeat",
+    RefreshTokenKey: "ctrader:refresh_token",
+    RefreshTokenFile: "/tmp/ctrader-token.json",
+    RequestTimeout: TimeSpan.FromSeconds(30),
+    TokenRefreshLead: TimeSpan.FromDays(5),
+    TokenCheckInterval: TimeSpan.FromHours(6),
+    ExpectedBroker: manifest.Feed.ExpectedBroker
+  );
 
   [Fact]
   public void MissingFileFailsClosed()
