@@ -194,3 +194,70 @@ def test_optimize_imbalance_skips_already_narrow_band():
   )
   assert changed is False
   assert same is zone
+
+
+def test_optimize_crt_entry_clips_buy_to_proximal_low():
+  from app.analysis.technique_geometry import optimize_crt_entry_zone
+
+  zone = Zone(4400.0, 4424.0, "demand", origin_index=2, source="crt")
+  clipped, changed = optimize_crt_entry_zone(
+    zone, direction="BUY", max_width_price=5.0,
+  )
+  assert changed is True
+  assert clipped.low == pytest.approx(4400.0)
+  assert clipped.high == pytest.approx(4405.0)
+
+
+def test_optimize_crt_entry_clips_sell_to_proximal_high():
+  from app.analysis.technique_geometry import optimize_crt_entry_zone
+
+  zone = Zone(4400.0, 4424.0, "supply", origin_index=2, source="crt")
+  clipped, changed = optimize_crt_entry_zone(
+    zone, direction="SELL", max_width_price=5.0,
+  )
+  assert changed is True
+  assert clipped.low == pytest.approx(4419.0)
+  assert clipped.high == pytest.approx(4424.0)
+
+
+def test_discover_crt_clips_entry_and_keeps_h1_structural_bounds(monkeypatch):
+  """Live 2026-08: full-H1 CRT entry failed width/stop envelopes."""
+  import pandas as pd
+
+  from app.analysis import technique_geometry as geom
+
+  monkeypatch.setattr(geom, "has_structural_confirmation", lambda *a, **k: True)
+
+  idx = pd.date_range("2026-08-21 10:00", periods=4, freq="h", tz="UTC")
+  # Forming bar (last) is ignored; closed bar at index 2 is the CRT impulse.
+  h1 = pd.DataFrame({
+    "open": [4400.0, 4405.0, 4410.0, 4420.0],
+    "high": [4408.0, 4412.0, 4434.0, 4425.0],
+    "low": [4398.0, 4402.0, 4410.0, 4418.0],
+    "close": [4406.0, 4410.0, 4430.0, 4422.0],
+  }, index=idx)
+  # M5: sweep below 4410 then reclaim; price still in discount half of 4410-4434.
+  m5_idx = pd.date_range("2026-08-21 12:00", periods=8, freq="5min", tz="UTC")
+  m5 = pd.DataFrame({
+    "open": [4415.0, 4414.0, 4409.0, 4411.0, 4413.0, 4414.0, 4415.0, 4416.0],
+    "high": [4417.0, 4416.0, 4412.0, 4414.0, 4416.0, 4417.0, 4418.0, 4419.0],
+    "low": [4413.0, 4412.0, 4408.0, 4410.0, 4412.0, 4413.0, 4414.0, 4415.0],
+    "close": [4414.0, 4413.0, 4411.0, 4413.0, 4415.0, 4416.0, 4417.0, 4418.0],
+  }, index=m5_idx)
+  settings = geom.TechniqueGeometrySettings(
+    crt_min_atr=1.0,
+    crt_entry_max_width_price=5.0,
+    crt_h1_lookback_bars=3,
+  )
+  found = geom.discover_crt_instances(
+    h1, m5, h1_atr=10.0, exec_atr=2.0, settings=settings,
+  )
+  buys = [item for item in found if item.side == "buy"]
+  assert buys, "expected buy CRT on closed H1 impulse"
+  item = buys[0]
+  assert item.low == pytest.approx(4410.0)
+  assert item.high == pytest.approx(4415.0)
+  assert item.measured["structural_low"] == pytest.approx(4410.0)
+  assert item.measured["structural_high"] == pytest.approx(4434.0)
+  assert item.measured["entry_clipped"] is True
+  assert item.origin_index == 2  # closed impulse, not forming bar
