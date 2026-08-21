@@ -286,6 +286,63 @@ def test_fx_reaction_stop_envelopes_diverge_while_gold_stays_locked():
   assert gold_measured["fixed_rr_targeting"] is False
 
 
+def test_fx_auto_reaction_books_pack_volume_multiplier():
+  """Autonomous FX reaction must stamp 1.5× like manual /algo FX.
+
+  Live 2026-08-21: GBPJPY Key Level filled 0.12 lots (raw equity table)
+  while pack ``manual.risk_multiplier`` / ``fx_volume_multiplier`` promised
+  1.5×. Scalp stays on range_max (2.0) without stacking the pack scale.
+  """
+  from tests.test_execution_pipeline_integrity import _policy_match
+
+  cfg = _load_production_example().config
+  fx_match = _fx_match("EURUSD")
+  fx = evaluate_execution_policy(
+    fx_match,
+    spot_price=fx_match.current_price,
+    executable_quote=fx_match.current_price,
+    regime="trend",
+    pip_size=0.0001,
+    cfg=cfg,
+  )
+  assert fx.allowed is True
+  assert fx.measured["instrument_volume_multiplier"] == pytest.approx(1.5)
+  assert fx.measured["effective_risk_multiplier"] == pytest.approx(1.5)
+
+  gold = evaluate_execution_policy(
+    _policy_match(),
+    spot_price=4102.5,
+    regime="trend",
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  assert gold.allowed is True
+  assert gold.measured.get("instrument_volume_multiplier", 1.0) == pytest.approx(
+    1.0
+  )
+  assert gold.measured["effective_risk_multiplier"] == pytest.approx(1.0)
+
+  scalp_match = replace(
+    fx_match,
+    strategy="HFS Range Sweep",
+    family="hfs",
+    strategy_mode="scalp",
+    tier="A",
+  )
+  scalp = evaluate_execution_policy(
+    scalp_match,
+    spot_price=fx_match.current_price,
+    executable_quote=fx_match.current_price,
+    regime="range",
+    pip_size=0.0001,
+    cfg=cfg,
+  )
+  # May reject on room/geometry; when allowed, pack must not stack onto 2.0.
+  if scalp.allowed:
+    assert scalp.measured["instrument_volume_multiplier"] == pytest.approx(1.0)
+    assert scalp.measured["effective_risk_multiplier"] == pytest.approx(2.0)
+
+
 def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
   cfg = _load_production_example().config
   match = _fx_match()
@@ -299,6 +356,7 @@ def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
   )
   assert evaluation.allowed is True
   assert evaluation.measured["target_policy_mode"] == "fixed_rr"
+  assert evaluation.measured["effective_risk_multiplier"] == pytest.approx(1.5)
 
   plan = build_trade_plan_from_strategy_match(
     match,
@@ -313,6 +371,7 @@ def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
     max_volume=100_000_000,
     approved_measured=evaluation.measured,
   )
+  assert plan.risk.risk_multiplier == Decimal("1.5")
 
   entry = Decimal(str(evaluation.measured["planned_entry_price"]))
   risk = abs(entry - plan.stop.price)
