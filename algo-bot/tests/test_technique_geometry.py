@@ -220,6 +220,132 @@ def test_optimize_crt_entry_clips_sell_to_proximal_high():
   assert clipped.high == pytest.approx(4424.0)
 
 
+def test_optimize_technique_entry_clips_supply_to_proximal_low():
+  """2026-08-23 dig: Supply Demand/Order Block had no entry clip at all -
+  the raw multi-candle zone fed straight into the stop-clearance calc and
+  routinely blew fast pairs' envelopes (0 Order Block fills, ever)."""
+  from app.analysis.technique_geometry import optimize_technique_entry_zone
+
+  zone = Zone(4400.0, 4424.0, "supply", origin_index=2, source="supply_demand")
+  clipped, changed = optimize_technique_entry_zone(zone, max_width_price=5.0)
+  assert changed is True
+  # Supply: price falls into it from below, so the near/proximal edge is
+  # the bottom - keep low, clip the top down.
+  assert clipped.low == pytest.approx(4400.0)
+  assert clipped.high == pytest.approx(4405.0)
+
+
+def test_optimize_technique_entry_clips_demand_to_proximal_high():
+  from app.analysis.technique_geometry import optimize_technique_entry_zone
+
+  zone = Zone(4400.0, 4424.0, "demand", origin_index=2, source="order_block")
+  clipped, changed = optimize_technique_entry_zone(zone, max_width_price=5.0)
+  assert changed is True
+  # Demand: price falls into it from above, so the near/proximal edge is
+  # the top - keep high, clip the bottom up.
+  assert clipped.low == pytest.approx(4419.0)
+  assert clipped.high == pytest.approx(4424.0)
+
+
+def test_optimize_technique_entry_leaves_narrow_zone_untouched():
+  from app.analysis.technique_geometry import optimize_technique_entry_zone
+
+  zone = Zone(4400.0, 4403.0, "supply", origin_index=2, source="supply_demand")
+  same, changed = optimize_technique_entry_zone(zone, max_width_price=5.0)
+  assert changed is False
+  assert same is zone
+
+
+def test_instance_from_zone_clips_supply_demand_and_preserves_structural_bounds():
+  from app.analysis.technique_geometry import instance_from_zone
+
+  zone = Zone(4400.0, 4424.0, "supply", origin_index=2, source="supply_demand")
+  item = instance_from_zone(
+    zone, technique=TECHNIQUE_SD, entry_max_width_price=5.0,
+  )
+  assert item is not None
+  assert item.side == "sell"
+  assert item.low == pytest.approx(4400.0)
+  assert item.high == pytest.approx(4405.0)
+  assert item.measured["structural_low"] == pytest.approx(4400.0)
+  assert item.measured["structural_high"] == pytest.approx(4424.0)
+  assert item.measured["entry_clipped"] is True
+
+
+def test_instance_from_zone_clips_order_block():
+  from app.analysis.technique_geometry import instance_from_zone
+
+  zone = Zone(4400.0, 4424.0, "demand", origin_index=2, source="order_block")
+  item = instance_from_zone(
+    zone, technique=TECHNIQUE_OB, entry_max_width_price=5.0,
+  )
+  assert item is not None
+  assert item.side == "buy"
+  assert item.low == pytest.approx(4419.0)
+  assert item.high == pytest.approx(4424.0)
+  assert item.measured["structural_low"] == pytest.approx(4400.0)
+  assert item.measured["structural_high"] == pytest.approx(4424.0)
+
+
+def test_instance_from_zone_without_entry_max_width_leaves_zone_unclipped():
+  """Backward compatible: omitting entry_max_width_price is a pure no-op,
+  same shape as every call site before this fix."""
+  from app.analysis.technique_geometry import instance_from_zone
+
+  zone = Zone(4400.0, 4424.0, "supply", origin_index=2, source="supply_demand")
+  item = instance_from_zone(zone, technique=TECHNIQUE_SD)
+  assert item is not None
+  assert item.low == pytest.approx(4400.0)
+  assert item.high == pytest.approx(4424.0)
+  assert "entry_clipped" not in item.measured
+
+
+def test_collect_technique_instances_clips_sd_ob_fvg_entries():
+  df = _df([(100, 101, 99, 100)] * 3)
+  sd_zones = [Zone(4400.0, 4424.0, "supply", origin_index=1, source="supply_demand")]
+  ob_zones = [
+    Zone(
+      4400.0, 4424.0, "demand", origin_index=1, source="order_block",
+      break_kind="BOS",
+    ),
+  ]
+  fvg_zones = [
+    Zone(4400.0, 4424.0, "demand", origin_index=1, source="bullish_fvg"),
+  ]
+  instances = collect_technique_instances(
+    sd_zones=sd_zones, ob_zones=ob_zones, fvg_zones=fvg_zones, df=df,
+    settings=TechniqueGeometrySettings(fvg_entry_max_width_price=5.0),
+  )
+  by_technique = {item.technique: item for item in instances}
+  assert by_technique[TECHNIQUE_SD].high - by_technique[TECHNIQUE_SD].low == pytest.approx(5.0)
+  assert by_technique[TECHNIQUE_OB].high - by_technique[TECHNIQUE_OB].low == pytest.approx(5.0)
+  assert by_technique[TECHNIQUE_FVG].high - by_technique[TECHNIQUE_FVG].low == pytest.approx(5.0)
+  for technique in (TECHNIQUE_SD, TECHNIQUE_OB, TECHNIQUE_FVG):
+    assert by_technique[technique].measured["structural_low"] == pytest.approx(4400.0)
+    assert by_technique[technique].measured["structural_high"] == pytest.approx(4424.0)
+
+
+def test_discover_ifvg_instances_clips_entry_and_keeps_structural_bounds():
+  df = _df([
+    (100, 101, 99, 100),
+    (100, 101, 99.5, 100),
+    (102, 103, 101.5, 102.5),
+    (102, 102.5, 90.0, 90.8),
+  ])
+  zones = [
+    Zone(101.0, 130.0, "demand", origin_index=2, source="bullish_fvg"),
+  ]
+  ifvg = discover_ifvg_instances(
+    zones, df, settings=TechniqueGeometrySettings(), entry_max_width_price=5.0,
+  )
+  assert len(ifvg) == 1
+  item = ifvg[0]
+  assert item.side == "sell"
+  assert item.high - item.low == pytest.approx(5.0)
+  assert item.measured["structural_low"] == pytest.approx(101.0)
+  assert item.measured["structural_high"] == pytest.approx(130.0)
+
+
 def test_discover_crt_clips_entry_and_keeps_h1_structural_bounds(monkeypatch):
   """Live 2026-08: full-H1 CRT entry failed width/stop envelopes."""
   import pandas as pd
