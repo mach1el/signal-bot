@@ -273,6 +273,106 @@ def test_breakout_without_retest_waits():
   assert result.get("state") == "wait_retest"
 
 
+def _breakout_retest_touch_two_bars_back_df():
+  # detect_breakout_retest requires len(df) >= 5, and its break-scan only
+  # looks at the last 3 rows - two leading filler bars keep the minimum
+  # length without affecting which bar is "the break". Break is bar -3.
+  # Bar -2 is the actual retest touch (dips back to the level) but isn't
+  # the newest bar. Bar -1 (newest) has already moved back above and holds
+  # there with a bullish close, but its own low never touches the level -
+  # only a wider lookback recovers the bar -2 touch.
+  idx = pd.date_range("2026-07-01 10:00", periods=5, freq="1min", tz="UTC")
+  return pd.DataFrame({
+    "open":  [4049.0, 4050.0, 4051.0, 4054.0, 4054.8],
+    "high":  [4051.0, 4052.0, 4059.0, 4056.0, 4056.0],
+    "low":   [4047.0, 4048.0, 4050.0, 4053.0, 4055.2],
+    "close": [4050.0, 4051.0, 4057.0, 4054.0, 4055.5],
+    "volume": [1] * 5,
+  }, index=idx)
+
+
+def test_breakout_retest_lookback_bars_1_misses_prior_bar_touch():
+  """2026-08-23 dig: the retest touch only ever checked the newest bar -
+  a genuine break-then-pullback happening 2 bars ago (bar 2 here) was
+  invisible when the newest bar had already moved on without touching
+  again itself. Default lookback (1) reproduces that original blind spot."""
+  df = _breakout_retest_touch_two_bars_back_df()
+  result = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+  )
+  assert result is not None
+  assert result.get("state") == "wait_retest"
+  assert result.get("accepted") is True
+
+
+def test_breakout_retest_lookback_bars_2_recovers_prior_bar_touch():
+  """Same bars as above, wider lookback recovers the bar-2 touch. The
+  reclaim signal itself still comes from the newest bar's own close/open -
+  only the touch precondition looks back, so this isn't firing off a
+  stale bar."""
+  df = _breakout_retest_touch_two_bars_back_df()
+  hit = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=2,
+  )
+  assert hit is not None
+  assert hit["pattern"] == "breakout_retest"
+  assert hit["direction"] == "BUY"
+  assert hit["close"] == pytest.approx(4055.5)
+  assert hit["bar_ts"] == int(df.index[-1].timestamp())
+
+
+def test_breakout_retest_still_invalidates_on_current_bar_failed_hold():
+  """A stale touch further back must not resurrect a candidate the
+  newest bar has since invalidated by closing back below the level."""
+  df = _breakout_retest_touch_two_bars_back_df()
+  df = df.copy()
+  df.iloc[-1, df.columns.get_loc("close")] = 4053.0  # closed back below 4055
+  df.iloc[-1, df.columns.get_loc("open")] = 4054.0
+  result = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=2,
+  )
+  assert result is None
+
+
+def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
+  """Wiring check only - uses a df that stays in wait_retest for both
+  directions (never reaches opportunity construction) so the fixture
+  doesn't need the full ScalpContextSnapshot surface."""
+  from app.scalping import strategies as strat_mod
+  from app.scalping.models import ARCHETYPE_BREAKOUT_RETEST
+
+  captured: dict = {}
+  original = strat_mod.detect_breakout_retest
+
+  def _spy(*args, **kwargs):
+    captured["retest_lookback_bars"] = kwargs.get("retest_lookback_bars")
+    return original(*args, **kwargs)
+
+  monkeypatch.setattr(strat_mod, "detect_breakout_retest", _spy)
+  cfg = _cfg()
+  idx = pd.date_range("2026-07-01 10:00", periods=6, freq="1min", tz="UTC")
+  df = pd.DataFrame({
+    "open":  [4050, 4051, 4052, 4055, 4060, 4062],
+    "high":  [4052, 4053, 4054, 4058, 4065, 4064],
+    "low":   [4048, 4049, 4050, 4053, 4059, 4060],
+    "close": [4051, 4052, 4053, 4057, 4063, 4063],
+    "volume": [1] * 6,
+  }, index=idx)
+  context = SimpleNamespace(
+    active_range_low=4040.0,
+    active_range_high=4055.0,
+    atr=2.0,
+    symbol="XAU",
+    permitted_archetypes={ARCHETYPE_BREAKOUT_RETEST},
+  )
+  strat_mod.discover_breakout_retest(
+    context, micro=None, m1_df=df, cfg=cfg, pip_size=0.1, now=1_780_000_000,
+  )
+  assert captured["retest_lookback_bars"] == 2
+
+
 def test_risk_daily_cap_and_no_martingale():
   cfg = _cfg()
   assert risk_fraction(cfg) == 0.10
