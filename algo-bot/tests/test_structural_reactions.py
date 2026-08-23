@@ -301,6 +301,38 @@ def test_supply_demand_technique_reaction_buy():
   }
 
 
+def test_supply_demand_technique_reaction_uses_clipped_entry_when_provided():
+  """2026-08-23 fix: instance_from_zone now clips SD/OB entries to a
+  proximal band (structural_low/high keep the full raw zone). Confirms
+  _publish_technique actually trades the clipped zone, not the raw one,
+  and surfaces the proximal-entry reason."""
+  df = _buy_rejection_df()
+  zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  instance = _sd_instance(zone)
+  clipped_instance = replace(
+    instance,
+    low=104.0,
+    high=106.0,
+    measured={
+      **instance.measured,
+      "structural_low": 101.0,
+      "structural_high": 106.0,
+      "entry_clipped": True,
+      "entry_max_width_price": 2.0,
+    },
+  )
+  ctx = _with_technique_instances(
+    _ctx(df, bias="down", zones=[zone]), [clipped_instance],
+  )
+  result = supply_demand_technique_reaction(ctx)
+  assert result is not None
+  assert result.entry_zone.low == pytest.approx(104.0)
+  assert result.entry_zone.high == pytest.approx(106.0)
+  assert result.structural_low == pytest.approx(101.0)
+  assert result.structural_high == pytest.approx(106.0)
+  assert any("proximal supply_demand entry" in reason for reason in result.reasons)
+
+
 def test_demand_zone_reaction_buy_legacy_fallback():
   df = _buy_rejection_df()
   zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
