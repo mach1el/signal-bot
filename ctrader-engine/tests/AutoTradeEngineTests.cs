@@ -4395,6 +4395,47 @@ public sealed partial class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Fact]
+  public async Task ManualCommandCancelPendingCancelsEntireLadderGroup()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      manualStopLoss: 4006.0m,
+      manualSingleEntry: false
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 1_000m, Equity = 1_000m },
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var orderIds = client.PendingOrders.Select(item => item.OrderId).ToArray();
+    Assert.Equal(3, orderIds.Length);
+
+    store.EnqueueCommand(JsonSerializer.Serialize(new
+    {
+      type = "cancel_pending",
+      intent_id = "manual:1:0",
+    }));
+    await WaitForEventAsync(store, "manual_cancelled");
+
+    Assert.Equal(orderIds.Order(), client.CancelledOrders.Order());
+    Assert.Empty(client.PendingOrders);
+    Assert.Single(store.Events, item => item.Type == "manual_cancelled");
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key.StartsWith("auto_trade:group_plan:")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
   private static async Task<long> OpenManualAlgoPositionAsync(
     FakeAutoTradeStore store,
     FakeTradingClient client,

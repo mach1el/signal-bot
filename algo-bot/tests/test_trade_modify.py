@@ -77,6 +77,16 @@ def test_parse_modify_body_accepts_bare_zone_without_entry_keyword():
   assert fields["entry"] == pytest.approx(4583.0)
   assert fields["entry_end"] == pytest.approx(4586.0)
 
+  exact = _parse_modify_body(
+    "4640-37",
+    action="BUY",
+    entry=4630.0,
+    entry_end=4633.0,
+  )
+  assert exact is not None
+  assert exact["entry"] == pytest.approx(4637.0)
+  assert exact["entry_end"] == pytest.approx(4640.0)
+
 
 def test_parse_modify_body_ignores_stray_direction_word_before_bare_zone():
   # "/trade_modify xau #19 buy 4586-83" - modify never changes direction,
@@ -136,6 +146,32 @@ async def test_do_modify_notify_replaces_posts(monkeypatch):
   assert updated["sl"] == pytest.approx(4387.0)
   assert updated["tps"] == [4395.0, 4398.0]
   assert "modified" in trade_ops.render_result(result, "XAU", "vip")
+
+
+@pytest.mark.asyncio
+async def test_do_modify_bare_zone_shifts_sl_by_existing_risk(monkeypatch):
+  row = await _pending_notify(
+    entry=4630.0,
+    entry_end=4633.0,
+    sl=4627.0,
+    tps=[4643.0, 4646.0, 4650.0],
+  )
+  replace = AsyncMock(return_value=[])
+  monkeypatch.setattr(trade_ops, "replace_entry_posts", replace)
+
+  result = await trade_ops.do_modify({
+    "sid": row["id"],
+    "symbol": "XAU",
+    "entry": 4637.0,
+    "entry_end": 4640.0,
+  })
+
+  assert result["ok"] is True
+  updated = await store.get_manual_signal(row["id"])
+  assert updated["entry"] == pytest.approx(4637.0)
+  assert updated["entry_end"] == pytest.approx(4640.0)
+  assert updated["sl"] == pytest.approx(4634.0)
+  replace.assert_awaited_once()
 
 
 @pytest.mark.asyncio
