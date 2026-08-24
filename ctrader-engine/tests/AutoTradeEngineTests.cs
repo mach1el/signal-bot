@@ -3875,8 +3875,9 @@ public sealed partial class AutoTradeEngineTests
       )
     );
 
-    // TP2 advances every surviving clip to the owner's absolute TP1, even
-    // when TP2 consumes the booking leg and its target loop exits.
+    // TP2 advances every surviving clip to the actual shallow entry, even
+    // when TP2 consumes the booking leg and its target loop exits. TP1 is
+    // deliberately reserved for the later TP3 trail.
     client.CloseExecutionPriceToReturn = 3993.4m;
     now = now.AddSeconds(30);
     await engine.ObserveSpotAsync(
@@ -3889,7 +3890,7 @@ public sealed partial class AutoTradeEngineTests
     Assert.NotEmpty(store.Positions);
     Assert.All(
       store.Positions.Values,
-      state => Assert.Equal(3996.5m, state.CurrentStopLoss)
+      state => Assert.Equal(3999.5m, state.CurrentStopLoss)
     );
 
     cts.Cancel();
@@ -3899,7 +3900,7 @@ public sealed partial class AutoTradeEngineTests
   [Theory]
   [InlineData("BUY")]
   [InlineData("SELL")]
-  public async Task ManualAlgoShallowOnlyFillKeepsFinalRunnerAndTrailsAfterTp3(
+  public async Task ManualAlgoShallowOnlyFillTrailsToEntryAtTp2ThenTp1AtTp3(
     string direction
   )
   {
@@ -3976,10 +3977,10 @@ public sealed partial class AutoTradeEngineTests
     var amendmentsAfterTp1 = client.StopAmendments.Count;
 
     await HitAsync(ownerTargets[1]);
-    Assert.Equal(amendmentsAfterTp1, client.StopAmendments.Count);
-    Assert.Equal(stopAfterTp1, Assert.Single(store.Positions.Values).CurrentStopLoss);
+    Assert.Equal(amendmentsAfterTp1 + 1, client.StopAmendments.Count);
+    Assert.Equal(shallow, Assert.Single(store.Positions.Values).CurrentStopLoss);
     Assert.Contains(
-      "manual_shallow_runner_tp2_be_held", store.MetricsSnapshot()
+      "manual_tp2_shallow_entry_applied", store.MetricsSnapshot()
     );
 
     await HitAsync(ownerTargets[2]);
@@ -4025,7 +4026,7 @@ public sealed partial class AutoTradeEngineTests
       TargetsPips: [30, 60, 100, 200],
       NextTargetIndex: 1,
       OpenedAt: 900,
-      CurrentStopLoss: 3999.4m,
+      CurrentStopLoss: 4000.0m,
       TargetOrdinals: [1, 2, 3, 5],
       GroupId: groupId,
       GroupTrancheCount: 3,
@@ -4048,7 +4049,7 @@ public sealed partial class AutoTradeEngineTests
       Direction: TradeDirection.Sell,
       Volume: 400,
       EntryPrice: 3999.5m,
-      StopLoss: 3999.4m,
+      StopLoss: 4000.0m,
       Label: Options().Label,
       Comment: "avm|runner|manual-restart-runner|700|300,200,100,100|30,60,100,200|1,2,3,5|900|0",
       ClientOrderId: "av-runner"
@@ -4067,8 +4068,8 @@ public sealed partial class AutoTradeEngineTests
       new SpotPrice("XAU", 3993.4m, 3993.45m, now.ToUnixTimeSeconds()),
       cts.Token
     );
-    Assert.Empty(client.StopAmendments);
-    Assert.Equal(3999.4m, store.Positions[91].CurrentStopLoss);
+    Assert.Equal((91, 3999.5m), Assert.Single(client.StopAmendments));
+    Assert.Equal(3999.5m, store.Positions[91].CurrentStopLoss);
 
     client.CloseExecutionPriceToReturn = ownerTargets[2];
     now = now.AddSeconds(30);
@@ -4076,7 +4077,8 @@ public sealed partial class AutoTradeEngineTests
       new SpotPrice("XAU", 3989.4m, 3989.45m, now.ToUnixTimeSeconds()),
       cts.Token
     );
-    Assert.Equal((91, ownerTargets[0]), Assert.Single(client.StopAmendments));
+    Assert.Equal(2, client.StopAmendments.Count);
+    Assert.Equal((91, ownerTargets[0]), client.StopAmendments[^1]);
     Assert.Equal(100, store.Positions[91].RemainingVolume);
 
     cts.Cancel();
@@ -4384,6 +4386,56 @@ public sealed partial class AutoTradeEngineTests
 
     Assert.Contains(orderId, client.CancelledOrders);
     Assert.Empty(client.PendingOrders);
+    Assert.DoesNotContain(
+      store.Values.Keys,
+      key => key.StartsWith("auto_trade:group_plan:")
+    );
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ManualCommandCancelPendingCancelsEntireLadderGroup()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      manualStopLoss: 4006.0m,
+      manualSingleEntry: false
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 1_000m, Equity = 1_000m },
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, Now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var oldRevision = client.PendingOrders.ToArray();
+    Assert.Equal(3, oldRevision.Length);
+    var newRevision = oldRevision.Select((order, index) => order with
+    {
+      OrderId = 9_000 + index,
+      Comment = order.Comment.Replace(
+        "manual:1:0", "manual:1:1", StringComparison.Ordinal
+      ),
+    }).ToArray();
+    client.PendingOrders.AddRange(newRevision);
+    var orderIds = client.PendingOrders.Select(item => item.OrderId).ToArray();
+
+    store.EnqueueCommand(JsonSerializer.Serialize(new
+    {
+      type = "cancel_pending",
+      intent_id = "manual:1:1",
+    }));
+    await WaitForEventAsync(store, "manual_cancelled");
+
+    Assert.Equal(orderIds.Order(), client.CancelledOrders.Order());
+    Assert.Empty(client.PendingOrders);
+    Assert.Single(store.Events, item => item.Type == "manual_cancelled");
     Assert.DoesNotContain(
       store.Values.Keys,
       key => key.StartsWith("auto_trade:group_plan:")
