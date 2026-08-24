@@ -4414,13 +4414,22 @@ public sealed partial class AutoTradeEngineTests
     );
     var run = engine.RunSessionAsync(client, Symbol, cts.Token);
     await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var oldRevision = client.PendingOrders.ToArray();
+    Assert.Equal(3, oldRevision.Length);
+    var newRevision = oldRevision.Select((order, index) => order with
+    {
+      OrderId = 9_000 + index,
+      Comment = order.Comment.Replace(
+        "manual:1:0", "manual:1:1", StringComparison.Ordinal
+      ),
+    }).ToArray();
+    client.PendingOrders.AddRange(newRevision);
     var orderIds = client.PendingOrders.Select(item => item.OrderId).ToArray();
-    Assert.Equal(3, orderIds.Length);
 
     store.EnqueueCommand(JsonSerializer.Serialize(new
     {
       type = "cancel_pending",
-      intent_id = "manual:1:0",
+      intent_id = "manual:1:1",
     }));
     await WaitForEventAsync(store, "manual_cancelled");
 
