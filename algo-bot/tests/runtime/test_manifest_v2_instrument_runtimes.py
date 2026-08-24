@@ -34,6 +34,7 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert xau["feed"]["redis_symbol"] == "XAU"
   assert xau["units"]["pip_size"] == "0.1"
   assert xau["units"]["pip_value_per_lot"] == "10"
+  assert int(xau["targeting"]["entry_clips"]) == 2
   eurusd = payload["instrument_runtimes"]["EURUSD"]
   assert eurusd["rollout"] == "live"
   assert eurusd["feed"]["ctrader_symbol"] == "EURUSD"

@@ -1,4 +1,4 @@
-"""Structure-gated scalp micro-grid: five equal clips into the zone."""
+"""Structure-gated autonomous scalp entries into the confirmed zone."""
 
 from __future__ import annotations
 
@@ -57,6 +57,44 @@ def test_hfs_route_is_five_equal_clips_not_one_market():
     pytest.approx(ratio, abs=1e-4) == 0.2
     for ratio in plan.planned_leg_volume_ratios
   )
+
+
+@pytest.mark.parametrize(
+  ("direction", "expected_prices"),
+  [
+    ("BUY", (4004.0, 4000.0)),
+    ("SELL", (4001.0, 4005.0)),
+  ],
+)
+def test_xau_auto_route_uses_configured_shallow_80_deep_20(
+  direction: str,
+  expected_prices: tuple[float, float],
+):
+  from tests.test_config_effective_instrument_context import (
+    _load_production_example,
+  )
+
+  cfg = _load_production_example().config
+  xau = cfg.for_instrument("XAU")
+  plan = resolve_execution_route_plan(
+    direction=direction,
+    order_type_preference="market",
+    entry_distribution="single",
+    executable_quote=4004.0 if direction == "BUY" else 4001.0,
+    zone_low=4000.0,
+    zone_high=4005.0,
+    atr=4.0,
+    zone_fill_enabled=True,
+    strategy="HFS Range Sweep",
+    strategy_family="hfs",
+    entry_clips=xau.targeting.entry_clips,
+  )
+
+  assert plan.valid is True
+  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
+  assert plan.planned_leg_entry_prices == expected_prices
+  assert plan.planned_leg_volume_ratios == (0.8, 0.2)
+  assert plan.routing_reason == "two-clip grid: shallow/deep volume split"
 
 
 def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():

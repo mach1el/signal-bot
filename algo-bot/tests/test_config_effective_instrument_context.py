@@ -162,6 +162,7 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.targeting.entry_clips == 2
   assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
   assert xau.targeting.reward_risk is None
+  assert xau.targeting.entry_clips == 2
   assert xau.manual.enabled is True
   assert xau.manual.algo_enabled is True
   assert xau.manual.entry_mode is InstrumentManualEntryMode.ZONE_LADDER
