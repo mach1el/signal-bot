@@ -193,7 +193,7 @@ def test_production_yaml_fx_live_executable_units():
   assert int(eurusd.execution.entry.max_spread_pips) == 1
   assert int(gbpjpy.execution.entry.max_spread_pips) == 3
   assert eurusd.execution.technique.reaction_publish_windows == "7-11,13-16"
-  assert gbpjpy.execution.technique.reaction_publish_windows == "0-3,7-11"
+  assert gbpjpy.execution.technique.reaction_publish_windows == "0-11"
   assert eurusd.execution.technique.require_sweep_body is True
   assert gbpjpy.execution.technique.require_sweep_body is True
   assert int(eurusd.execution.activation.reaction_trigger_maximum_age_bars) == 3
