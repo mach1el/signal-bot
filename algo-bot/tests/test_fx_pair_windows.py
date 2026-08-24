@@ -40,6 +40,15 @@ def test_fx_pair_windows_diverge_and_overlap_in_london():
   assert tokyo_eur.allowed is False
   assert tokyo_gbp.allowed is True
 
+  # Mid-Tokyo (05 UTC = 14:00 JST) must stay open for JPY — the old 0-3
+  # cut treated this as dead air and left crosses London/NY-shaped.
+  mid_tokyo_eur = _window("EURUSD", 5)
+  mid_tokyo_gbp = _window("GBPJPY", 5)
+  mid_tokyo_usd = _window("USDJPY", 5)
+  assert mid_tokyo_eur.allowed is False
+  assert mid_tokyo_gbp.allowed is True
+  assert mid_tokyo_usd.allowed is True
+
   ny_eur = _window("EURUSD", 13)
   ny_gbp = _window("GBPJPY", 13)
   assert ny_eur.allowed is True
