@@ -7,7 +7,19 @@ import pytest
 
 from app.persistence import redis_state, store
 from app.signals import manual_execution, trade_ops
-from app.signals.parsing import _parse_modify_body
+from app.signals.parsing import _parse_modify_body, _seq_token
+
+
+def test_seq_token_accepts_trailing_modify_body():
+  # Owner-reported: "/trade_modify xau #14 4636-33" hit Usage because
+  # _seq_token required the entire remainder to be digits, so "#14 4636-33"
+  # never resolved the daily seq even though bare-zone body parse was fine.
+  assert _seq_token("#14 4636-33") == 14
+  assert _seq_token("14 sl 4384") == 14
+  assert _seq_token("#12") == 12
+  assert _seq_token("12") == 12
+  assert _seq_token("4636-33") is None
+  assert _seq_token("") is None
 
 
 async def _pending_notify(**overrides) -> dict:
