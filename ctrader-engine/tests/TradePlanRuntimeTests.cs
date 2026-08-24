@@ -257,6 +257,81 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task DeferredTpTouchThenStopOutDoesNotArchiveTp()
+  {
+    // Production 2026-08-24: XAU BUY 4636.98, stop 4631.04. TP1 was
+    // touched but its 0.012-lot share was below the 0.02-lot booking floor,
+    // so no broker close occurred. After a Redis restart the deal lookup
+    // timed out and the fallback quote was 4630.96; NextTargetIndex made
+    // that real -60p stop-out render as an archived TP1 +31p.
+    const string targets = """
+      [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
+        {"target_id": "TP2", "type": "absolute", "price": "4100.00", "close_ratio": "0.8"}
+      ]
+      """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      targetsJson: targets,
+      managementJson: """
+        {
+          "never_worsen_stop": true
+        }
+        """
+    ));
+    var client = new FakeV7TradingClient
+    {
+      AccountBalance = 200m,
+      AccountEquity = 200m,
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+    };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    await runtime.PollAsync(
+      client, Symbol,
+      new SpotPrice("XAU", 4089.05m, 4089.10m, 1),
+      CancellationToken.None
+    );
+    var positionId = Assert.Single(runtime.TrackedStates).PositionId;
+    Assert.NotNull(positionId);
+
+    await runtime.PollAsync(
+      client, Symbol,
+      new SpotPrice("XAU", 4092.05m, 4092.10m, 2),
+      CancellationToken.None
+    );
+    var touched = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(1, touched.NextTargetIndex);
+    Assert.Equal(-1, touched.HighestBookedTargetIndex);
+    Assert.Empty(client.Closes);
+    Assert.DoesNotContain(store.Events, item => item.Type == "tp_booked");
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol,
+      new SpotPrice("XAU", 4082.42m, 4082.50m, 3),
+      CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    var closed = Assert.Single(
+      store.Events, item => item.Type == "position_closed"
+    );
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Equal(4082.42m, closed.Price);
+    Assert.Equal(-66m, closed.GroupRealizedPips);
+    Assert.Null(closed.TargetPips);
+    Assert.Contains(
+      "no TP archived", closed.Message, StringComparison.OrdinalIgnoreCase
+    );
+    Assert.DoesNotContain(
+      "highest TP archived", closed.Message, StringComparison.OrdinalIgnoreCase
+    );
+  }
+
+  [Fact]
   public async Task UnknownCloseWithRecoveredExitPriceDoesNotUseStopTautology()
   {
     var store = new FakeV7Store();
