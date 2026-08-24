@@ -151,7 +151,17 @@ def _fx_match(symbol: str = "EURUSD") -> StrategyMatch:
   )
 
 
-def test_fx_technique_route_uses_two_entry_clips_not_five():
+@pytest.mark.parametrize(
+  ("direction", "expected_prices"),
+  [
+    ("BUY", (1.1002, 1.1000)),
+    ("SELL", (1.1002, 1.1004)),
+  ],
+)
+def test_fx_technique_route_uses_shallow_80_deep_20(
+  direction: str,
+  expected_prices: tuple[float, float],
+):
   from app.autotrade.execution_route import (
     ROUTE_MARKET_WITH_LIMIT_SCALE,
     SCALP_MICRO_CLIPS,
@@ -159,7 +169,7 @@ def test_fx_technique_route_uses_two_entry_clips_not_five():
   )
 
   plan = resolve_execution_route_plan(
-    direction="BUY",
+    direction=direction,
     order_type_preference="market",
     entry_distribution="single",
     executable_quote=1.1002,
@@ -174,13 +184,45 @@ def test_fx_technique_route_uses_two_entry_clips_not_five():
   )
   assert plan.valid is True
   assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert len(plan.planned_leg_entry_prices) == 2
+  assert plan.planned_leg_entry_prices == expected_prices
   assert len(plan.planned_leg_entry_prices) != SCALP_MICRO_CLIPS
   assert pytest.approx(sum(plan.planned_leg_volume_ratios), abs=1e-6) == 1.0
-  assert all(
-    pytest.approx(ratio, abs=1e-4) == 0.5
-    for ratio in plan.planned_leg_volume_ratios
+  assert plan.planned_leg_volume_ratios == (0.8, 0.2)
+  assert plan.routing_reason == "two-clip grid: shallow/deep volume split"
+
+
+def test_fx_auto_plan_transports_shallow_80_deep_20_to_executor():
+  cfg = _load_production_example().config
+  match = replace(_fx_match(), strategy="FVG", family="zone")
+  evaluation = evaluate_execution_policy(
+    match,
+    spot_price=match.current_price,
+    executable_quote=match.current_price,
+    regime="trend",
+    pip_size=0.0001,
+    cfg=cfg,
   )
+  assert evaluation.allowed is True
+  assert evaluation.measured["planned_leg_volume_ratios"] == [0.8, 0.2]
+
+  plan = build_trade_plan_from_strategy_match(
+    match,
+    plan_id="fx-fvg-80-20-plan",
+    setup_id="fx-fvg-80-20-setup",
+    thesis_id="fx-fvg-80-20-thesis",
+    pip_size=Decimal("0.0001"),
+    spot_price=match.current_price,
+    executable_quote=match.current_price,
+    regime="trend",
+    cfg=cfg,
+    max_volume=100_000_000,
+    approved_measured=evaluation.measured,
+  )
+  assert [leg.volume_ratio for leg in plan.entry.legs] == [
+    Decimal("0.8"),
+    Decimal("0.2"),
+  ]
+  assert plan.entry.legs[0].price > plan.entry.legs[1].price
 
 
 def test_fx_targeting_is_explicit_configuration_not_symbol_detection():

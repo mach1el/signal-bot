@@ -52,6 +52,18 @@ def test_normalize_setup_type_aliases():
       "group_realized_pips": 18.0,
       "message": "position closed at broker: manual or external order · winning 18.0 pips",
     }, "tp"),
+    ({
+      "type": "position_closed",
+      "symbol": "XAU",
+      "direction": "BUY",
+      "price": 4630.96,
+      "stop_loss": 4631.04,
+      "target_pips": 31,
+      "group_realized_pips": -60,
+      "previous_state": "fully_open",
+      "reason_code": "manual_or_external_close",
+      "message": "PLAN CLOSED · highest TP archived TP1 · @ 4630.96",
+    }, "sl"),
     ({"type": "setup_status"}, None),
   ],
 )

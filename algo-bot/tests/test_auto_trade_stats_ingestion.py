@@ -116,6 +116,51 @@ async def test_highest_tp_then_be_exit_is_not_a_loss():
 
 
 @pytest.mark.asyncio
+async def test_deferred_tp_stopout_records_loss_not_false_archive(sql):
+  await store.init_db()
+  gid = "v8:deferred-tp-stopout"
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 70,
+    "position_id": 99004,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "Trend Pullback",
+    "symbol": "XAU",
+    "price": 4636.98,
+    "stop_loss": 4631.04,
+    "volume": 600,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 80,
+    "position_id": 99004,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "symbol": "XAU",
+    "price": 4630.96,
+    "stop_loss": 4631.04,
+    "target_pips": 31,
+    "group_realized_pips": -60,
+    "previous_state": "fully_open",
+    "reason_code": "manual_or_external_close",
+    "message": "PLAN CLOSED · highest TP archived TP1 · @ 4630.96",
+  })
+
+  rows = await store.get_pips_records(0, 10**12)
+  hit = [row for row in rows if row["trade_key"] == f"algo:{gid}"]
+  assert len(hit) == 1
+  assert hit[0]["sign"] == "-"
+  assert hit[0]["pips"] == 60
+  assert await sql.val(
+    "SELECT booked_tp_count FROM auto_trade_results WHERE group_id = $1",
+    gid,
+  ) == 0
+
+
+@pytest.mark.asyncio
 async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
   await store.init_db()
   client = redis_state.get_client()

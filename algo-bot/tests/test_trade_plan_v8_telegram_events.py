@@ -244,6 +244,36 @@ def test_tp_compact_line_from_final_close_message():
   )
 
 
+def test_deferred_tp_stopout_cannot_render_as_achieved_tp():
+  event = {
+    "type": "position_closed",
+    "message": "PLAN CLOSED · highest TP archived TP1 · @ 4630.96",
+    "symbol": "XAU",
+    "direction": "BUY",
+    "price": 4630.96,
+    "stop_loss": 4631.04,
+    "target_pips": 31,
+    "group_realized_pips": -60,
+    "previous_state": "fully_open",
+    "reason_code": "manual_or_external_close",
+  }
+
+  assert delivery._format_tp_compact_line(
+    event, event["message"],
+  ) is None
+  close = delivery._format_position_closed_compact_line(
+    event, event["message"],
+  )
+  assert close == (
+    "🏁 POSITION CLOSED · 🛡 SL · ❌ Losing: -60.0 pips · @ 4630.96"
+  )
+  rendered = delivery.render_auto_trade_event(event)
+  assert "Highest TP archived" not in rendered
+  assert "Achieved" not in rendered
+  assert "🛡" in rendered and "SL" in rendered
+  assert "-60.0 pips" in rendered
+
+
 def test_plan_closed_event_renders_highest_tp_only():
   text = delivery.render_auto_trade_event({
     "type": "position_closed",
