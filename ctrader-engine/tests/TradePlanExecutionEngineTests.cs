@@ -90,6 +90,72 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
+  public void ImmediateMarketChaseSubmitsOutsideTheAbandonedZone()
+  {
+    // Aug 24 HFS BUY: Python admitted a chase at 4631.89 after reclaiming
+    // 4629.13-4630.11. The old market -> market_watch translation waited
+    // for the abandoned band and expired while both targets traded.
+    var plan = MarketWatchPlan(
+      zoneLow: 4629.134892857143m,
+      zoneHigh: 4630.110214285714m,
+      stopPrice: 4628.89m,
+      maxSpreadTicks: 50
+    ) with
+    {
+      Entry = new TradePlanEntry(
+        TradePlanContract.EntryTypeMarket,
+        1_720_003_600,
+        MaxSpreadTicks: 50,
+        MaxSlippageTicks: 10,
+        OrderPrice: 4631.89m
+      ),
+      Targets =
+      [
+        new TradePlanTarget("TP1", "absolute", 4632.89m, 0.5m),
+        new TradePlanTarget("TP2", "absolute", 4633.89m, 0.5m),
+      ],
+      Management = new TradePlanManagement(null, 6, true),
+    };
+
+    TradePlanValidator.Validate(plan);
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan,
+      bid: 4632.00m,
+      ask: 4632.14m,
+      spreadTicks: 14m,
+      nowUnixSeconds: 1_720_000_100
+    );
+
+    Assert.Equal(TradePlanEntryAction.SubmitMarket, decision.Action);
+    Assert.True(decision.ShouldSubmit);
+  }
+
+  [Fact]
+  public void ImmediateMarketChaseStillHonorsSpreadLimit()
+  {
+    var plan = MarketWatchPlan() with
+    {
+      Entry = new TradePlanEntry(
+        TradePlanContract.EntryTypeMarket,
+        1_720_003_600,
+        MaxSpreadTicks: 8,
+        OrderPrice: 4089.0m
+      ),
+    };
+
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan,
+      bid: 4089.0m,
+      ask: 4089.2m,
+      spreadTicks: 20m,
+      nowUnixSeconds: 1_720_000_100
+    );
+
+    Assert.Equal(TradePlanEntryAction.Wait, decision.Action);
+    Assert.Equal("spread_exceeds_declared_limit", decision.RejectReason);
+  }
+
+  [Fact]
   public void ExplicitFxTrailMovesToOneRAfterOnePointFiveRIsBooked()
   {
     var plan = MarketWatchPlan() with

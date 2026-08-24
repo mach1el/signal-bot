@@ -75,6 +75,11 @@ def test_market_watch_entry_prices_are_the_zone_edges():
   assert plan.entry.entry_prices() == (plan.entry.zone_low, plan.entry.zone_high)
 
 
+def test_market_entry_price_is_the_admitted_quote_reference():
+  plan = TradePlan.from_dict(_valid_plans()["market_buy_hfs_chase"])
+  assert plan.entry.entry_prices() == (plan.entry.order_price,)
+
+
 def test_limit_ladder_entry_prices_are_the_leg_prices():
   plan = TradePlan.from_dict(_valid_plans()["limit_ladder_buy"])
   assert plan.entry.entry_prices() == tuple(leg.price for leg in plan.entry.legs)

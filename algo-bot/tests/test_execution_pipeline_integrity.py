@@ -453,6 +453,7 @@ def test_entry_plan_fields_reach_the_published_candidate_contract():
   # a field that never reaches the payload is a silent contract hole.
   for field in (
     "planned_execution_route",
+    "planned_market_immediate",
     "planned_entry_price",
     "planned_leg_entry_prices",
     "entry_plan_version",
@@ -462,6 +463,7 @@ def test_entry_plan_fields_reach_the_published_candidate_contract():
   ):
     assert field in forwarded, field
   assert forwarded["planned_execution_route"] == "single_limit"
+  assert forwarded["planned_market_immediate"] is False
   assert forwarded["planned_entry_price"] == 4100.2
 
 

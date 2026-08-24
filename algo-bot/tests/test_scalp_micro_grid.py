@@ -117,6 +117,7 @@ def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():
   assert plan.planned_leg_entry_prices == ()
   assert plan.planned_leg_volume_ratios == ()
   assert plan.planned_entry_price == 4563.98
+  assert plan.immediate_market is True
 
 
 def test_hfs_chase_buy_books_full_market_not_micro_grid():
@@ -135,6 +136,7 @@ def test_hfs_chase_buy_books_full_market_not_micro_grid():
   assert plan.route == ROUTE_MARKET
   assert plan.entry_geometry == "above"
   assert plan.planned_leg_entry_prices == ()
+  assert plan.immediate_market is True
 
 
 def test_technique_fvg_uses_scalp_micro_grid():
