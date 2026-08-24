@@ -3896,6 +3896,193 @@ public sealed partial class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Theory]
+  [InlineData("BUY")]
+  [InlineData("SELL")]
+  public async Task ManualAlgoShallowOnlyFillKeepsFinalRunnerAndTrailsAfterTp3(
+    string direction
+  )
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    var now = Now;
+    var isBuy = direction == "BUY";
+    var shallow = 3999.5m;
+    var ownerTargets = isBuy
+      ? new[] { 4002.5m, 4005.5m, 4009.5m, 4012.5m, 4019.5m }
+      : new[] { 3996.5m, 3993.5m, 3989.5m, 3986.5m, 3979.5m };
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      direction: direction,
+      candidateId: $"manual:shallow-runner:{direction}",
+      entryLow: isBuy ? 3996.5m : shallow,
+      entryHigh: isBuy ? shallow : 4002.5m,
+      manualStopLoss: isBuy ? 3993.0m : 4006.0m,
+      targetsPips: new[] { 30, 60, 100, 130, 200 },
+      manualTakeProfits: ownerTargets,
+      expiresAt: 1_787_126_400,
+      barTs: 1_787_106_159,
+      manualSingleEntry: false,
+      manualTargetWeights: new[] { 40, 15, 15, 15, 15 }
+    ));
+    var client = new FakeTradingClient
+    {
+      Account = ValidAccount() with { Balance = 1_000m, Equity = 1_000m },
+    };
+    var engine = new AutoTradeEngine(
+      Options() with { SizingMode = "equity_table" },
+      store,
+      () => now,
+      _ => { }
+    );
+    await engine.ObserveSpotAsync(
+      isBuy
+        ? new SpotPrice("XAU", 4010.0m, 4010.2m, now.ToUnixTimeSeconds())
+        : new SpotPrice("XAU", 3990.0m, 3990.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    Assert.Equal(new long[] { 700, 200, 100 }, client.PendingOrders
+      .Select(order => order.Volume));
+
+    client.FillPendingOrder(client.PendingOrders[0].OrderId);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "manual_opened");
+    var shallowState = Assert.Single(store.Positions.Values);
+    Assert.Equal(new long[] { 300, 200, 100, 100 }, shallowState.Slices);
+    Assert.Equal(new[] { 30, 60, 100, 200 }, shallowState.TargetsPips);
+    Assert.Equal(new[] { 1, 2, 3, 5 }, shallowState.TargetOrdinals);
+
+    async Task HitAsync(decimal target)
+    {
+      client.CloseExecutionPriceToReturn = target;
+      now = now.AddSeconds(30);
+      await engine.ObserveSpotAsync(
+        isBuy
+          ? new SpotPrice(
+            "XAU", target + 0.05m, target + 0.10m, now.ToUnixTimeSeconds()
+          )
+          : new SpotPrice(
+            "XAU", target - 0.10m, target - 0.05m, now.ToUnixTimeSeconds()
+          ),
+        cts.Token
+      );
+    }
+
+    await HitAsync(ownerTargets[0]);
+    Assert.Empty(client.PendingOrders);
+    Assert.Equal(2, client.CancelledOrders.Count);
+    var stopAfterTp1 = Assert.Single(store.Positions.Values).CurrentStopLoss;
+    Assert.NotNull(stopAfterTp1);
+    var amendmentsAfterTp1 = client.StopAmendments.Count;
+
+    await HitAsync(ownerTargets[1]);
+    Assert.Equal(amendmentsAfterTp1, client.StopAmendments.Count);
+    Assert.Equal(stopAfterTp1, Assert.Single(store.Positions.Values).CurrentStopLoss);
+    Assert.Contains(
+      "manual_shallow_runner_tp2_be_held", store.MetricsSnapshot()
+    );
+
+    await HitAsync(ownerTargets[2]);
+    var runner = Assert.Single(store.Positions.Values);
+    Assert.Equal(100, runner.RemainingVolume);
+    Assert.Equal(ownerTargets[0], runner.CurrentStopLoss);
+    Assert.Equal(5, runner.TargetOrdinals![runner.NextTargetIndex]);
+    Assert.Equal(new long[] { 300, 200, 100 }, client.Closes
+      .Select(close => close.Volume));
+
+    await HitAsync(ownerTargets[4]);
+    Assert.Empty(store.Positions);
+    Assert.Equal(new long[] { 300, 200, 100, 100 }, client.Closes
+      .Select(close => close.Volume));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task ManualAlgoShallowOnlyTrailPolicySurvivesRestart()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const string candidateId = "manual:restart-runner:0";
+    const string groupId = "manual-restart-runner";
+    var ownerTargets = new[]
+    {
+      3996.5m, 3993.5m, 3989.5m, 3986.5m, 3979.5m,
+    };
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      candidateId: candidateId
+    ));
+    store.SeedPublishedCandidate(candidateId);
+    store.Positions[91] = new AutoTradePositionState(
+      CandidateId: candidateId,
+      PositionId: 91,
+      SymbolId: Symbol.SymbolId,
+      Direction: TradeDirection.Sell,
+      EntryPrice: 3999.5m,
+      InitialVolume: 700,
+      RemainingVolume: 400,
+      Slices: [300, 200, 100, 100],
+      TargetsPips: [30, 60, 100, 200],
+      NextTargetIndex: 1,
+      OpenedAt: 900,
+      CurrentStopLoss: 3999.4m,
+      TargetOrdinals: [1, 2, 3, 5],
+      GroupId: groupId,
+      GroupTrancheCount: 3,
+      InitialStopLoss: 4006.0m,
+      GroupInitialVolume: 700,
+      InitialTrancheVolume: 700,
+      Setup: "Manual Algo",
+      Stream: "algo_manual",
+      StrategyFamily: "manual",
+      TargetPrices: ownerTargets,
+      Symbol: "XAU"
+    );
+    var client = new FakeTradingClient
+    {
+      CloseExecutionPriceToReturn = ownerTargets[1],
+    };
+    client.SeedPosition(new TradingPosition(
+      PositionId: 91,
+      SymbolId: Symbol.SymbolId,
+      Direction: TradeDirection.Sell,
+      Volume: 400,
+      EntryPrice: 3999.5m,
+      StopLoss: 3999.4m,
+      Label: Options().Label,
+      Comment: "avm|runner|manual-restart-runner|700|300,200,100,100|30,60,100,200|1,2,3,5|900|0",
+      ClientOrderId: "av-runner"
+    ));
+    var now = Now;
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    now = now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3993.4m, 3993.45m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Empty(client.StopAmendments);
+    Assert.Equal(3999.4m, store.Positions[91].CurrentStopLoss);
+
+    client.CloseExecutionPriceToReturn = ownerTargets[2];
+    now = now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3989.4m, 3989.45m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    Assert.Equal((91, ownerTargets[0]), Assert.Single(client.StopAmendments));
+    Assert.Equal(100, store.Positions[91].RemainingVolume);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
   [Fact]
   public async Task ManualAlgoFillAmendsAbsoluteVipStopAfterBetterFill()
   {
