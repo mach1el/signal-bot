@@ -263,6 +263,7 @@ def test_hfs_chase_builds_immediate_market_plan_incident_replay():
 
   assert plan.entry.type == ENTRY_TYPE_MARKET
   assert plan.entry.order_price == Decimal("4631.89")
+  assert plan.entry.max_slippage_ticks == 100
   assert plan.entry.zone_low is None
   assert plan.entry.zone_high is None
   assert plan.stop.price == Decimal("4628.89")

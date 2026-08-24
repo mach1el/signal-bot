@@ -715,7 +715,7 @@ public sealed class TradePlanRuntimeTests
           "expires_at":2000000000,
           "order_price":"4631.89",
           "max_spread_ticks":50,
-          "max_slippage_ticks":10,
+          "max_slippage_ticks":50,
           "legs":[]
         }
         """
@@ -739,6 +739,142 @@ public sealed class TradePlanRuntimeTests
       TradePlanRuntimeStage.FullyOpen,
       Assert.Single(runtime.TrackedStates).Stage
     );
+  }
+
+  [Fact]
+  public async Task ImmediateMarketChaseDoesNotSubmitWhenAlreadyThroughTp1()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:hfs-chase-through-tp",
+      setupId: "hfs-chase-through-tp",
+      direction: "SELL",
+      zoneLow: 4669.177214285714m,
+      zoneHigh: 4670.411392857143m,
+      stopPrice: 4671.29m,
+      strategy: "HFS Range Sweep",
+      strategyFamily: "hfs",
+      targetsJson: """
+        [
+          {"target_id":"TP1","type":"absolute","price":"4667.29","close_ratio":"0.5"},
+          {"target_id":"TP2","type":"absolute","price":"4666.29","close_ratio":"0.5"}
+        ]
+        """,
+      managementJson: """
+        {
+          "be_after_target_id": null,
+          "be_buffer_ticks": 6,
+          "never_worsen_stop": true
+        }
+        """,
+      entryJson: """
+        {
+          "type":"market",
+          "expires_at":2000000000,
+          "order_price":"4668.29",
+          "max_spread_ticks":50,
+          "max_slippage_ticks":10,
+          "legs":[]
+        }
+        """
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4667.17m, 4667.29m, 1),
+      CancellationToken.None
+    );
+
+    Assert.Empty(client.MarketOrders);
+    Assert.Contains(
+      runtime.TrackedStates,
+      s => s.Stage is TradePlanRuntimeStage.Received
+        or TradePlanRuntimeStage.Submitting
+    );
+  }
+
+  [Fact]
+  public async Task DoesNotBookTpWhenFillAlreadyPastTarget()
+  {
+    // Reproduce the fake TP1: market fills through TP1, next poll must
+    // skip the target instead of closing half as "TP COMPLETED".
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:hfs-fake-tp",
+      setupId: "hfs-fake-tp",
+      direction: "SELL",
+      zoneLow: 4669.18m,
+      zoneHigh: 4670.41m,
+      stopPrice: 4671.29m,
+      strategy: "HFS Range Sweep",
+      strategyFamily: "hfs",
+      targetsJson: """
+        [
+          {"target_id":"TP1","type":"absolute","price":"4667.29","close_ratio":"0.5"},
+          {"target_id":"TP2","type":"absolute","price":"4666.29","close_ratio":"0.5"}
+        ]
+        """,
+      managementJson: """
+        {
+          "be_after_target_id": null,
+          "be_buffer_ticks": 6,
+          "never_worsen_stop": true
+        }
+        """,
+      entryJson: """
+        {
+          "type":"market",
+          "expires_at":2000000000,
+          "order_price":"4668.29",
+          "max_spread_ticks":50,
+          "max_slippage_ticks":200,
+          "legs":[]
+        }
+        """
+    ));
+    var logs = new List<string>();
+    var client = new FakeV7TradingClient();
+    // Force a fill already through TP1 (broker slippage).
+    client.NextMarketFillPrice = 4667.17m;
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, logs.Add
+    );
+
+    // First poll: within slippage of order_price and not through TP1 yet
+    // so the order submits; fill is forced through TP1 via NextMarketFillPrice.
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4668.20m, 4668.32m, 1),
+      CancellationToken.None
+    );
+    Assert.Single(client.MarketOrders);
+    Assert.Equal(
+      TradePlanRuntimeStage.FullyOpen,
+      Assert.Single(runtime.TrackedStates).Stage
+    );
+
+    // Second poll: ask still through TP1 (would have booked under old logic).
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4667.10m, 4667.20m, 2),
+      CancellationToken.None
+    );
+
+    Assert.Empty(client.Closes);
+    Assert.DoesNotContain(store.Events, e => e.Type == "tp_booked");
+    Assert.Contains(
+      logs,
+      line => line.Contains("v8 target skipped past fill")
+        && line.Contains("target=TP1")
+    );
+    Assert.Equal(1, Assert.Single(runtime.TrackedStates).NextTargetIndex);
   }
 
   [Fact]
@@ -2876,6 +3012,7 @@ public sealed class TradePlanRuntimeTests
     public PositionCloseReason PositionCloseReasonToReturn { get; set; } =
       PositionCloseReason.Unknown;
     public decimal? PositionCloseExecutionPriceToReturn { get; set; }
+    public decimal? NextMarketFillPrice { get; set; }
     public List<long> PositionCloseReasonLookups { get; } = [];
     public int ReconcileAccountCalls { get; private set; }
 
@@ -2997,9 +3134,9 @@ public sealed class TradePlanRuntimeTests
       }
       MarketOrders.Add(order);
       var positionId = _nextPositionId++;
-      var fillPrice = order.Direction == TradeDirection.Buy
-        ? 4089.0m
-        : 4098.46m;
+      var fillPrice = NextMarketFillPrice
+        ?? (order.Direction == TradeDirection.Buy ? 4089.0m : 4098.46m);
+      NextMarketFillPrice = null;
       _positions.Add(new TradingPosition(
         positionId, order.SymbolId, order.Direction, order.Volume, fillPrice, null,
         order.Label, order.Comment, order.ClientOrderId

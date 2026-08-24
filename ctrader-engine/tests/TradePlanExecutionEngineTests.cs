@@ -106,7 +106,7 @@ public sealed class TradePlanExecutionEngineTests
         TradePlanContract.EntryTypeMarket,
         1_720_003_600,
         MaxSpreadTicks: 50,
-        MaxSlippageTicks: 10,
+        MaxSlippageTicks: 50,
         OrderPrice: 4631.89m
       ),
       Targets =
@@ -123,11 +123,110 @@ public sealed class TradePlanExecutionEngineTests
       bid: 4632.00m,
       ask: 4632.14m,
       spreadTicks: 14m,
-      nowUnixSeconds: 1_720_000_100
+      nowUnixSeconds: 1_720_000_100,
+      tickSize: 0.01m
     );
 
     Assert.Equal(TradePlanEntryAction.SubmitMarket, decision.Action);
     Assert.True(decision.ShouldSubmit);
+  }
+
+  [Fact]
+  public void ImmediateMarketChaseRejectsWhenQuoteAlreadyThroughTp1()
+  {
+    // Live 2026-08-24 HFS SELL: order_price 4668.29, TP1 4667.29, bid
+    // already 4667.17 — market would fill through TP1 and fake a take-profit.
+    var plan = MarketWatchPlan(
+      direction: "SELL",
+      zoneLow: 4669.177214285714m,
+      zoneHigh: 4670.411392857143m,
+      stopPrice: 4671.29m,
+      maxSpreadTicks: 50
+    ) with
+    {
+      Entry = new TradePlanEntry(
+        TradePlanContract.EntryTypeMarket,
+        1_720_003_600,
+        MaxSpreadTicks: 50,
+        MaxSlippageTicks: 10,
+        OrderPrice: 4668.29m
+      ),
+      Targets =
+      [
+        new TradePlanTarget("TP1", "absolute", 4667.29m, 0.5m),
+        new TradePlanTarget("TP2", "absolute", 4666.29m, 0.5m),
+      ],
+      Management = new TradePlanManagement(null, 6, true),
+    };
+
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan,
+      bid: 4667.17m,
+      ask: 4667.29m,
+      spreadTicks: 12m,
+      nowUnixSeconds: 1_720_000_100,
+      tickSize: 0.01m
+    );
+
+    Assert.Equal(TradePlanEntryAction.Wait, decision.Action);
+    Assert.Equal("chase_through_target", decision.RejectReason);
+  }
+
+  [Fact]
+  public void ImmediateMarketChaseHonorsSlippageBudget()
+  {
+    var plan = MarketWatchPlan(
+      direction: "SELL",
+      zoneLow: 4669.18m,
+      zoneHigh: 4670.41m,
+      stopPrice: 4671.29m,
+      maxSpreadTicks: 50
+    ) with
+    {
+      Entry = new TradePlanEntry(
+        TradePlanContract.EntryTypeMarket,
+        1_720_003_600,
+        MaxSpreadTicks: 50,
+        MaxSlippageTicks: 10,
+        OrderPrice: 4668.29m
+      ),
+      Targets =
+      [
+        new TradePlanTarget("TP1", "absolute", 4660.00m, 0.5m),
+        new TradePlanTarget("TP2", "absolute", 4655.00m, 0.5m),
+      ],
+      Management = new TradePlanManagement(null, 6, true),
+    };
+
+    // 0.40 below order_price with 10-tick (0.10) budget — wait.
+    var decision = TradePlanExecutionEngine.EvaluateEntry(
+      plan,
+      bid: 4667.89m,
+      ask: 4668.01m,
+      spreadTicks: 12m,
+      nowUnixSeconds: 1_720_000_100,
+      tickSize: 0.01m
+    );
+
+    Assert.Equal(TradePlanEntryAction.Wait, decision.Action);
+    Assert.Equal("slippage_exceeds_declared_limit", decision.RejectReason);
+  }
+
+  [Fact]
+  public void TargetBeyondFillAndFavorableExitGatesChaseThroughTp()
+  {
+    Assert.False(
+      TradePlanExecutionEngine.TargetIsBeyondFill("SELL", 4667.17m, 4667.29m)
+    );
+    Assert.True(
+      TradePlanExecutionEngine.TargetIsBeyondFill("SELL", 4668.00m, 4667.29m)
+    );
+    Assert.False(
+      TradePlanExecutionEngine.ExitIsFavorableVsFill("SELL", 4667.17m, 4667.49m)
+    );
+    Assert.True(
+      TradePlanExecutionEngine.ExitIsFavorableVsFill("SELL", 4668.00m, 4667.49m)
+    );
   }
 
   [Fact]
