@@ -349,7 +349,7 @@ def test_m5_authoritative_blocked_under_technique_enforce():
   assert decision.reason_code == "reaction_trigger_missing"
 
 
-def test_reaction_requires_sweep_body_even_when_yaml_flag_false():
+def test_reaction_softens_sweep_body_when_instrument_flag_is_false():
   cfg = SimpleNamespace(
     execution=SimpleNamespace(
       activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
@@ -367,8 +367,15 @@ def test_reaction_requires_sweep_body_even_when_yaml_flag_false():
     now=NOW,
     cfg=cfg,
   )
-  assert decision.allowed is False
-  assert decision.reason_code == "confirmation_requires_sweep_body"
+  assert decision.allowed is True
+  assert decision.reason_code == "entry_activation_allowed"
+  assert decision.measured["sweep_body_required"] is False
+  assert decision.measured["sweep_body_confirmed"] is False
+  assert decision.measured["sweep_body_soft_miss"] is True
+  assert (
+    decision.measured["preference_reason_code"]
+    == "confirmation_without_sweep_body"
+  )
 
 
 def test_impulse_against_blocks_sell_into_expanding_highs():

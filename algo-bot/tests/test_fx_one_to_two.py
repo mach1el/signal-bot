@@ -204,14 +204,15 @@ def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
     assert effective.targeting.trail_after_r == 1.5
     assert effective.targeting.trail_to_r == 1.0
     assert effective.targeting.entry_clips == 2
+    assert effective.execution.technique.require_sweep_body is False
     assert fixed_reward_risk(symbol, cfg) == 2.0
   assert fixed_reward_risk("XAU", cfg) is None
   assert fixed_reward_risk("XAUUSD", cfg) is None
 
 
-def test_hfs_fixed_rr_has_no_one_r_fallback():
+def test_hfs_fixed_rr_prefers_two_r_then_falls_back_to_one_r():
   cfg = _load_production_example().config
-  # Room fits 1R (15) but not configured 2R (30): FX has no trade.
+  # Room fits 1R (15) but not preferred 2R (30): FX takes exactly 1R.
   gold = _select_target(
     direction="BUY",
     entry=1.16,
@@ -234,7 +235,8 @@ def test_hfs_fixed_rr_has_no_one_r_fallback():
   )
   assert gold is not None
   assert gold[1] == 15.0
-  assert fx is None
+  assert fx is not None
+  assert fx[1] == 15.0
 
 
 def test_hfs_fixed_rr_takes_two_r_when_room_fits():
@@ -393,7 +395,7 @@ def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
   assert abs(plan.targets[-1].price - entry) / Decimal("0.0001") != Decimal("50")
 
 
-def test_fixed_rr_rejects_when_opposing_room_cannot_hold_two_r():
+def test_fixed_rr_falls_back_to_one_r_when_two_r_does_not_fit():
   cfg = _load_production_example().config
   match = _fx_match()
   evaluation = evaluate_execution_policy(
@@ -403,11 +405,90 @@ def test_fixed_rr_rejects_when_opposing_room_cannot_hold_two_r():
     regime="trend",
     pip_size=0.0001,
     cfg=cfg,
-    available_target_room_pips=10.0,
+    available_target_room_pips=15.0,
+  )
+  assert evaluation.allowed is True
+  assert evaluation.measured["target_room_fallback_used"] is True
+  assert evaluation.measured["target_reward_risk"] == pytest.approx(1.0)
+  assert evaluation.measured["planned_target_r_multiples"] == ["1.0"]
+  assert evaluation.measured["planned_target_close_ratios"] == ["1.0"]
+  assert "planned_trail_after_target_id" not in evaluation.measured
+
+  plan = build_trade_plan_from_strategy_match(
+    match,
+    plan_id="fx-plan-fallback",
+    setup_id="fx-setup-fallback",
+    thesis_id="fx-thesis-fallback",
+    pip_size=Decimal("0.0001"),
+    spot_price=match.current_price,
+    executable_quote=match.current_price,
+    regime="trend",
+    cfg=cfg,
+    max_volume=100_000_000,
+    approved_measured=evaluation.measured,
+  )
+  assert len(plan.targets) == 1
+  assert plan.targets[0].close_ratio == Decimal("1")
+  assert plan.management.be_after_target_id is None
+  assert plan.management.trail_after_target_id is None
+  assert plan.management.trail_to_target_id is None
+
+
+def test_fixed_rr_rejects_when_opposing_room_cannot_hold_one_r():
+  cfg = _load_production_example().config
+  match = _fx_match()
+  evaluation = evaluate_execution_policy(
+    match,
+    spot_price=match.current_price,
+    executable_quote=match.current_price,
+    regime="trend",
+    pip_size=0.0001,
+    cfg=cfg,
+    available_target_room_pips=9.0,
   )
   assert evaluation.allowed is False
   assert evaluation.reason_code == "fixed_rr_room_insufficient"
   assert evaluation.terminal is True
+  assert evaluation.measured["target_fallback_reward_risk"] == 1.0
+
+
+def test_fixed_rr_one_r_fallback_is_symmetric_for_sell():
+  cfg = _load_production_example().config
+  match = replace(
+    _fx_match("GBPJPY"),
+    match_id="gbpjpy-fallback-sell",
+    direction="SELL",
+    key_level=190.04,
+    entry_low=190.00,
+    entry_high=190.08,
+    current_price=190.04,
+    atr=0.12,
+    structure_swing=190.12,
+    targets_pips=(70,),
+    structural_zone_id="gbpjpy-supply-fallback",
+    structural_zone_low=190.00,
+    structural_zone_high=190.08,
+    structural_kind="supply",
+    htf_bias="down",
+  )
+  evaluation = evaluate_execution_policy(
+    match,
+    spot_price=match.current_price,
+    executable_quote=match.current_price,
+    regime="trend",
+    pip_size=0.01,
+    cfg=cfg,
+    available_target_room_pips=20.0,
+  )
+  assert evaluation.allowed is True
+  assert evaluation.measured["target_room_fallback_used"] is True
+  entry = Decimal(str(evaluation.measured["planned_entry_price"]))
+  targets = tuple(
+    Decimal(value) for value in evaluation.measured["planned_target_prices"]
+  )
+  assert len(targets) == 1
+  assert targets[0] < entry
+  assert evaluation.measured["planned_target_close_ratios"] == ["1.0"]
 
 
 def test_gbpjpy_sell_uses_two_r_contract_with_frontloaded_partials():
