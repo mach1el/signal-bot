@@ -51,7 +51,8 @@ public sealed class TradePlanRuntimeTests
     string strategyFamily = "trend_pullback",
     string symbol = "XAU",
     string? targetsJson = null,
-    string? managementJson = null
+    string? managementJson = null,
+    string? entryJson = null
   )
   {
     targetsJson ??= """
@@ -65,6 +66,19 @@ public sealed class TradePlanRuntimeTests
         "be_after_target_id": "TP1",
         "be_buffer_ticks": 6,
         "never_worsen_stop": true
+      }
+      """;
+    entryJson ??= $$"""
+      {
+        "type": "market_watch",
+        "expires_at": {{expiresAt}},
+        "zone_low": "{{zoneLow}}",
+        "zone_high": "{{zoneHigh}}",
+        "activation": "quote_inside_zone",
+        "price_side": "{{(direction == "BUY" ? "ask" : "bid")}}",
+        "max_spread_ticks": 8,
+        "max_slippage_ticks": 10,
+        "legs": []
       }
       """;
     return $$"""
@@ -100,17 +114,7 @@ public sealed class TradePlanRuntimeTests
         "high": "4090.00",
         "invalidation_price": "4081.80"
       },
-      "entry": {
-        "type": "market_watch",
-        "expires_at": {{expiresAt}},
-        "zone_low": "{{zoneLow}}",
-        "zone_high": "{{zoneHigh}}",
-        "activation": "quote_inside_zone",
-        "price_side": "{{(direction == "BUY" ? "ask" : "bid")}}",
-        "max_spread_ticks": 8,
-        "max_slippage_ticks": 10,
-        "legs": []
-      },
+      "entry": {{entryJson}},
       "stop": {
         "type": "absolute",
         "price": "{{stopPrice}}",
@@ -676,6 +680,64 @@ public sealed class TradePlanRuntimeTests
       runtime.TrackedStates,
       s => s.Stage is TradePlanRuntimeStage.Received
         or TradePlanRuntimeStage.Submitting
+    );
+  }
+
+  [Fact]
+  public async Task ImmediateMarketChaseSubmitsOnFirstPollOutsideOldZone()
+  {
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(
+      planId: "v8:hfs-market-chase",
+      setupId: "hfs-market-chase",
+      direction: "BUY",
+      zoneLow: 4629.134892857143m,
+      zoneHigh: 4630.110214285714m,
+      stopPrice: 4628.89m,
+      strategy: "HFS Range Sweep",
+      strategyFamily: "hfs",
+      targetsJson: """
+        [
+          {"target_id":"TP1","type":"absolute","price":"4632.89","close_ratio":"0.5"},
+          {"target_id":"TP2","type":"absolute","price":"4633.89","close_ratio":"0.5"}
+        ]
+        """,
+      managementJson: """
+        {
+          "be_after_target_id": null,
+          "be_buffer_ticks": 6,
+          "never_worsen_stop": true
+        }
+        """,
+      entryJson: """
+        {
+          "type":"market",
+          "expires_at":2000000000,
+          "order_price":"4631.89",
+          "max_spread_ticks":50,
+          "max_slippage_ticks":10,
+          "legs":[]
+        }
+        """
+    ));
+    var client = new FakeV7TradingClient();
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    await runtime.PollAsync(
+      client,
+      Symbol,
+      new SpotPrice("XAU", 4632.00m, 4632.14m, 1),
+      CancellationToken.None
+    );
+
+    var order = Assert.Single(client.MarketOrders);
+    Assert.Equal(TradeDirection.Buy, order.Direction);
+    Assert.Equal(325_000, order.RelativeStopLoss);
+    Assert.Equal(
+      TradePlanRuntimeStage.FullyOpen,
+      Assert.Single(runtime.TrackedStates).Stage
     );
   }
 

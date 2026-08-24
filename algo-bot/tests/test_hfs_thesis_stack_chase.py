@@ -21,6 +21,7 @@ from app.autotrade.trade_plan_builder import (
   TradePlanBuildRejected,
   build_trade_plan_from_strategy_match,
 )
+from app.autotrade.trade_plan import ENTRY_TYPE_MARKET
 from app.autotrade import worker
 from app.persistence import redis_state
 from tests.test_publish_trade_plan_v8 import _confirm_setup, _match
@@ -191,6 +192,86 @@ def test_validate_trade_plan_error_becomes_build_rejected():
     )
   assert excinfo.value.reason_code == "trade_plan_invalid"
   assert "SELL targets" in excinfo.value.message
+
+
+def test_hfs_chase_builds_immediate_market_plan_incident_replay():
+  """Aug 24: a valid BUY chase hit both TPs while market_watch expired.
+
+  Python had already admitted 4631.89 as an in-budget chase past the old
+  4629.13-4630.11 demand band. Translating the resolved full-market route
+  back into market_watch made C# wait for that abandoned band; it expired
+  while M1 traded through 4632.89 and 4633.89. It also made stop validation
+  compare the quote-anchored 4628.89 stop with old zone entry prices.
+  """
+  match = StrategyMatch(
+    version=STRATEGY_MATCH_VERSION,
+    match_id="f61032b9bc5a79ba15e3fa380ea995eb",
+    symbol="XAU",
+    source_tf="M1",
+    event_ts="1787560200",
+    issued_at=1787560200,
+    expires_at=1787561174,
+    strategy="HFS Range Sweep",
+    strategy_mode="hfs_scalp",
+    direction="BUY",
+    key_level=4629.46,
+    entry_low=4629.134892857143,
+    entry_high=4630.110214285714,
+    current_price=4631.89,
+    confluence=3,
+    reasons=("lower_edge_sweep_reclaim",),
+    atr=6.3,
+    structure_swing=4628.504892857143,
+    targets_pips=(10, 20),
+    full_take_profit_pips=20,
+    tier="A",
+    family="hfs",
+    structural_zone_id="c5f681bfbd6efdbf3d59eadd",
+    structural_zone_low=4629.134892857143,
+    structural_zone_high=4630.110214285714,
+    structural_kind="demand",
+    structural_timeframe="M1",
+    htf_bias="range",
+    regime_kind="range",
+  )
+  approved = {
+    "planned_stop_price": 4628.89,
+    "planned_execution_route": "market",
+    "planned_market_immediate": True,
+    "planned_entry_price": 4631.89,
+    "planned_leg_entry_prices": [],
+    "planned_leg_volume_ratios": [],
+    "routing_reason": (
+      "scalp chase: full market (micro-grid would rest into abandoned zone)"
+    ),
+    "effective_risk_multiplier": 2.0,
+    "stop_source": "protective_stop_plan",
+  }
+
+  plan = build_trade_plan_from_strategy_match(
+    match,
+    plan_id=f"v8:{match.match_id}",
+    setup_id=match.match_id,
+    thesis_id="d54d9b0be5e5f0a00ee66529a684264c",
+    pip_size=Decimal("0.1"),
+    spot_price=4631.89,
+    executable_quote=4631.89,
+    regime="range",
+    max_volume=100_000,
+    approved_measured=approved,
+  )
+
+  assert plan.entry.type == ENTRY_TYPE_MARKET
+  assert plan.entry.order_price == Decimal("4631.89")
+  assert plan.entry.zone_low is None
+  assert plan.entry.zone_high is None
+  assert plan.stop.price == Decimal("4628.89")
+  assert plan.execution_policy.allow_market is True
+  assert plan.execution_policy.allow_limit is False
+  assert [target.price for target in plan.targets] == [
+    Decimal("4632.89"),
+    Decimal("4633.89"),
+  ]
 
 
 @pytest.mark.asyncio

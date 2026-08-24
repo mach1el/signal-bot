@@ -204,6 +204,17 @@ public sealed class TradePlanV8ContractTests
   }
 
   [Fact]
+  public void MarketEntryPriceIsTheAdmittedQuoteReference()
+  {
+    var plan = JsonSerializer.Deserialize<TradePlan>(
+      ValidPlan("market_buy_hfs_chase").ToJsonString(),
+      ReadOptions
+    )!;
+
+    Assert.Equal(new[] { plan.Entry.OrderPrice!.Value }, plan.Entry.EntryPrices());
+  }
+
+  [Fact]
   public void LimitLadderEntryPricesAreTheLegPrices()
   {
     var plan = JsonSerializer.Deserialize<TradePlan>(
