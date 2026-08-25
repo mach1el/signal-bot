@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `0b72f1bcdedc7aad2e5691f7d36f5cd3ee09cead24f23d804a48cc4b1aaa71cf`
+- Contract fingerprint: `b81aae5175b0401e2d8e2bfb917fcddc3d2f3a1cfd7e6a2c3a4937ff5d04fe3b`
 - Environment-bound fields: `465`
 - Deprecated aliases: `21`
 
@@ -326,7 +326,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_RISK_MODE` | `strategies.high_frequency_scalp.risk.mode` | `str` | no | no | — | `live` |
 | `HFS_SESSION_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
 | `HFS_STOP_BUFFER_ATR` | `strategies.high_frequency_scalp.stop.buffer_atr` | `float` | no | no | — | `0.1` |
-| `HFS_STOP_MAXIMUM_PIPS` | `strategies.high_frequency_scalp.stop.maximum_pips` | `float` | no | no | — | `22.0` |
+| `HFS_STOP_MAXIMUM_PIPS` | `strategies.high_frequency_scalp.stop.maximum_pips` | `float` | no | no | — | `30.0` |
 | `HFS_STOP_MINIMUM_PIPS` | `strategies.high_frequency_scalp.stop.minimum_pips` | `float` | no | no | — | `12.0` |
 | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `int` | no | no | — | `2` |
 | `HOSTNAME` | `bootstrap.process.hostname` | `string` | no | no | — | `algo-worker` |

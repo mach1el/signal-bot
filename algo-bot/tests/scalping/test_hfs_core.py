@@ -370,8 +370,55 @@ def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
   strat_mod.discover_breakout_retest(
     context, micro=None, m1_df=df, cfg=cfg, pip_size=0.1, now=1_780_000_000,
   )
-  assert captured["retest_lookback_bars"] == 2
+  assert captured["retest_lookback_bars"] == 4
 
+
+def test_breakout_retest_recovers_break_older_than_three_bars():
+  """2026-08-25 dig: hard-coded 3-bar break scan missed breaks 4–8 M1
+  bars earlier — the archetype never discovered on XAU. Default break
+  lookback (8) recovers a break at bar -5 with a later retest hold."""
+  idx = pd.date_range("2026-07-01 10:00", periods=8, freq="1min", tz="UTC")
+  # bar -5 (index 2): accepted BUY break above 4055
+  # bar -2: retest touch back to level
+  # bar -1: hold above with mixed/bearish body (close still >= level)
+  df = pd.DataFrame({
+    "open":  [4049.0, 4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4055.5, 4056.2],
+    "high":  [4051.0, 4052.0, 4060.0, 4059.0, 4058.0, 4057.0, 4056.0, 4056.5],
+    "low":   [4047.0, 4048.0, 4050.0, 4055.5, 4055.0, 4054.5, 4053.0, 4055.0],
+    "close": [4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4055.5, 4054.0, 4055.8],
+    "volume": [1] * 8,
+  }, index=idx)
+  # Old 3-bar window cannot see the break at index 2
+  missed = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=4, break_lookback_bars=3,
+  )
+  assert missed is not None
+  assert missed.get("state") == "wait_retest"
+  hit = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=4,
+  )
+  assert hit is not None
+  assert hit.get("pattern") == "breakout_retest"
+  assert hit["close"] == pytest.approx(4055.8)
+
+
+def test_breakout_retest_hold_allows_mixed_body_above_level():
+  """Hold is close-beyond-level only — a mixed body that still closes above
+  resistance must not kill a valid BUY retest."""
+  df = _breakout_retest_touch_two_bars_back_df().copy()
+  # Newest bar: open above close (bearish body) but close still >= 4055
+  df.iloc[-1, df.columns.get_loc("open")] = 4056.5
+  df.iloc[-1, df.columns.get_loc("close")] = 4055.2
+  df.iloc[-1, df.columns.get_loc("high")] = 4056.8
+  df.iloc[-1, df.columns.get_loc("low")] = 4055.0
+  hit = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=2,
+  )
+  assert hit is not None
+  assert hit["pattern"] == "breakout_retest"
 
 def test_risk_daily_cap_and_no_martingale():
   cfg = _cfg()

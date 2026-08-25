@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `0b72f1bcdedc7aad2e5691f7d36f5cd3ee09cead24f23d804a48cc4b1aaa71cf`
-- Document fingerprint: `f90cbc82c044a88b775675600f47142f9083f3b0ae8a3f6125849d29e1b8ae54`
+- Contract fingerprint: `b81aae5175b0401e2d8e2bfb917fcddc3d2f3a1cfd7e6a2c3a4937ff5d04fe3b`
+- Document fingerprint: `84a3e10b4829e09997b60377b9a4e2b3ebaf255ecf5ec57636a1713db9e668b6`
 - Items: `532`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -523,7 +523,7 @@
 | `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `HFS_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
 | `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `HFS_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
 | `strategies.high_frequency_scalp.stop.buffer_atr` | `HFS_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
-| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `22.0` |
+| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `strategies.high_frequency_scalp.stop.minimum_pips` | `HFS_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
 | `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `HFS_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
 | `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `HFS_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |

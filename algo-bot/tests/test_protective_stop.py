@@ -420,6 +420,67 @@ def test_reaction_room_stop_missing_tp_falls_back_to_legacy_envelope():
   assert trend.measured.get("stop_bounds_source") == "strategy_default"
 
 
+def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
+  """Dig 2026-08-25: HFS Range Sweep used reaction 40–60 because
+  uses_scalp_room_stop excluded HFS_STRATEGIES."""
+  from types import SimpleNamespace
+
+  from app.autotrade.protective_stop import (
+    stop_bounds_for_reaction_room,
+    stop_bounds_for_strategy,
+    uses_scalp_room_stop,
+  )
+
+  assert uses_scalp_room_stop("HFS Range Sweep") is True
+  assert uses_scalp_room_stop("HFS Breakout Retest") is True
+  assert uses_scalp_room_stop("Key Level Reaction") is False
+
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      range=SimpleNamespace(min_rr=1.0, room_stop_floor_pips=15),
+      reaction=SimpleNamespace(
+        room_stop_min_rr=1.0, stop_min_pips=40, stop_max_pips=60,
+      ),
+      stops=SimpleNamespace(
+        reaction=SimpleNamespace(room_floor_pips=40),
+        trend=SimpleNamespace(minimum_pips=40),
+        sl_distance=6.5,
+      ),
+      trend=SimpleNamespace(stop_max_pips=60),
+      scaling=SimpleNamespace(add=SimpleNamespace(min_stop_pips=30)),
+    ),
+    strategies=SimpleNamespace(
+      high_frequency_scalp=SimpleNamespace(
+        stop=SimpleNamespace(minimum_pips=12, maximum_pips=30),
+      ),
+    ),
+    for_instrument=None,
+  )
+  assert stop_bounds_for_strategy(
+    strategy="HFS Range Sweep", pip_size=0.1, cfg=cfg,
+  ) == (12, 30)
+  minimum, maximum, measured = stop_bounds_for_reaction_room(
+    strategy="HFS Range Sweep",
+    primary_tp_pips=20,
+    pip_size=0.1,
+    cfg=cfg,
+  )
+  # Single-leg pins min to 1:1 with primary TP; max stays HFS envelope
+  # (not reaction 40–60). Group path keeps the raw floor at 12.
+  assert minimum == 20
+  assert maximum == 30
+  assert measured["stop_bounds_source"] == "hfs_stop_envelope"
+  group_min, group_max, _ = stop_bounds_for_reaction_room(
+    strategy="HFS Range Sweep",
+    primary_tp_pips=20,
+    pip_size=0.1,
+    cfg=cfg,
+    for_group_stop=True,
+  )
+  assert group_min == 12
+  assert group_max == 30
+
+
 def test_stop_bounds_for_reaction_room_pins_and_caps():
   from app.autotrade.protective_stop import stop_bounds_for_reaction_room
 
