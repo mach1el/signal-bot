@@ -1,7 +1,8 @@
 # High-Frequency M1 Scalping Engine
 
-Shadow/paper/live event-driven XAU scalping on closed M1 bars with immutable
-M5 context. Separate lane from technique ZoneWatch publishers.
+Shadow/paper/live event-driven scalping on closed M1 bars with immutable M5
+context. Separate lane from technique ZoneWatch publishers. Symbols are
+gated by `is_hfs_symbol` / HFS config (production focus remains XAU).
 
 ## Architecture
 
@@ -14,12 +15,13 @@ M1 microstructure + archetypes
         ↓
 EntryLocation (enforce inside HFS) + activation + cost + risk
         ↓
-shadow / paper / live ScalpSignal
+shadow / paper / live ScalpSignal → TradePlan V8 (live mode)
 ```
 
-Live mode publishes TradePlan V8 via `worker.try_publish_executable_signal`
-when gates pass. Requires `runtime.auto_trade.enabled=true` and a live
-cTrader consumer on the trade-plan stream.
+Owned by `bar_event_dispatcher_loop` (not a standalone M1 subscriber). Live
+mode publishes via `worker.try_publish_executable_signal` when gates pass.
+Requires `runtime.auto_trade.enabled=true` and a live cTrader consumer on the
+trade-plan stream.
 
 ## Modes
 
