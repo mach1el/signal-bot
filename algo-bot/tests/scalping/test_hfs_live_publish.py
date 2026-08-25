@@ -88,8 +88,10 @@ def test_build_hfs_strategy_match_is_valid():
   assert match.structural_source == "hfs"
   assert match.structural_kind == "demand"
   assert match.direction == "BUY"
-  assert match.full_take_profit_pips == 20
-  assert match.targets_pips == (10, 20)
+  assert match.full_take_profit_pips == 25
+  assert match.targets_pips == (15, 25)
+  # Clamped to expected_stop_pips=15 from trigger 4002 (not raw invalidation 3990).
+  assert match.structure_swing == pytest.approx(4000.5)
   assert match.family == "hfs"
   assert match.strategy_mode == "hfs_scalp"
   assert _identity_ok(match)
@@ -111,8 +113,8 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
   match = build_hfs_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
-  assert match.targets_pips == (10, 20)
-  assert match.full_take_profit_pips == 20
+  assert match.targets_pips == (15, 30)
+  assert match.full_take_profit_pips == 30
   assert _valid_match(match)
 
 
@@ -161,7 +163,8 @@ def test_build_hfs_1to1_stays_single_full_exit():
   match = build_hfs_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
-  assert match.targets_pips == (10, 15)
+  # Discovery stop=15 / target=15 → ladder collapses to single 1R exit.
+  assert match.targets_pips == (15,)
   assert match.full_take_profit_pips == 15
   assert _valid_match(match)
 
