@@ -5015,6 +5015,63 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task UnknownLiveQuoteBeyondProtectiveStopBooksStopNotSweep()
+  {
+    // Live dig 2026-08-25 XAU manual #5: deal window missed the SL fill;
+    // live bid printed the post-stop sweep and journaled -109 on a 60-pip
+    // stop. With no recovered deal price, a live quote past the protective
+    // stop must promote to SL/TP and book the stop itself.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      PositionCloseExecutionPriceToReturn = null,
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var stop = client.StopAmendments.Single().StopLoss;
+    Assert.True(stop < 4000.0m);
+
+    // Sweep continues well below the protective stop after the position
+    // has already vanished from the broker snapshot.
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", stop - 7.0m, stop - 6.8m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.Contains("stop loss / take profit", closed.Message);
+    Assert.DoesNotContain("unconfirmed", closed.Message);
+    Assert.Equal(stop, closed.Price);
+    Assert.NotEqual(stop - 7.0m, closed.Price);
+    Assert.NotNull(closed.GroupRealizedPips);
+    Assert.True(closed.GroupRealizedPips < 0m);
+    // Must not inflate past the protective-stop distance from entry.
+    var maxLossPips = Math.Abs(4000.2m - stop) / 0.1m + 1m;
+    Assert.True(Math.Abs(closed.GroupRealizedPips.Value) <= maxLossPips);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task LabelMismatchDoesNotConfirmMissingWhilePositionIdStillOpen()
   {
     // Broker Label drifted off options.Label but PositionId is still on the
