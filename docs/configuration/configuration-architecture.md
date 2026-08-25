@@ -16,8 +16,22 @@ are derived as `config:<path>`.
 There is exactly one Python configuration authority. There is no Settings
 singleton, flat facade, or runtime legacy selector.
 
-See also `config-file-and-instrument-registry.md` for the YAML CONFIG_FILE
-layer, XAU leaf projection, and deprecated ENV alias policy.
+## Active docs
+
+| Doc | Purpose |
+|---|---|
+| [config-file-and-instrument-registry.md](config-file-and-instrument-registry.md) | YAML `CONFIG_FILE`, instruments, deprecated ENV aliases |
+| [configuration-governance.md](configuration-governance.md) | Add/deprecate fields; integrity gate commands |
+| [cross-service-runtime-manifest.md](cross-service-runtime-manifest.md) | `ResolvedRuntimeManifest` shared with cTrader |
+| [manifest-authority-cutover.md](manifest-authority-cutover.md) | Production `CTRADER_CONFIGURATION_SOURCE=manifest` |
+| [effective-instrument-context.md](effective-instrument-context.md) | Per-symbol typed runtime view |
+| [adr-canonical-only-python-configuration.md](adr-canonical-only-python-configuration.md) | Canonical-only ADR |
+| [config-authority-runbook.md](config-authority-runbook.md) | Operator authority checks |
+| [config-catalog.generated.md](config-catalog.generated.md) | Generated catalog |
+| [environment-reference.generated.md](environment-reference.generated.md) | Generated ENV reference |
+
+Phase ledgers from the Catalog V2 programme:
+[history/](history/).
 
 ## Fingerprints
 
@@ -31,4 +45,4 @@ fingerprint.
 
 ## Artifacts and commands
 
-See `configuration-governance.md`.
+See [configuration-governance.md](configuration-governance.md).

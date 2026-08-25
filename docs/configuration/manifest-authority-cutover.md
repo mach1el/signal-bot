@@ -96,10 +96,12 @@ Setting parity ≠ `off` with `source=manifest` fails closed.
 3. Confirm `source=environment` and `parity=enforce`.
 4. Restart stack; verify XAU feed/execution.
 
-## XAU-only production boundary
+## Production instrument boundary
 
-Live instruments remain `["XAU"]`. Canonical `XAU`, broker/feed `XAUUSD`.
-Second-symbol activation is a separate programme.
+Live instruments are declared in the resolved manifest / YAML registry
+(currently XAU + EURUSD + GBPUSD + GBPJPY + USDJPY on demo). See
+[`docs/runtime/multi-symbol-routing.md`](../runtime/multi-symbol-routing.md).
+Do not assume XAU-only ENV shape after manifest authority.
 
 ## Future instrument onboarding
 
