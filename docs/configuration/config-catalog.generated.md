@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `5872fae5b93b8ccef51aa9f8261821851afa4dd3f2dd4f7c9c9110902635337d`
-- Document fingerprint: `70b5615985bf41ca7f7c1a206f9c49de79c62b007a2565b6ff477edd54d7e16a`
-- Items: `528`
+- Contract fingerprint: `0b72f1bcdedc7aad2e5691f7d36f5cd3ee09cead24f23d804a48cc4b1aaa71cf`
+- Document fingerprint: `f90cbc82c044a88b775675600f47142f9083f3b0ae8a3f6125849d29e1b8ae54`
+- Items: `532`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -553,6 +553,10 @@
 | `strategies.reaction.demand.enabled` | `AUTO_TRADE_DEMAND_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.enabled` | `AUTO_TRADE_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.key_level.enabled` | `AUTO_TRADE_KEY_LEVEL_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.reaction.key_level.min_grade` | `AUTO_TRADE_KEY_LEVEL_MIN_GRADE` | `str` | `enum` | `configurable` | `"B"` |
+| `strategies.reaction.key_level.require_explicit_role` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_EXPLICIT_ROLE` | `bool` | `boolean` | `configurable` | `false` |
+| `strategies.reaction.key_level.require_htf_alignment` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_HTF_ALIGNMENT` | `bool` | `boolean` | `configurable` | `false` |
+| `strategies.reaction.key_level.require_killzone` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.reaction.liquidity_reversal.enabled` | `AUTO_TRADE_LIQUIDITY_REVERSAL_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.scale_enabled` | `AUTO_TRADE_REACTION_SCALE_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.reaction.session_level.enabled` | `AUTO_TRADE_SESSION_LEVEL_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

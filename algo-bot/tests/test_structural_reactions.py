@@ -448,6 +448,42 @@ def test_generic_key_level_remains_ambiguous_raw_observation():
   assert result.key_level_role == "ambiguous"
 
 
+def test_key_level_require_explicit_role_skips_ambiguous():
+  settings = detectors.DetectorSettings(
+    confluence_floor=2,
+    key_level_require_explicit_role=True,
+  )
+  result = detectors.key_level_reaction(replace(
+    _ctx(
+      _buy_rejection_df(),
+      bias="down",
+      levels=[Level(105, "reaction", touches=3, strength=3)],
+    ),
+    settings=settings,
+  ))
+  assert result is None
+
+
+def test_key_level_require_htf_alignment_skips_counter_bias():
+  settings = detectors.DetectorSettings(
+    confluence_floor=2,
+    key_level_require_htf_alignment=True,
+  )
+  support = Level(105, "support", touches=3, strength=3)
+  # Support reacts BUY; HTF down is counter-bias → skip.
+  result = detectors.key_level_reaction(replace(
+    _ctx(_buy_rejection_df(), bias="down", levels=[support]),
+    settings=settings,
+  ))
+  assert result is None
+  aligned = detectors.key_level_reaction(replace(
+    _ctx(_buy_rejection_df(), bias="up", levels=[support]),
+    settings=settings,
+  ))
+  assert aligned is not None
+  assert aligned.direction == "BUY"
+
+
 def test_accepted_resistance_break_is_not_key_level_reaction():
   df = _df([
     (100, 101, 98, 100, 100),

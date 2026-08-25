@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `5872fae5b93b8ccef51aa9f8261821851afa4dd3f2dd4f7c9c9110902635337d`
-- Environment-bound fields: `461`
+- Contract fingerprint: `0b72f1bcdedc7aad2e5691f7d36f5cd3ee09cead24f23d804a48cc4b1aaa71cf`
+- Environment-bound fields: `465`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -73,7 +73,11 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_GROUP_CLOSE_ALLOCATION` | `execution.policy.group_close_allocation` | `str` | no | yes | — | `pro_rata` |
 | `AUTO_TRADE_HTF_VETO_ENABLED` | `actionability.gates.htf_veto_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_INSIDE_ZONE_MARKET_ENTRY_ENABLED` | `execution.entry.inside_zone_market_entry_enabled` | `bool` | no | yes | — | `True` |
+| `AUTO_TRADE_KEY_LEVEL_MIN_GRADE` | `strategies.reaction.key_level.min_grade` | `str` | no | no | — | `B` |
 | `AUTO_TRADE_KEY_LEVEL_REACTION_ENABLED` | `strategies.reaction.key_level.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_KEY_LEVEL_REQUIRE_EXPLICIT_ROLE` | `strategies.reaction.key_level.require_explicit_role` | `bool` | no | no | — | `False` |
+| `AUTO_TRADE_KEY_LEVEL_REQUIRE_HTF_ALIGNMENT` | `strategies.reaction.key_level.require_htf_alignment` | `bool` | no | no | — | `False` |
+| `AUTO_TRADE_KEY_LEVEL_REQUIRE_KILLZONE` | `strategies.reaction.key_level.require_killzone` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_LABEL` | `execution.policy.label` | `string` | no | no | — | `apexvoid-auto` |
 | `AUTO_TRADE_LIQUIDITY_REVERSAL_ENABLED` | `strategies.reaction.liquidity_reversal.enabled` | `bool` | no | yes | — | `True` |
 | `AUTO_TRADE_MAPPED_ZONE_ENABLED` | `strategies.mapped_zone.enabled` | `bool` | no | yes | `AUTO_TRADE_MARKET_MAP_STRATEGY_ENABLED` | `True` |
