@@ -14,8 +14,9 @@ Research-first roadmap (do not loosen thresholds first):
 4. `app/scalping/ranking.py` — unified score after hard gates (PR F)
 5. `app/scalping/replay.py` — paper outcomes + 60/20/20 calibration (PR B)
 6. `app/scalping/replay_lab.py` — math-gate event lab + sweeps ([REPLAY_LAB.md](REPLAY_LAB.md))
-7. `app/scalping/rollout.py` — shadow/paper/controlled-live helpers (PR G–I)
-8. [CONTROLLED_LIVE.md](CONTROLLED_LIVE.md) — promotion checklist
+7. `app/scalping/lab_event_builder.py` — historical M1/M5 → Liquidity Sweep LabEvents
+8. `app/scalping/rollout.py` — shadow/paper/controlled-live helpers (PR G–I)
+9. [CONTROLLED_LIVE.md](CONTROLLED_LIVE.md) — promotion checklist
 
 Hard gates first; ranking second. Holdout data is never used for tuning.
 
