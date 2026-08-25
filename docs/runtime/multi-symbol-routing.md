@@ -105,11 +105,12 @@ mechanisms, grounded in each pair's real 2026 market behavior:
   from the normal 30-minute single-event window to 3 hours around
   whichever event is nearer (`actionability.gates.event_cluster_guard_*`,
   off by default, on only for GBPJPY via `overrides`).
-- **USDJPY** (defended-level guard): Japan/the US ran a record ~¥11.73T
-  joint intervention specifically when USDJPY breached 160 — a 600+ pip
-  reversal. New entries within a configured buffer of a defended level
-  (`risk.exposure.defended_levels`/`defended_level_buffer_price`, set via
-  `overrides`) are hard-blocked regardless of `guard_mode`.
+- **USDJPY** (defended-level guard): Japan/the US intervened when USDJPY
+  breached 160. Fresh **BUY** entries within
+  `risk.exposure.defended_level_buffer_price` of
+  `risk.exposure.defended_levels` (via `overrides`) are hard-blocked;
+  **SELL** near the level is allowed (aligned with intervention). Buffer is
+  30 pips (`0.30`) — a prior symmetric 100-pip band zeroed the book.
 
 ## Account-level architecture
 

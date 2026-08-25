@@ -1667,41 +1667,68 @@ async def test_news_guard_hit_falls_back_to_single_event_window(monkeypatch):
   assert hit == single_event
 
 
-def test_defended_level_guard_blocks_within_buffer(monkeypatch):
-  # 2026 dig: a record ~Y11.73T joint US/Japan intervention hit specifically
-  # when USDJPY breached 160 -- dollar snapped 163->~156-157, a 600+ pip
-  # reversal. Spot was ~159.47 when this guard was added.
+def test_defended_level_guard_blocks_buy_within_buffer(monkeypatch):
+  # Intervention sells USDJPY near 160 — only BUY is hard-blocked in-band.
   monkeypatch.setattr(
     instrument_geometry, "defended_levels", lambda symbol: (160.0,),
   )
   monkeypatch.setattr(
-    instrument_geometry, "defended_level_buffer_price", lambda symbol: 1.0,
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 0.30,
   )
 
   decision = worker._defended_level_guard(
-    "USDJPY", 159.47, guard_mode=worker.GUARD_MODE_OBSERVE,
+    "USDJPY",
+    159.85,
+    direction="BUY",
+    guard_mode=worker.GUARD_MODE_OBSERVE,
   )
 
   assert decision.hard_block is True
   assert decision.reason_code == "entry_near_defended_level"
-  # Unconditional even in observe mode -- see _defended_level_guard's
-  # hard_geometry=True docstring for why it can't defer to guard_mode.
+  # Unconditional even in observe mode — hard_geometry=True.
   decision_strict = worker._defended_level_guard(
-    "USDJPY", 159.47, guard_mode=worker.GUARD_MODE_STRICT,
+    "USDJPY",
+    159.85,
+    direction="BUY",
+    guard_mode=worker.GUARD_MODE_STRICT,
   )
   assert decision_strict.hard_block is True
 
 
-def test_defended_level_guard_allows_outside_buffer(monkeypatch):
+def test_defended_level_guard_allows_sell_within_buffer(monkeypatch):
+  # Prod 2026-08-25: SELLs at ~159.4 were wrongly sterilized by a symmetric
+  # 100-pip band. SELLs near 160 are intervention-aligned.
   monkeypatch.setattr(
     instrument_geometry, "defended_levels", lambda symbol: (160.0,),
   )
   monkeypatch.setattr(
-    instrument_geometry, "defended_level_buffer_price", lambda symbol: 1.0,
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 0.30,
   )
 
   decision = worker._defended_level_guard(
-    "USDJPY", 155.0, guard_mode=worker.GUARD_MODE_OBSERVE,
+    "USDJPY",
+    159.85,
+    direction="SELL",
+    guard_mode=worker.GUARD_MODE_OBSERVE,
+  )
+
+  assert decision.hard_block is False
+  assert decision.reason_code == "defended_level_sell_aligned"
+
+
+def test_defended_level_guard_allows_buy_outside_buffer(monkeypatch):
+  monkeypatch.setattr(
+    instrument_geometry, "defended_levels", lambda symbol: (160.0,),
+  )
+  monkeypatch.setattr(
+    instrument_geometry, "defended_level_buffer_price", lambda symbol: 0.30,
+  )
+
+  decision = worker._defended_level_guard(
+    "USDJPY",
+    159.40,
+    direction="BUY",
+    guard_mode=worker.GUARD_MODE_OBSERVE,
   )
 
   assert decision.hard_block is False
@@ -1715,7 +1742,10 @@ def test_defended_level_guard_noop_when_unconfigured(monkeypatch):
   )
 
   decision = worker._defended_level_guard(
-    "EURUSD", 1.16, guard_mode=worker.GUARD_MODE_OBSERVE,
+    "EURUSD",
+    1.16,
+    direction="BUY",
+    guard_mode=worker.GUARD_MODE_OBSERVE,
   )
 
   assert decision.hard_block is False
