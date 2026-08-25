@@ -4,6 +4,20 @@ Shadow/paper/live event-driven scalping on closed M1 bars with immutable M5
 context. Separate lane from technique ZoneWatch publishers. Symbols are
 gated by `is_hfs_symbol` / HFS config (production focus remains XAU).
 
+## Mathematical program
+
+Research-first roadmap (do not loosen thresholds first):
+
+1. [PHASE1_AUDIT.md](PHASE1_AUDIT.md) — pipeline + threshold inventory
+2. `app/scalping/math_features.py` — ATR-normalized \(X_t\) features (PR A)
+3. `app/scalping/math_strategies.py` — Liquidity Sweep / Impulse Pullback / Range Edge gates (PR C–E)
+4. `app/scalping/ranking.py` — unified score after hard gates (PR F)
+5. `app/scalping/replay.py` — paper outcomes + 60/20/20 calibration (PR B)
+6. `app/scalping/rollout.py` — shadow/paper/controlled-live helpers (PR G–I)
+7. [CONTROLLED_LIVE.md](CONTROLLED_LIVE.md) — promotion checklist
+
+Hard gates first; ranking second. Holdout data is never used for tuning.
+
 ## Architecture
 
 ```text
@@ -16,6 +30,8 @@ M1 microstructure + archetypes
 EntryLocation (enforce inside HFS) + activation + cost + risk
         ↓
 shadow / paper / live ScalpSignal → TradePlan V8 (live mode)
+        ↓ (shadow/paper only)
+math_shadow sidecar (X_t gates, no broker)
 ```
 
 Owned by `bar_event_dispatcher_loop` (not a standalone M1 subscriber). Live
@@ -28,7 +44,7 @@ trade-plan stream.
 | Mode | Behaviour |
 |------|-----------|
 | `off` | Loop exits immediately |
-| `shadow` | Discover/evaluate/record only |
+| `shadow` | Discover/evaluate/record only + math sidecar |
 | `paper` | Paper TradePlan-like records, no broker |
 | `live` | Publishes TradePlan V8 when gates pass |
 
@@ -52,3 +68,5 @@ trade-plan stream.
 cd algo-bot
 PYTHONPATH=. python -m app.scalping.replay --fixture path.jsonl --output artifacts/scalp-replay.json
 ```
+
+Report includes `aggregate` plus `calibration` (development / validation / holdout).
