@@ -104,7 +104,11 @@ mechanisms, grounded in each pair's real 2026 market behavior:
   ("volatility clusters" compound rather than add), the news guard widens
   from the normal 30-minute single-event window to 3 hours around
   whichever event is nearer (`actionability.gates.event_cluster_guard_*`,
-  off by default, on only for GBPJPY via `overrides`).
+  off by default, on only for GBPJPY via `overrides`). Dig 2026-08-25:
+  Key Level Reaction was toxic (0/4, −118 pips) mainly from Asia/`outside`
+  and weak/ambiguous prints — quality overrides keep the family live:
+  `require_killzone`, `require_explicit_role`, `require_htf_alignment`,
+  `min_grade: A`, and `analysis.levels.minimum_key_touches: 3`.
 - **USDJPY** (defended-level guard): Japan/the US intervened when USDJPY
   breached 160. Fresh **BUY** entries within
   `risk.exposure.defended_level_buffer_price` of

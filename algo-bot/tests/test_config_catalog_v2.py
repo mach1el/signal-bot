@@ -44,13 +44,13 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 528,
-  "configurable": 461,
+  "entries": 532,
+  "configurable": 465,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 382, "shared": 97, "ctrader": 49},
-  "projection": 479,
-  "env": 461,
+  "owners": {"python": 387, "shared": 96, "ctrader": 49},
+  "projection": 483,
+  "env": 465,
   "deprecated_aliases": 21,
 }
 
@@ -301,6 +301,9 @@ _INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
   # touch (max_touches=2), letting a SELL through with no real room-check
   # against it - see analysis.py's max_touches config_field description.
   "analysis.market_map.max_touches",
+  # Contract surface moved to V8-only after TradePlan V8 cutover.
+  "contract.mode",
+  "contract.versions.trade_plan",
   # Pre-existing live defaults already shipped before HFS quality work.
   "execution.entry.poll_ms",
   "execution.reaction.market_fraction",

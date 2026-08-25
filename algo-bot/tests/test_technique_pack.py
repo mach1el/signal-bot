@@ -67,6 +67,13 @@ def _technique_cfg(
       reaction=SimpleNamespace(stop_min_pips=40, stop_max_pips=60),
     ),
     strategies=SimpleNamespace(
+      reaction=SimpleNamespace(
+        key_level=SimpleNamespace(
+          enabled=True,
+          require_killzone=False,
+          min_grade="B",
+        ),
+      ),
       high_frequency_scalp=SimpleNamespace(
         archetypes=SimpleNamespace(
           range_sweep_enabled=True,
@@ -145,6 +152,22 @@ def test_publish_choke_blocks_outside_killzone_with_frozen_hour():
   off = evaluate_killzone_gate(hour=3, cfg=_technique_cfg(enforce=False), require=True)
   assert off.allowed is True
   assert off.measured.get("would_block") is True
+
+
+def test_key_level_can_raise_killzone_without_global_reaction_gate():
+  from app.autotrade.killzone import key_level_min_grade, reaction_require_killzone
+
+  cfg = _technique_cfg()
+  cfg.execution.technique.reaction_require_killzone = False
+  assert reaction_require_killzone(cfg, strategy="Demand Zone") is False
+  assert reaction_require_killzone(cfg, strategy="Key Level Reaction") is False
+
+  cfg.strategies.reaction.key_level.require_killzone = True
+  assert reaction_require_killzone(cfg, strategy="Demand Zone") is False
+  assert reaction_require_killzone(cfg, strategy="Key Level Reaction") is True
+
+  cfg.strategies.reaction.key_level.min_grade = "A"
+  assert key_level_min_grade(cfg) == "A"
 
 
 def _location_ok() -> EntryLocationDecision:
