@@ -149,7 +149,7 @@ async def test_do_modify_notify_replaces_posts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_do_modify_bare_zone_shifts_sl_by_existing_risk(monkeypatch):
+async def test_do_modify_bare_zone_shifts_sl_and_tps_by_existing_risk(monkeypatch):
   row = await _pending_notify(
     entry=4630.0,
     entry_end=4633.0,
@@ -171,6 +171,37 @@ async def test_do_modify_bare_zone_shifts_sl_by_existing_risk(monkeypatch):
   assert updated["entry"] == pytest.approx(4637.0)
   assert updated["entry_end"] == pytest.approx(4640.0)
   assert updated["sl"] == pytest.approx(4634.0)
+  # Entry RR moved +7; TPs must follow so R-multiples stay intact.
+  assert updated["tps"] == [4650.0, 4653.0, 4657.0]
+  replace.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_do_modify_bare_zone_shifts_tps_on_sell(monkeypatch):
+  row = await _pending_notify(
+    action="SELL",
+    entry=4630.0,
+    entry_end=4633.0,
+    sl=4636.0,
+    tps=[4620.0, 4617.0, 4610.0],
+  )
+  replace = AsyncMock(return_value=[])
+  monkeypatch.setattr(trade_ops, "replace_entry_posts", replace)
+
+  result = await trade_ops.do_modify({
+    "sid": row["id"],
+    "symbol": "XAU",
+    "entry": 4620.0,
+    "entry_end": 4623.0,
+  })
+
+  assert result["ok"] is True
+  updated = await store.get_manual_signal(row["id"])
+  # SELL RR entry is the shallow (low) side: 4630 → 4620 (delta -10).
+  assert updated["entry"] == pytest.approx(4620.0)
+  assert updated["entry_end"] == pytest.approx(4623.0)
+  assert updated["sl"] == pytest.approx(4626.0)
+  assert updated["tps"] == [4610.0, 4607.0, 4600.0]
   replace.assert_awaited_once()
 
 
