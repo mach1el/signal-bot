@@ -182,16 +182,30 @@ def test_asia_permits_enabled_archetypes_under_technique_pack():
   )
   assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_MOMENTUM_CHASE,
   )
-  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
+  assert ARCHETYPE_IMPULSE_PULLBACK in permitted_archetypes_for_session(
     "asia", hour=3, cfg=cfg,
   )
-  assert ARCHETYPE_MOMENTUM_CHASE not in permitted_archetypes_for_session(
+  assert ARCHETYPE_MOMENTUM_CHASE in permitted_archetypes_for_session(
     "asia", hour=3, cfg=cfg,
   )
-  assert permitted_archetypes_for_session("rollover", cfg=cfg) == ()
+  assert permitted_archetypes_for_session("rollover", cfg=cfg) == (
+    ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_MOMENTUM_CHASE,
+  )
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == (
+    ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_MOMENTUM_CHASE,
+  )
+  # NY afternoon / outside killzone: full enabled set (technique decides).
+  assert permitted_archetypes_for_session("new_york", hour=16, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,

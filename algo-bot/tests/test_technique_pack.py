@@ -34,11 +34,6 @@ _HFS_ALL = (
   ARCHETYPE_MOMENTUM_CHASE,
 )
 
-_HFS_ASIA = (
-  ARCHETYPE_RANGE_SWEEP,
-  ARCHETYPE_BREAKOUT_RETEST,
-)
-
 
 def _technique_cfg(
   *,
@@ -124,22 +119,28 @@ def test_killzone_hour_matrix(hour: int, allowed: bool):
     assert decision.reason_code == "outside_killzone"
 
 
-def test_hfs_permitted_archetypes_include_asia_and_killzones():
+def test_hfs_permitted_archetypes_are_structure_not_clock():
+  """Enabled archetypes print in every session; analysis rejects weak hours."""
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == _HFS_ASIA
-  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == _HFS_ASIA
-  assert permitted_archetypes_for_session("rollover", hour=21, cfg=cfg) == ()
-  assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == _HFS_ALL
-  assert permitted_archetypes_for_session(
-    "london_ny_overlap", hour=14, cfg=cfg,
-  ) == _HFS_ALL
-  assert permitted_archetypes_for_session("asia", hour=22, cfg=cfg) == _HFS_ASIA
+  for session, hour in (
+    ("asia", 3),
+    ("asia", 5),
+    ("asia", 22),
+    ("london", 8),
+    ("london_ny_overlap", 14),
+    ("new_york", 16),
+    ("new_york", 17),
+    ("rollover", 21),
+  ):
+    assert permitted_archetypes_for_session(session, hour=hour, cfg=cfg) == _HFS_ALL
 
 
-def test_hfs_session_fallback_asia_allowed_without_clock():
+def test_hfs_session_fallback_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ASIA
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("new_york", cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("rollover", cfg=cfg) == _HFS_ALL
 
 
 def test_publish_choke_blocks_outside_killzone_with_frozen_hour():
