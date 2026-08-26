@@ -197,6 +197,14 @@ def test_asia_permits_enabled_archetypes_under_technique_pack():
     ARCHETYPE_BREAKOUT_RETEST,
     ARCHETYPE_MOMENTUM_CHASE,
   )
+  # NY afternoon outside killzone: range/breakout only (not empty).
+  assert permitted_archetypes_for_session("new_york", hour=16, cfg=cfg) == (
+    ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_BREAKOUT_RETEST,
+  )
+  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
+    "new_york", hour=16, cfg=cfg,
+  )
 
 
 def test_lower_edge_sweep_reclaim():

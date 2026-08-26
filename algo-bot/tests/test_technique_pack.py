@@ -134,12 +134,20 @@ def test_hfs_permitted_archetypes_include_asia_and_killzones():
     "london_ny_overlap", hour=14, cfg=cfg,
   ) == _HFS_ALL
   assert permitted_archetypes_for_session("asia", hour=22, cfg=cfg) == _HFS_ASIA
+  # Post-overlap NY (hour ≥ ny_start + ny_window) stays structural only.
+  assert permitted_archetypes_for_session(
+    "new_york", hour=16, cfg=cfg,
+  ) == _HFS_ASIA
+  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
+    "new_york", hour=17, cfg=cfg,
+  )
 
 
 def test_hfs_session_fallback_asia_allowed_without_clock():
   cfg = _technique_cfg()
   assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ASIA
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("new_york", cfg=cfg) == _HFS_ASIA
 
 
 def test_publish_choke_blocks_outside_killzone_with_frozen_hour():

@@ -236,7 +236,7 @@ Optional:
 Technique / ZoneWatch smoke (after auto-trade is on):
 
 - ZoneWatches retain across spot wicks; invalidate on closed-bar break
-- HFS outside killzone stays quiet when `hfs_require_killzone: true`
+- HFS Impulse/Momentum stay quiet outside killzone when `hfs_require_killzone: true`; range/breakout still print (Asia + post-overlap NY)
 - Stops past furthest envelope log `stop_exceeds_envelope_furthest_leg`
 
 ---
