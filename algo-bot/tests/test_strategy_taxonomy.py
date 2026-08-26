@@ -106,7 +106,7 @@ def test_range_strategies_bypass_opposing_structure_gates():
 
 def test_hfs_strategies_bypass_opposing_when_room_fits():
   from app.autotrade.strategy_taxonomy import (
-    CANONICAL_FAMILY_HFS,
+    CANONICAL_FAMILY_SCALP,
     HFS_STRATEGIES,
     is_hfs_strategy,
     match_bypasses_opposing_structure,
@@ -114,18 +114,27 @@ def test_hfs_strategies_bypass_opposing_when_room_fits():
 
   for name in HFS_STRATEGIES:
     assert is_hfs_strategy(name)
-    # HFS always bypasses — map opposing must not silence the scalp loop.
+    # M1 scalp always bypasses — map opposing must not silence the scalp loop.
     assert bypasses_opposing_structure_gates(name)
     assert bypasses_opposing_structure_gates(name, full_take_profit_pips=20)
-    assert canonical_family(name) == CANONICAL_FAMILY_HFS
+    assert canonical_family(name) == CANONICAL_FAMILY_SCALP
   assert is_hfs_strategy("HFS Custom Archetype")
+  assert bypasses_opposing_structure_gates(
+    "Range Sweep Scalp",
+    full_take_profit_pips=15,
+    family="scalp",
+    strategy_mode="scalp_m1",
+  )
   assert bypasses_opposing_structure_gates(
     "HFS Range Sweep",
     full_take_profit_pips=15,
     family="hfs",
     strategy_mode="hfs_scalp",
   )
-  # family/mode alone is enough for HFS; range still needs fitted room.
+  # family/mode alone is enough for M1 scalp; range still needs fitted room.
+  assert bypasses_opposing_structure_gates(
+    "Unknown", family="scalp", strategy_mode="scalp_m1",
+  )
   assert bypasses_opposing_structure_gates(
     "Unknown", family="hfs", strategy_mode="hfs_scalp",
   )
