@@ -84,7 +84,7 @@ def test_build_hfs_strategy_match_is_valid():
   match = build_hfs_strategy_match(
     _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
-  assert match.strategy == "HFS Range Sweep"
+  assert match.strategy == "Range Sweep Scalp"
   assert match.structural_source == "hfs"
   assert match.structural_kind == "demand"
   assert match.direction == "BUY"
@@ -92,8 +92,8 @@ def test_build_hfs_strategy_match_is_valid():
   assert match.targets_pips == (15, 25)
   # Clamped to expected_stop_pips=15 from trigger 4002 (not raw invalidation 3990).
   assert match.structure_swing == pytest.approx(4000.5)
-  assert match.family == "hfs"
-  assert match.strategy_mode == "hfs_scalp"
+  assert match.family == "scalp"
+  assert match.strategy_mode == "scalp_m1"
   assert _identity_ok(match)
   assert _valid_match(match)
 
@@ -182,6 +182,7 @@ def test_build_hfs_strategy_match_carries_execution_eligibility():
   )
   assert match.execution_eligibility is not None
   assert match.execution_eligibility.allowed is True
+  assert match.execution_eligibility.reason_code == "scalp_m1_eligible"
   assert match.execution_eligibility.direction == "BUY"
 
 

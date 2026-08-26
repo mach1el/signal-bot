@@ -433,6 +433,8 @@ def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
 
   assert uses_scalp_room_stop("HFS Range Sweep") is True
   assert uses_scalp_room_stop("HFS Breakout Retest") is True
+  assert uses_scalp_room_stop("Range Sweep Scalp") is True
+  assert uses_scalp_room_stop("Breakout Retest Scalp") is True
   assert uses_scalp_room_stop("Key Level Reaction") is False
 
   cfg = SimpleNamespace(

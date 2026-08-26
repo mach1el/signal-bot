@@ -1,5 +1,9 @@
 # Technique + HFS redefine (single delivery)
 
+> Naming note: live display names are now ``* Scalp`` (see
+> [`SCALP_UNIFY_M1_M5.md`](SCALP_UNIFY_M1_M5.md)). Legacy ``HFS *`` labels
+> remain accepted.
+
 One product contract for both lanes. London chart evidence informed this; the
 scope is **all sessions**.
 
