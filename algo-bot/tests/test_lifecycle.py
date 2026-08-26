@@ -202,11 +202,33 @@ async def test_channel_active_deduplicates(monkeypatch):
   delete.assert_awaited_once_with(msg)
 
 
+def test_telegram_handlers_not_double_registered_on_root_dispatcher():
+  """Root dp must not mirror nested router handlers (double /trade_modify)."""
+  from collections import Counter
+
+  names = [
+    handler.callback.__name__
+    for handler in wiring.registered_handlers("message")
+  ]
+  counts = Counter(names)
+  assert counts["handle_trade_modify"] == 1
+  assert counts["handle_trade_sl"] == 1
+  assert counts["handle_private_signal"] == 1
+
+  root_names = [
+    handler.callback.__name__
+    for handler in wiring.dp.observers["message"].handlers
+  ]
+  # Nested routers own the command handlers; root must not also list them.
+  assert "handle_trade_modify" not in root_names
+  assert "handle_private_signal" not in root_names
+
+
 @pytest.mark.asyncio
 async def test_handler_order_and_bare_pips_default_off(monkeypatch):
   dm_callbacks = [
     handler.callback.__name__
-    for handler in wiring.dp.observers["message"].handlers
+    for handler in wiring.registered_handlers("message")
   ]
   for name in (
     "handle_trade_reopen",
@@ -223,7 +245,7 @@ async def test_handler_order_and_bare_pips_default_off(monkeypatch):
 
   callbacks = [
     handler.callback.__name__
-    for handler in wiring.dp.observers["channel_post"].handlers
+    for handler in wiring.registered_handlers("channel_post")
   ]
   ordered = [
     "handle_channel_active",
