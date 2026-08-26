@@ -29,6 +29,7 @@ from app.scalping.models import (
   ARMED,
   DISCOVERED,
   EXECUTABLE,
+  EXPIRED,
   MISSED,
   OPPORTUNITY_VERSION,
   ScalpContextSnapshot,
@@ -619,6 +620,46 @@ def test_lifecycle_explicit_transitions():
   assert missed.state == MISSED
 
 
+def test_prune_stale_armed_expires_and_clears_active():
+  import asyncio
+
+  from app.scalping.lifecycle import prune_stale_active, save_lifecycle, active_key
+  from app.scalping.models import ScalpLifecycleRecord, ARMED
+
+  class _FakeRedis:
+    def __init__(self):
+      self.kv = {}
+      self.sets = {}
+
+    async def set(self, key, value):
+      self.kv[key] = value
+
+    async def get(self, key):
+      return self.kv.get(key)
+
+    async def sadd(self, key, member):
+      self.sets.setdefault(key, set()).add(member)
+
+    async def srem(self, key, member):
+      self.sets.setdefault(key, set()).discard(member)
+
+    async def smembers(self, key):
+      return set(self.sets.get(key, set()))
+
+  async def _run():
+    client = _FakeRedis()
+    rec = ScalpLifecycleRecord("oid1", "eid", ARMED, "ctx", updated_at=1_000)
+    await save_lifecycle(client, "XAU", rec)
+    assert "oid1" in client.sets[active_key("XAU")]
+    n = await prune_stale_active(client, "XAU", now=1_000 + 16 * 60)
+    assert n == 1
+    assert "oid1" not in client.sets.get(active_key("XAU"), set())
+    raw = await client.get("scalp:lifecycle:XAU:oid1")
+    assert "stale_armed_expired" in raw or EXPIRED in raw
+
+  asyncio.run(_run())
+
+
 def test_paper_same_bar_conservative_stop():
   opp = ScalpOpportunity(
     version=OPPORTUNITY_VERSION,
@@ -1045,17 +1086,17 @@ def test_momentum_ignition_rejects_insufficient_displacement():
 
 def test_momentum_ignition_rejects_mixed_direction():
   df = _thrust_bars(direction="SELL")
-  # Flip two of five bars bullish -- only 3 directional bars, under the
-  # 4-of-5 floor.
+  # Flip four of five bars bullish — only 1 directional SELL bar, under the
+  # default 2-bar floor.
   close_col = df.columns.get_loc("close")
-  df.iloc[1, close_col] = df.iloc[1]["open"] + 0.5
-  df.iloc[2, close_col] = df.iloc[2]["open"] + 0.5
+  for i in range(4):
+    df.iloc[i, close_col] = df.iloc[i]["open"] + 0.5
   ev = detect_momentum_ignition(df, direction="SELL", atr=1.0)
   assert ev is not None
   assert ev.get("rejected") is True
   assert ev["reason"] == "insufficient_directional_bars"
-  assert ev["directional_bars"] == 3
-  assert ev["min_directional_bars"] == 4
+  assert ev["directional_bars"] == 1
+  assert ev["min_directional_bars"] == 2
 
 
 def test_momentum_ignition_rejects_when_stalling():

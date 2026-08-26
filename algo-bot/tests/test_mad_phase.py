@@ -160,13 +160,17 @@ def test_evaluate_mad_for_cycle_unclear_without_bars():
   assert snap.phase == PHASE_UNCLEAR
 
 
-def test_mad_soft_bonus_accum_prefers_range():
-  from app.analysis.mad_phase import mad_soft_bonus, PHASE_ACCUM, PHASE_EXPAND
+def test_mad_soft_bonus_accum_only_for_range_edge():
+  from app.analysis.mad_phase import mad_soft_bonus, PHASE_ACCUM, PHASE_EXPAND, PHASE_MANIP
 
-  assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_sweep") >= 0.1
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_scalp") >= 0.1
   assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_edge") >= 0.1
-  assert mad_soft_bonus(phase=PHASE_EXPAND, family="impulse_pullback") >= 0.05
+  # MAD must not drive HFS / impulse / reaction / expand.
+  assert mad_soft_bonus(phase=PHASE_EXPAND, family="impulse_pullback") == 0.0
   assert mad_soft_bonus(phase=PHASE_ACCUM, family="impulse_pullback") == 0.0
+  assert mad_soft_bonus(phase=PHASE_MANIP, family="range_scalp") == 0.0
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_sweep") == 0.0
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="reaction") == 0.0
 
 
 def test_classify_building_asia_wide_rq_still_accum():

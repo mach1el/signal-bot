@@ -1,31 +1,29 @@
-# MAD — shared Asia phase (technique + HFS)
+# MAD — Asia phase clock (technique only)
 
-Demo runs **live**. MAD is a **symbol-level** phase clock shared by:
+Demo runs **live**. MAD is a **symbol-level** Asia phase clock.
 
-- Technique ZoneWatch / scanner detectors (Range Edge, Key Level, S/D, …)
-- HFS scalping archetypes
+## Owner rule (binding)
 
-Accumulation is treated as favorable for **range scalping** (Range Edge + HFS Range Sweep). Expansion / manipulation favor impulse-style setups (soft ranking in MAD-0; shadow gates in MAD-1).
+- MAD does **not** apply to HFS / scalping ranking or gates.
+- The **only** live MAD soft use is **`accum` → Range Edge Scalp** (technique confluence nudge).
+- `manip` / `expand` must not rank Impulse, Momentum, Range Sweep, Breakout, or reaction setups.
+
+HFS may still refresh Redis MAD for shared telemetry; it must not score or allow/block from it.
 
 ## Redis
 
 | Key | Meaning |
 |-----|---------|
 | `mad:asia_range:{SYMBOL}` | Building/sealed Asia high–low |
-| `mad:phase:{SYMBOL}` | Full phase payload (+ MAD-1 `features`, `would_gate`) |
-| `scalp:last_mad:{SYMBOL}` | HFS alias (same payload) |
-| `scalp:last_math_shadow:{SYMBOL}.mad` | Nested under HFS math sidecar |
-| `math_shadow.buy/sell.measured.mad_gates` | Per-strategy gate preview (MAD-1) |
+| `mad:phase:{SYMBOL}` | Phase payload (+ `features`, observe `would_gate`) |
+| `scalp:last_mad:{SYMBOL}` | Telemetry alias (not an HFS control input) |
 
-## Phase → soft affinity (MAD-0)
+## Soft affinity (live)
 
-| Phase | Prefers |
-|-------|---------|
-| `accum` | Range Edge Scalp, HFS Range Sweep (+ confluence / score) |
-| `manip` | Reactions + range (raid/reclaim) |
-| `expand` | Impulse / Momentum / breakout families |
-
-Hard allow/block is **not** changed in MAD-0/1 — soft boost + observe-only ``would_gate`` stamps.
+| Phase | Live use |
+|-------|----------|
+| `accum` | Soft confluence +1 on **Range Edge Scalp** only |
+| `manip` / `expand` / `unclear` | No soft favor |
 
 ## Phase rules
 
@@ -36,44 +34,20 @@ Hard allow/block is **not** changed in MAD-0/1 — soft boost + observe-only ``w
    - building Asia (unsealed): RQ 0.8–24.0 ATR (`asia_building_accum`)
 4. else **unclear**
 
-## MAD-1 shadow gates (observe-only)
+## Observe-only research
 
-Continuous scores in ``mad.features``: ``accum``, ``manip``, ``expand`` (0–1).
-
-``mad.would_gate`` previews MAD-4 rules without blocking publish:
-
-| Strategy family | Would block when |
-|-----------------|------------------|
-| Impulse / Momentum | phase ∉ {manip, expand} |
-| Range sweep / edge / liquidity sweep | phase = expand |
-
-## MAD-2 replay expectancy (observe-only)
-
-Offline counterfactual on the scalp replay lab — **does not change live publish**.
-
-1. Stamp phase from the event only: ``measured.mad.phase`` or ``measured.mad_phase`` (missing → ``unclear``). Never re-classify Asia offline.
-2. Paper-fill with existing math gates, then apply ``mad_hard_gate`` as a research filter (`mad_would_block` / `mad_kept` / `mad_filtered`).
-3. Report expectancy by ``phase × session × strategy``, plus Range / Impulse family baselines, with chronological development / validation / **holdout** splits. Never tune thresholds on holdout.
-
-```bash
-cd algo-bot
-.venv/bin/python -m app.scalping.mad_replay \
-  --fixture tests/scalping/fixtures/mad_lab_events.jsonl \
-  --output /tmp/mad2_report.json
-```
-
-Local tests: ``tests/scalping/test_mad_replay.py`` (not in CI allowlist).
+- `features` / `would_gate` on Redis are research stamps — not live HFS hard blocks.
+- Offline MAD-2 (`app.scalping.mad_replay`) is counterfactual research only.
 
 ## Code
 
-- `app/analysis/mad_phase.py` — seal, classify, features, ``mad_hard_gate``, Redis
-- `app/scalping/mad_replay.py` — MAD-2 phase×session expectancy (observe-only)
-- Scanner attaches `DetectionContext.mad_phase` every exec-TF cycle
-- HFS ranks with `mad_soft_bonus`; math shadow stamps ``mad_gates`` per strategy
+- `app/analysis/mad_phase.py` — seal, classify, features, Redis; `mad_soft_bonus` = accum→Range Edge only
+- Scanner attaches `DetectionContext.mad_phase` for technique detectors
+- HFS ranking does **not** call `mad_soft_bonus`
 
 ## Verify on demo after deploy
 
 ```bash
-redis-cli GET mad:phase:XAU | jq '.phase, .features, .would_gate'
-redis-cli GET scalp:last_math_shadow:XAU | jq '.mad.features, .buy.measured.mad_gates'
+redis-cli GET mad:phase:XAU | jq '.phase, .features'
+# Range Edge may show mad_accum in reasons when phase=accum; HFS scores must not.
 ```
