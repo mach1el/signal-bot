@@ -137,7 +137,7 @@ def test_hfs_chase_buy_books_full_market_not_micro_grid():
   assert plan.immediate_market is True
 
 
-def test_technique_fvg_uses_scalp_micro_grid():
+def test_technique_fvg_uses_single_leg_market():
   plan = resolve_execution_route_plan(
     direction="BUY",
     order_type_preference="market",
@@ -151,12 +151,10 @@ def test_technique_fvg_uses_scalp_micro_grid():
     strategy_family="zone",
   )
   assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert len(plan.planned_leg_entry_prices) == SCALP_MICRO_CLIPS
-  assert all(
-    pytest.approx(ratio, abs=1e-4) == 0.2
-    for ratio in plan.planned_leg_volume_ratios
-  )
+  assert plan.route == ROUTE_MARKET
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.immediate_market is True
+  assert plan.routing_reason == "technique: single-leg market (no micro-grid)"
 
 
 def test_key_level_reaction_is_not_forced_onto_scalp_grid():
