@@ -167,7 +167,7 @@ execution:
     enforce: true
     include_late_ny: true
     reaction_require_killzone: false
-    hfs_require_killzone: true
+    hfs_require_killzone: false
     require_sweep_body: false
     strict_premium_discount: true
   activation:
@@ -236,7 +236,7 @@ Optional:
 Technique / ZoneWatch smoke (after auto-trade is on):
 
 - ZoneWatches retain across spot wicks; invalidate on closed-bar break
-- HFS Impulse/Momentum stay quiet outside killzone when `hfs_require_killzone: true`; range/breakout still print (Asia + post-overlap NY)
+- HFS discovery permits follow enabled archetypes in every session; optional `hfs_require_killzone` only blocks publish/activation when explicitly on
 - Stops past furthest envelope log `stop_exceeds_envelope_furthest_leg`
 
 ---
