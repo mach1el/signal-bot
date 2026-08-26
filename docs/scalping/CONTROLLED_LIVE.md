@@ -12,7 +12,7 @@ Default policy is **disabled**. Do not enable until shadow + paper holdout are g
 | `maximum_daily_trades` | 12 | Caps vs live 30 |
 | `enabled` | `false` | Must flip explicitly |
 | `kill_switch` | `false` | Instant halt when true |
-| `session_allowlist` | london, overlap, ny_open | No Asia fade by default |
+| `session_allowlist` | asia, london, overlap, ny_open | Asia included (2026-08-26) |
 
 ## Promotion checklist
 
@@ -29,4 +29,4 @@ Default policy is **disabled**. Do not enable until shadow + paper holdout are g
 |------|-----------|
 | `shadow` | Existing HFS discover + math sidecar; no broker |
 | `paper` | Paper outcomes via `replay.evaluate_paper_outcome` |
-| `live` | Current HFS live path; math ControlledLivePolicy stays off until explicit enable |
+| `live` | Current HFS live path; math sidecar records observe-only (`scalp:last_math_shadow:*`); ControlledLivePolicy stays off until explicit enable |

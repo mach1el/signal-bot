@@ -117,10 +117,10 @@ def test_killzone_hour_matrix(hour: int, allowed: bool):
     assert decision.reason_code == "outside_killzone"
 
 
-def test_hfs_permitted_archetypes_empty_outside_killzone():
+def test_hfs_permitted_archetypes_include_asia_and_killzones():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
-  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session("rollover", hour=21, cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session(
@@ -129,9 +129,9 @@ def test_hfs_permitted_archetypes_empty_outside_killzone():
   assert permitted_archetypes_for_session("asia", hour=22, cfg=cfg) == _HFS_ALL
 
 
-def test_hfs_session_fallback_asia_empty_without_clock():
+def test_hfs_session_fallback_asia_allowed_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
 
 
