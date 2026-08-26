@@ -167,3 +167,59 @@ def test_mad_soft_bonus_accum_prefers_range():
   assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_edge") >= 0.1
   assert mad_soft_bonus(phase=PHASE_EXPAND, family="impulse_pullback") >= 0.05
   assert mad_soft_bonus(phase=PHASE_ACCUM, family="impulse_pullback") == 0.0
+
+
+def test_classify_building_asia_wide_rq_still_accum():
+  """Prod 2026-08-26: RQ ~17.8 inside unsealed Asia box should label accum."""
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=4673.73, low=4630.06,
+    sealed=False, sealed_at=None, bar_count=77,
+  )
+  snap = classify_mad_phase(
+    price=4642.0,
+    atr=2.45,
+    session="asia",
+    asia=asia,
+    m5_structure="range",
+  )
+  assert snap.phase == PHASE_ACCUM
+  assert snap.reason_code == "asia_building_accum"
+
+
+def test_compute_mad_features_and_hard_gate():
+  from app.analysis.mad_phase import (
+    MadPhaseSnapshot,
+    compute_mad_features,
+    enrich_mad_payload_for_shadow,
+    mad_hard_gate,
+  )
+
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=3410.0, low=3400.0,
+    sealed=True, sealed_at=1, bar_count=10,
+  )
+  accum_snap = MadPhaseSnapshot(
+    phase=PHASE_ACCUM,
+    asia=asia,
+    range_quality_atr=2.0,
+    price_vs_asia="inside",
+    sweep_side=None,
+    reclaim=False,
+    reason_code="asia_box_accum",
+    measured={"session": "asia"},
+  )
+  feats = compute_mad_features(accum_snap)
+  assert feats.accum >= 0.7
+  assert feats.manip < 0.5
+
+  impulse_gate = mad_hard_gate(phase=PHASE_ACCUM, strategy="impulse_pullback_continuation")
+  assert impulse_gate.would_block is True
+  assert impulse_gate.reason_code == "mad_gate_impulse_needs_manip_or_expand"
+
+  range_gate = mad_hard_gate(phase=PHASE_ACCUM, strategy="range_sweep")
+  assert range_gate.would_block is False
+
+  payload = enrich_mad_payload_for_shadow(accum_snap)
+  assert "features" in payload
+  assert "would_gate" in payload
+  assert "impulse_pullback_continuation" in payload["would_gate"]
