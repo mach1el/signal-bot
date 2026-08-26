@@ -1,0 +1,160 @@
+"""MAD-0 Asia range seal + phase classifier."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pandas as pd
+import pytest
+
+from app.scalping.mad_phase import (
+  PHASE_ACCUM,
+  PHASE_EXPAND,
+  PHASE_MANIP,
+  PHASE_UNCLEAR,
+  AsiaRangeSeal,
+  asia_day_key,
+  asia_window_bounds,
+  classify_mad_phase,
+  detect_asia_sweep_reclaim,
+  evaluate_mad_for_cycle,
+  update_asia_range_seal,
+)
+
+
+pytestmark = pytest.mark.no_database
+
+
+def _ts(year: int, month: int, day: int, hour: int, minute: int = 0) -> int:
+  return int(datetime(year, month, day, hour, minute, tzinfo=timezone.utc).timestamp())
+
+
+def _m5(rows: list[tuple[int, float, float, float, float]]) -> pd.DataFrame:
+  index = [pd.Timestamp(ts, unit="s", tz="UTC") for ts, *_ in rows]
+  return pd.DataFrame(
+    {
+      "open": [r[1] for r in rows],
+      "high": [r[2] for r in rows],
+      "low": [r[3] for r in rows],
+      "close": [r[4] for r in rows],
+    },
+    index=index,
+  )
+
+
+def test_asia_day_key_wraps_midnight():
+  # 03:00 UTC → Asia day started prior calendar evening (22:00).
+  assert asia_day_key(_ts(2026, 8, 26, 3)) == "2026-08-25"
+  assert asia_day_key(_ts(2026, 8, 25, 22, 30)) == "2026-08-25"
+  assert asia_day_key(_ts(2026, 8, 26, 10)) == "2026-08-25"
+
+
+def test_asia_window_bounds_overnight():
+  start, end = asia_window_bounds(_ts(2026, 8, 26, 3))
+  assert start == _ts(2026, 8, 25, 22)
+  assert end == _ts(2026, 8, 26, 7)
+
+
+def test_update_asia_range_builds_then_seals_after_asia():
+  rows = [
+    (_ts(2026, 8, 25, 22, 0), 3400.0, 3402.0, 3399.0, 3401.0),
+    (_ts(2026, 8, 25, 23, 0), 3401.0, 3405.0, 3400.0, 3404.0),
+    (_ts(2026, 8, 26, 2, 0), 3404.0, 3406.0, 3403.0, 3405.0),
+  ]
+  df = _m5(rows)
+  building = update_asia_range_seal(
+    None, df, now=_ts(2026, 8, 26, 2), session="asia",
+  )
+  assert building is not None
+  assert building.sealed is False
+  assert building.high == 3406.0
+  assert building.low == 3399.0
+
+  sealed = update_asia_range_seal(
+    building, df, now=_ts(2026, 8, 26, 8), session="london",
+  )
+  assert sealed is not None
+  assert sealed.sealed is True
+  assert sealed.sealed_at == _ts(2026, 8, 26, 8)
+
+
+def test_sweep_reclaim_high():
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=3405.0, low=3399.0,
+    sealed=True, sealed_at=1, bar_count=3,
+  )
+  side, reclaim = detect_asia_sweep_reclaim(3406.5, 3403.0, 3404.5, asia)
+  assert side == "high"
+  assert reclaim is True
+
+
+def test_classify_accum_inside_asia_box():
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=3410.0, low=3400.0,
+    sealed=False, sealed_at=None, bar_count=10,
+  )
+  # width 10 / atr 5 = 2.0 RQ → accum band
+  snap = classify_mad_phase(
+    price=3404.0,
+    atr=5.0,
+    session="asia",
+    asia=asia,
+    m5_structure="range",
+  )
+  assert snap.phase == PHASE_ACCUM
+  assert snap.reason_code == "asia_box_accum"
+
+
+def test_classify_manip_on_sweep_reclaim():
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=3410.0, low=3400.0,
+    sealed=True, sealed_at=1, bar_count=10,
+  )
+  snap = classify_mad_phase(
+    price=3409.0,
+    atr=5.0,
+    session="london",
+    asia=asia,
+    m5_structure="range",
+    bar_high=3412.0,
+    bar_low=3407.0,
+    bar_close=3409.0,
+  )
+  assert snap.phase == PHASE_MANIP
+  assert snap.sweep_side == "high"
+  assert snap.reclaim is True
+
+
+def test_classify_expand_on_accepted_break():
+  asia = AsiaRangeSeal(
+    day_key="2026-08-25", high=3410.0, low=3400.0,
+    sealed=True, sealed_at=1, bar_count=10,
+  )
+  snap = classify_mad_phase(
+    price=3413.0,  # 0.6 ATR beyond high
+    atr=5.0,
+    session="london",
+    asia=asia,
+    m5_structure="bullish",
+    bar_high=3413.5,
+    bar_low=3411.0,
+    bar_close=3413.0,
+  )
+  assert snap.phase == PHASE_EXPAND
+
+
+def test_evaluate_mad_for_cycle_unclear_without_bars():
+  seal, snap = evaluate_mad_for_cycle(
+    previous=None,
+    ohlc=pd.DataFrame(),
+    now=_ts(2026, 8, 26, 3),
+    session="asia",
+    price=3400.0,
+    atr=5.0,
+    m5_structure="range",
+    bar_high=None,
+    bar_low=None,
+    bar_close=None,
+  )
+  assert seal is None
+  assert snap.phase == PHASE_UNCLEAR
