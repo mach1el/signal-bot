@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from app.scalping.mad_phase import (
+from app.analysis.mad_phase import (
   PHASE_ACCUM,
   PHASE_EXPAND,
   PHASE_MANIP,
@@ -158,3 +158,12 @@ def test_evaluate_mad_for_cycle_unclear_without_bars():
   )
   assert seal is None
   assert snap.phase == PHASE_UNCLEAR
+
+
+def test_mad_soft_bonus_accum_prefers_range():
+  from app.analysis.mad_phase import mad_soft_bonus, PHASE_ACCUM, PHASE_EXPAND
+
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_sweep") >= 0.1
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="range_edge") >= 0.1
+  assert mad_soft_bonus(phase=PHASE_EXPAND, family="impulse_pullback") >= 0.05
+  assert mad_soft_bonus(phase=PHASE_ACCUM, family="impulse_pullback") == 0.0
