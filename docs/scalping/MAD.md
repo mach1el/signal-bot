@@ -47,9 +47,27 @@ Continuous scores in ``mad.features``: ``accum``, ``manip``, ``expand`` (0–1).
 | Impulse / Momentum | phase ∉ {manip, expand} |
 | Range sweep / edge / liquidity sweep | phase = expand |
 
+## MAD-2 replay expectancy (observe-only)
+
+Offline counterfactual on the scalp replay lab — **does not change live publish**.
+
+1. Stamp phase from the event only: ``measured.mad.phase`` or ``measured.mad_phase`` (missing → ``unclear``). Never re-classify Asia offline.
+2. Paper-fill with existing math gates, then apply ``mad_hard_gate`` as a research filter (`mad_would_block` / `mad_kept` / `mad_filtered`).
+3. Report expectancy by ``phase × session × strategy``, plus Range / Impulse family baselines, with chronological development / validation / **holdout** splits. Never tune thresholds on holdout.
+
+```bash
+cd algo-bot
+.venv/bin/python -m app.scalping.mad_replay \
+  --fixture tests/scalping/fixtures/mad_lab_events.jsonl \
+  --output /tmp/mad2_report.json
+```
+
+Local tests: ``tests/scalping/test_mad_replay.py`` (not in CI allowlist).
+
 ## Code
 
 - `app/analysis/mad_phase.py` — seal, classify, features, ``mad_hard_gate``, Redis
+- `app/scalping/mad_replay.py` — MAD-2 phase×session expectancy (observe-only)
 - Scanner attaches `DetectionContext.mad_phase` every exec-TF cycle
 - HFS ranks with `mad_soft_bonus`; math shadow stamps ``mad_gates`` per strategy
 
