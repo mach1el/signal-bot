@@ -57,9 +57,10 @@ killzone choke.
 
 ## Archetypes
 
-1. `range_sweep` — micro range edge false-break sweep/reclaim
-2. `impulse_pullback` — join displacement after pullback
-3. `breakout_retest` — accepted break + retest (evidence required for location bypass)
+1. `range_sweep` — micro range edge false-break sweep/reclaim (Asia + London/NY)
+2. `impulse_pullback` — join displacement after pullback (**London/NY killzones only**)
+3. `breakout_retest` — accepted break + retest (Asia + London/NY)
+4. `momentum_chase` — ignition chase (**London/NY killzones only**; off in Asia)
 
 ## Promotion criteria (shadow → paper)
 

@@ -61,8 +61,8 @@ From `config/trading-bot.yml` → `strategies.high_frequency_scalp`:
 |-----------|---------|
 | `range_sweep` (HFS Range Sweep) | **true** |
 | `breakout_retest` (HFS Breakout Retest) | **true** |
-| `impulse_pullback` | **false** (paused) |
-| `momentum_chase` | **false** |
+| `impulse_pullback` | **true** (London/NY killzones; excluded in Asia) |
+| `momentum_chase` | **true** (London/NY killzones; excluded in Asia) |
 
 Mode: `live`. Symbols: XAU / ladder-pip only (`context._hfs_symbols`).
 

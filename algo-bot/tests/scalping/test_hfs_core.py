@@ -145,11 +145,12 @@ def test_context_freshness():
 
 
 def test_asia_permits_enabled_archetypes_under_technique_pack():
-  """Owner 2026-08-26: Asia HFS allowed; Impulse still gated by archetype flags."""
+  """Asia: range/breakout only. Impulse/Momentum are London/NY killzone-only."""
   from types import SimpleNamespace
   from app.scalping.models import (
     ARCHETYPE_BREAKOUT_RETEST,
     ARCHETYPE_IMPULSE_PULLBACK,
+    ARCHETYPE_MOMENTUM_CHASE,
     ARCHETYPE_RANGE_SWEEP,
   )
   cfg = SimpleNamespace(
@@ -171,9 +172,9 @@ def test_asia_permits_enabled_archetypes_under_technique_pack():
       high_frequency_scalp=SimpleNamespace(
         archetypes=SimpleNamespace(
           range_sweep_enabled=True,
-          impulse_pullback_enabled=False,
+          impulse_pullback_enabled=True,
           breakout_retest_enabled=True,
-          momentum_chase_enabled=False,
+          momentum_chase_enabled=True,
         ),
       ),
     ),
@@ -182,14 +183,18 @@ def test_asia_permits_enabled_archetypes_under_technique_pack():
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_BREAKOUT_RETEST,
   )
+  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
+    "asia", hour=3, cfg=cfg,
+  )
+  assert ARCHETYPE_MOMENTUM_CHASE not in permitted_archetypes_for_session(
+    "asia", hour=3, cfg=cfg,
+  )
   assert permitted_archetypes_for_session("rollover", cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
-  )
-  # Impulse remains off via archetype flag even in Asia.
-  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
-    "asia", hour=3, cfg=cfg,
+    ARCHETYPE_MOMENTUM_CHASE,
   )
 
 

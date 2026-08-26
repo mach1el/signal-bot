@@ -20,6 +20,7 @@ from app.scalping.context import permitted_archetypes_for_session
 from app.scalping.models import (
   ARCHETYPE_BREAKOUT_RETEST,
   ARCHETYPE_IMPULSE_PULLBACK,
+  ARCHETYPE_MOMENTUM_CHASE,
   ARCHETYPE_RANGE_SWEEP,
 )
 
@@ -29,6 +30,12 @@ pytestmark = pytest.mark.no_database
 _HFS_ALL = (
   ARCHETYPE_RANGE_SWEEP,
   ARCHETYPE_IMPULSE_PULLBACK,
+  ARCHETYPE_BREAKOUT_RETEST,
+  ARCHETYPE_MOMENTUM_CHASE,
+)
+
+_HFS_ASIA = (
+  ARCHETYPE_RANGE_SWEEP,
   ARCHETYPE_BREAKOUT_RETEST,
 )
 
@@ -79,7 +86,7 @@ def _technique_cfg(
           range_sweep_enabled=True,
           impulse_pullback_enabled=True,
           breakout_retest_enabled=True,
-          momentum_chase_enabled=False,
+          momentum_chase_enabled=True,
         ),
       ),
     ),
@@ -119,19 +126,19 @@ def test_killzone_hour_matrix(hour: int, allowed: bool):
 
 def test_hfs_permitted_archetypes_include_asia_and_killzones():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == _HFS_ALL
-  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == _HFS_ASIA
+  assert permitted_archetypes_for_session("asia", hour=5, cfg=cfg) == _HFS_ASIA
   assert permitted_archetypes_for_session("rollover", hour=21, cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == _HFS_ALL
   assert permitted_archetypes_for_session(
     "london_ny_overlap", hour=14, cfg=cfg,
   ) == _HFS_ALL
-  assert permitted_archetypes_for_session("asia", hour=22, cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("asia", hour=22, cfg=cfg) == _HFS_ASIA
 
 
 def test_hfs_session_fallback_asia_allowed_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ASIA
   assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
 
 
