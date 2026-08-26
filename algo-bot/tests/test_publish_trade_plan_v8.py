@@ -1278,7 +1278,11 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
     current_price=4089.0,
     targets_pips=(20,),
     full_take_profit_pips=20,
-    structure_swing=4070.0,
+    # HFS room-synced envelope is ~15–20p. A 4070 swing + deep wick fails
+    # stop_exceeds_envelope_* and reds every PR CI on an unrelated stop
+    # check (master already red 2026-08-26). Keep swing/wick inside the
+    # envelope so this smoke only asserts opposing-structure bypass.
+    structure_swing=4087.9,
   )
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(
@@ -1304,10 +1308,7 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
     "XAU",
     spot,
     match,
-    # See test_range_edge_scalp_publishes_inside_opposing_structure: HFS's
-    # halved scalp envelope needs a shallower wick to avoid an unrelated
-    # stop_exceeds_envelope_after_wick rejection.
-    frames={"M1": _m1_trigger_bar(wick_depth=1.2)},
+    frames={"M1": _m1_trigger_bar(wick_depth=0.2)},
     market_map=market_map,
   )
   assert plan_id is not None
