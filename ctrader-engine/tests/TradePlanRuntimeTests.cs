@@ -261,6 +261,161 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task PartialUnknownClosePastStopPromotesSlAndKeepsManagingRemainingLeg()
+  {
+    // Production 2026-08-26 HFS Range Sweep v8:a80bf164…: L1 SL'd, deal
+    // lookup returned Unknown, L2 still open → GROUP RECOVERY REQUIRED
+    // stranded the scale-in leg. Live quote past the stop must classify L1
+    // as SL and keep managing L2.
+    const string planJson = """
+    {
+      "version": 8,
+      "plan_id": "v8:plan-partial-sl",
+      "thesis_id": "thesis-1",
+      "setup_id": "setup-1",
+      "symbol": "XAU",
+      "created_at": 1719999600,
+      "expires_at": 2000000000,
+      "analysis": {
+        "strategy": "HFS Range Sweep",
+        "strategy_family": "hfs",
+        "direction": "BUY",
+        "context_timeframes": ["M1"],
+        "formation_timeframe": "M1",
+        "confirmation_timeframe": "M1",
+        "formation_bar_ts": 1719999000,
+        "confirmation_bar_ts": 1719999600,
+        "score": 3.0,
+        "confluence": 3,
+        "bias": "range",
+        "regime": "range",
+        "reasons": ["lower_edge_sweep_reclaim"],
+        "tags": []
+      },
+      "source_structure": {
+        "structure_id": "demand:M1:4085.00:4089.50:1719990000",
+        "kind": "demand",
+        "timeframe": "M1",
+        "low": "4085.00",
+        "high": "4089.50",
+        "invalidation_price": "4082.50"
+      },
+      "entry": {
+        "type": "market_with_limit_scale",
+        "zone_low": "4085.00",
+        "zone_high": "4089.50",
+        "expires_at": 2000000000,
+        "legs": [
+          {"leg_id": "L1", "price": "4089.10", "volume_ratio": "0.80", "order_type": "market"},
+          {"leg_id": "L2", "price": "4085.00", "volume_ratio": "0.20", "order_type": "limit"}
+        ]
+      },
+      "stop": {
+        "type": "absolute",
+        "price": "4082.50",
+        "source": "m5_structure",
+        "structure_id": "demand:M1:4085.00:4089.50:1719990000",
+        "reason": "below distal"
+      },
+      "targets": [
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.5"},
+        {"target_id": "TP2", "type": "absolute", "price": "4095.00", "close_ratio": "0.5"}
+      ],
+      "risk": {
+        "risk_percent": "1.0",
+        "risk_multiplier": "1.0",
+        "max_volume": 100000,
+        "max_group_risk_percent": "2.0"
+      },
+      "sizing": {
+        "mode": "equity_table",
+        "table_version": "owner_equity_v1",
+        "entry_distribution": "zone_scale",
+        "leg_ratios": ["0.80", "0.20"]
+      },
+      "management": {
+        "be_after_target_id": null,
+        "be_buffer_ticks": 6,
+        "never_worsen_stop": true
+      },
+      "execution_policy": {
+        "allow_market": true,
+        "allow_limit": true,
+        "allow_partial_fill": true,
+        "cancel_on_expiry": true
+      },
+      "provenance": {
+        "analysis_engine_version": "",
+        "market_map_id": "",
+        "config_fingerprint": ""
+      }
+    }
+    """;
+    var store = new FakeV7Store();
+    store.EnqueuePlan(planJson);
+    var client = new FakeV7TradingClient
+    {
+      AccountEquity = 1_300m,
+      AccountBalance = 1_300m,
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+    };
+    var runtime = new TradePlanRuntime(
+      Options(), store, () => DateTimeOffset.UtcNow, _ => { }
+    );
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.00m, 4089.10m, 1), CancellationToken.None
+    );
+    var open = Assert.Single(runtime.TrackedStates);
+    var l2Order = Assert.Single(
+      open.Legs!, leg => leg.LegId == "L2"
+    ).BrokerOrderId!.Value;
+    client.FillPendingOrder(l2Order);
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4085.00m, 4085.10m, 2), CancellationToken.None
+    );
+    var filled = Assert.Single(runtime.TrackedStates);
+    Assert.Equal(TradePlanRuntimeStage.FullyOpen, filled.Stage);
+    var l1 = Assert.Single(filled.Legs!, leg => leg.LegId == "L1");
+    var l2 = Assert.Single(filled.Legs!, leg => leg.LegId == "L2");
+    Assert.NotNull(l1.BrokerPositionId);
+    Assert.NotNull(l2.BrokerPositionId);
+    Assert.NotEqual(l1.BrokerPositionId, l2.BrokerPositionId);
+
+    client.RemovePosition(l1.BrokerPositionId!.Value);
+    // Sweep past the protective stop — same shape as the live bid after SL.
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4081.80m, 4081.90m, 3), CancellationToken.None
+    );
+
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "warning"
+        && item.Message.Contains("RECOVERY REQUIRED", StringComparison.Ordinal)
+    );
+    var remaining = Assert.Single(runtime.TrackedStates);
+    Assert.NotEqual(TradePlanGroupStages.RecoveryRequired, remaining.GroupStage);
+    Assert.Equal(
+      TradePlanLegStages.Closed,
+      Assert.Single(remaining.Legs!, leg => leg.LegId == "L1").Stage
+    );
+    Assert.Equal(
+      PositionCloseReason.StopLossOrTakeProfit.ToString(),
+      Assert.Single(remaining.Legs!, leg => leg.LegId == "L1").LastError
+    );
+    Assert.Equal(
+      TradePlanLegStages.Filled,
+      Assert.Single(remaining.Legs!, leg => leg.LegId == "L2").Stage
+    );
+    Assert.Contains(
+      store.Events,
+      item => item.Type == "sl_moved"
+        && item.Message.Contains("PARTIALLY CLOSED by SL", StringComparison.Ordinal)
+    );
+  }
+
+  [Fact]
   public async Task DeferredTpTouchThenStopOutDoesNotArchiveTp()
   {
     // Production 2026-08-24: XAU BUY 4636.98, stop 4631.04. TP1 was
@@ -324,8 +479,10 @@ public sealed class TradePlanRuntimeTests
       store.Events, item => item.Type == "position_closed"
     );
     Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
-    Assert.Equal(4082.42m, closed.Price);
-    Assert.Equal(-66m, closed.GroupRealizedPips);
+    // Bid printed the continuing wick past the stop; book the protective
+    // stop, not the sweep (same rule as V6 ExitBeyondProtectiveStop).
+    Assert.Equal(4082.50m, closed.Price);
+    Assert.Equal(-65m, closed.GroupRealizedPips);
     Assert.Null(closed.TargetPips);
     Assert.Contains(
       "no TP archived", closed.Message, StringComparison.OrdinalIgnoreCase

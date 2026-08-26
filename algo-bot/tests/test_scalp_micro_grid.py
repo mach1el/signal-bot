@@ -36,7 +36,7 @@ def test_sell_grid_steps_up_from_quote_to_distal():
   assert legs == tuple(sorted(legs))
 
 
-def test_hfs_route_is_five_equal_clips_not_one_market():
+def test_hfs_route_is_single_leg_market_not_micro_grid():
   plan = resolve_execution_route_plan(
     direction="BUY",
     order_type_preference="market",
@@ -50,25 +50,24 @@ def test_hfs_route_is_five_equal_clips_not_one_market():
     strategy_family="hfs",
   )
   assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert len(plan.planned_leg_entry_prices) == SCALP_MICRO_CLIPS
-  assert pytest.approx(sum(plan.planned_leg_volume_ratios), abs=1e-6) == 1.0
-  assert all(
-    pytest.approx(ratio, abs=1e-4) == 0.2
-    for ratio in plan.planned_leg_volume_ratios
-  )
+  assert plan.route == ROUTE_MARKET
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.planned_leg_volume_ratios == ()
+  assert plan.planned_entry_price == 4004.0
+  assert plan.immediate_market is True
+  assert plan.routing_reason == "scalp: single-leg market (no micro-grid)"
 
 
 @pytest.mark.parametrize(
-  ("direction", "expected_prices"),
+  ("direction", "quote"),
   [
-    ("BUY", (4004.0, 4000.0)),
-    ("SELL", (4001.0, 4005.0)),
+    ("BUY", 4004.0),
+    ("SELL", 4001.0),
   ],
 )
-def test_xau_auto_route_uses_configured_shallow_80_deep_20(
+def test_xau_hfs_auto_route_is_single_leg_market(
   direction: str,
-  expected_prices: tuple[float, float],
+  quote: float,
 ):
   from tests.test_config_effective_instrument_context import (
     _load_production_example,
@@ -80,7 +79,7 @@ def test_xau_auto_route_uses_configured_shallow_80_deep_20(
     direction=direction,
     order_type_preference="market",
     entry_distribution="single",
-    executable_quote=4004.0 if direction == "BUY" else 4001.0,
+    executable_quote=quote,
     zone_low=4000.0,
     zone_high=4005.0,
     atr=4.0,
@@ -91,10 +90,9 @@ def test_xau_auto_route_uses_configured_shallow_80_deep_20(
   )
 
   assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert plan.planned_leg_entry_prices == expected_prices
-  assert plan.planned_leg_volume_ratios == (0.8, 0.2)
-  assert plan.routing_reason == "two-clip grid: shallow/deep volume split"
+  assert plan.route == ROUTE_MARKET
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.routing_reason == "scalp: single-leg market (no micro-grid)"
 
 
 def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():
@@ -139,7 +137,7 @@ def test_hfs_chase_buy_books_full_market_not_micro_grid():
   assert plan.immediate_market is True
 
 
-def test_technique_fvg_uses_scalp_micro_grid():
+def test_technique_fvg_uses_single_leg_market():
   plan = resolve_execution_route_plan(
     direction="BUY",
     order_type_preference="market",
@@ -153,12 +151,10 @@ def test_technique_fvg_uses_scalp_micro_grid():
     strategy_family="zone",
   )
   assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert len(plan.planned_leg_entry_prices) == SCALP_MICRO_CLIPS
-  assert all(
-    pytest.approx(ratio, abs=1e-4) == 0.2
-    for ratio in plan.planned_leg_volume_ratios
-  )
+  assert plan.route == ROUTE_MARKET
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.immediate_market is True
+  assert plan.routing_reason == "technique: single-leg market (no micro-grid)"
 
 
 def test_key_level_reaction_is_not_forced_onto_scalp_grid():

@@ -151,20 +151,10 @@ def _fx_match(symbol: str = "EURUSD") -> StrategyMatch:
   )
 
 
-@pytest.mark.parametrize(
-  ("direction", "expected_prices"),
-  [
-    ("BUY", (1.1002, 1.1000)),
-    ("SELL", (1.1002, 1.1004)),
-  ],
-)
-def test_fx_technique_route_uses_shallow_80_deep_20(
-  direction: str,
-  expected_prices: tuple[float, float],
-):
+@pytest.mark.parametrize("direction", ["BUY", "SELL"])
+def test_fx_technique_route_is_single_leg_market(direction: str):
   from app.autotrade.execution_route import (
-    ROUTE_MARKET_WITH_LIMIT_SCALE,
-    SCALP_MICRO_CLIPS,
+    ROUTE_MARKET,
     resolve_execution_route_plan,
   )
 
@@ -183,15 +173,14 @@ def test_fx_technique_route_uses_shallow_80_deep_20(
     entry_clips=2,
   )
   assert plan.valid is True
-  assert plan.route == ROUTE_MARKET_WITH_LIMIT_SCALE
-  assert plan.planned_leg_entry_prices == expected_prices
-  assert len(plan.planned_leg_entry_prices) != SCALP_MICRO_CLIPS
-  assert pytest.approx(sum(plan.planned_leg_volume_ratios), abs=1e-6) == 1.0
-  assert plan.planned_leg_volume_ratios == (0.8, 0.2)
-  assert plan.routing_reason == "two-clip grid: shallow/deep volume split"
+  assert plan.route == ROUTE_MARKET
+  assert plan.planned_leg_entry_prices == ()
+  assert plan.planned_leg_volume_ratios == ()
+  assert plan.immediate_market is True
+  assert plan.routing_reason == "technique: single-leg market (no micro-grid)"
 
 
-def test_fx_auto_plan_transports_shallow_80_deep_20_to_executor():
+def test_fx_auto_plan_books_single_leg_market_for_fvg():
   cfg = _load_production_example().config
   match = replace(_fx_match(), strategy="FVG", family="zone")
   evaluation = evaluate_execution_policy(
@@ -203,13 +192,14 @@ def test_fx_auto_plan_transports_shallow_80_deep_20_to_executor():
     cfg=cfg,
   )
   assert evaluation.allowed is True
-  assert evaluation.measured["planned_leg_volume_ratios"] == [0.8, 0.2]
+  assert evaluation.measured["planned_execution_route"] == "market"
+  assert evaluation.measured.get("planned_leg_volume_ratios") in (None, [], ())
 
   plan = build_trade_plan_from_strategy_match(
     match,
-    plan_id="fx-fvg-80-20-plan",
-    setup_id="fx-fvg-80-20-setup",
-    thesis_id="fx-fvg-80-20-thesis",
+    plan_id="fx-fvg-single-plan",
+    setup_id="fx-fvg-single-setup",
+    thesis_id="fx-fvg-single-thesis",
     pip_size=Decimal("0.0001"),
     spot_price=match.current_price,
     executable_quote=match.current_price,
@@ -218,11 +208,8 @@ def test_fx_auto_plan_transports_shallow_80_deep_20_to_executor():
     max_volume=100_000_000,
     approved_measured=evaluation.measured,
   )
-  assert [leg.volume_ratio for leg in plan.entry.legs] == [
-    Decimal("0.8"),
-    Decimal("0.2"),
-  ]
-  assert plan.entry.legs[0].price > plan.entry.legs[1].price
+  assert plan.entry.type == "market"
+  assert plan.entry.legs == ()
 
 
 def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
