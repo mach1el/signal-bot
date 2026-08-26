@@ -144,8 +144,8 @@ def test_context_freshness():
   assert not is_context_fresh(snap, snap.m5_bar_ts + 1000, 420)
 
 
-def test_asia_empty_outside_killzone_under_technique_pack():
-  """Owner 2026-08-10: HFS archetypes only inside killzone (not all of Asia)."""
+def test_asia_permits_enabled_archetypes_under_technique_pack():
+  """Asia: range/breakout only. Impulse/Momentum are London/NY killzone-only."""
   from types import SimpleNamespace
   from app.scalping.models import (
     ARCHETYPE_BREAKOUT_RETEST,
@@ -174,17 +174,27 @@ def test_asia_empty_outside_killzone_under_technique_pack():
           range_sweep_enabled=True,
           impulse_pullback_enabled=True,
           breakout_retest_enabled=True,
-          momentum_chase_enabled=False,
+          momentum_chase_enabled=True,
         ),
       ),
     ),
   )
-  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == ()
+  assert permitted_archetypes_for_session("asia", hour=3, cfg=cfg) == (
+    ARCHETYPE_RANGE_SWEEP,
+    ARCHETYPE_BREAKOUT_RETEST,
+  )
+  assert ARCHETYPE_IMPULSE_PULLBACK not in permitted_archetypes_for_session(
+    "asia", hour=3, cfg=cfg,
+  )
+  assert ARCHETYPE_MOMENTUM_CHASE not in permitted_archetypes_for_session(
+    "asia", hour=3, cfg=cfg,
+  )
   assert permitted_archetypes_for_session("rollover", cfg=cfg) == ()
   assert permitted_archetypes_for_session("london", hour=8, cfg=cfg) == (
     ARCHETYPE_RANGE_SWEEP,
     ARCHETYPE_IMPULSE_PULLBACK,
     ARCHETYPE_BREAKOUT_RETEST,
+    ARCHETYPE_MOMENTUM_CHASE,
   )
 
 
