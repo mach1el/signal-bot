@@ -178,6 +178,79 @@ def test_same_direction_stack_flag_when_allowed_for_scalp():
 
 
 @pytest.mark.asyncio
+async def test_recovery_required_fully_open_is_not_live_exposure():
+  """Live 2026-08-26: unknown_leg_close left FullyOpen and locked HFS concurrent."""
+  class FakeRedis:
+    async def get(self, key: str):
+      if key == "execution:trade_plan_runtime_ids":
+        return b"v8:a80bf164b1f8e2d4de2dd710ebe0e9db"
+      if key == "execution:plan_runtime:v8:a80bf164b1f8e2d4de2dd710ebe0e9db":
+        return json.dumps({
+          "PlanId": "v8:a80bf164b1f8e2d4de2dd710ebe0e9db",
+          "SetupId": "a80bf164b1f8e2d4de2dd710ebe0e9db",
+          "Symbol": "XAU",
+          "Direction": "BUY",
+          "Stage": "FullyOpen",
+          "GroupStage": "recovery_required",
+          "TerminalReason": "unknown_leg_close",
+          "GroupWeightedFillPrice": 4642.018,
+          "TotalFilledVolume": 1500,
+          "RemainingVolume": 300,
+          "HighestBookedTargetIndex": -1,
+        }).encode()
+      return None
+
+    async def smembers(self, key: str):
+      return set()
+
+  exposures = await load_active_exposures(FakeRedis(), symbol="XAU")
+  assert exposures == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_leg_close_fully_open_excluded_even_without_group_stage():
+  class FakeRedis:
+    async def get(self, key: str):
+      if key == "execution:trade_plan_runtime_ids":
+        return b"v8:ghost"
+      if key == "execution:plan_runtime:v8:ghost":
+        return json.dumps({
+          "PlanId": "v8:ghost",
+          "SetupId": "ghost",
+          "Symbol": "XAU",
+          "Direction": "BUY",
+          "Stage": "FullyOpen",
+          "GroupStage": "fully_open",
+          "TerminalReason": "unknown_leg_close",
+          "GroupWeightedFillPrice": 4642.0,
+          "TotalFilledVolume": 100,
+          "RemainingVolume": 100,
+        }).encode()
+      return None
+
+    async def smembers(self, key: str):
+      return set()
+
+  exposures = await load_active_exposures(FakeRedis(), symbol="XAU")
+  assert exposures == []
+
+
+def test_is_non_live_trade_plan_helpers():
+  from app.autotrade.active_exposure import _is_non_live_trade_plan
+
+  assert _is_non_live_trade_plan(
+    stage="FullyOpen",
+    group_stage="recovery_required",
+    terminal_reason="unknown_leg_close",
+  )
+  assert not _is_non_live_trade_plan(
+    stage="FullyOpen",
+    group_stage="fully_open",
+    terminal_reason=None,
+  )
+
+
+@pytest.mark.asyncio
 async def test_load_trade_plan_exposures_reads_pascal_case_runtime_json():
   class FakeRedis:
     async def get(self, key: str):
