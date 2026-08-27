@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `b81aae5175b0401e2d8e2bfb917fcddc3d2f3a1cfd7e6a2c3a4937ff5d04fe3b`
-- Document fingerprint: `84a3e10b4829e09997b60377b9a4e2b3ebaf255ecf5ec57636a1713db9e668b6`
-- Items: `532`
+- Contract fingerprint: `8b37d428a86adad3fd3a503ac77b926f6b0e096c2d4e338aaf7a3f8000b0f6ad`
+- Document fingerprint: `501f0daf42bb649d2ffe96841f5807bf9fb331ad6421cb5d92ef2ff3f3da2c5f`
+- Items: `540`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -497,9 +497,17 @@
 | `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
+| `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.archetypes.momentum_chase_enabled` | `HFS_MOMENTUM_CHASE_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.breakout.box_max_atr` | `HFS_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
+| `strategies.high_frequency_scalp.breakout.max_box_bars` | `HFS_BREAKOUT_MAX_BOX_BARS` | `int` | `bars` | `configurable` | `20` |
+| `strategies.high_frequency_scalp.breakout.min_box_bars` | `HFS_BREAKOUT_MIN_BOX_BARS` | `int` | `bars` | `configurable` | `8` |
+| `strategies.high_frequency_scalp.breakout.min_break_atr` | `HFS_BREAKOUT_MIN_BREAK_ATR` | `float` | `atr` | `configurable` | `0.25` |
+| `strategies.high_frequency_scalp.breakout.min_touches_per_side` | `HFS_BREAKOUT_MIN_TOUCHES_PER_SIDE` | `int` | `count` | `configurable` | `2` |
+| `strategies.high_frequency_scalp.breakout.require_retest_rejection` | `HFS_BREAKOUT_REQUIRE_RETEST_REJECTION` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.breakout.retest_lookback_bars` | `HFS_BREAKOUT_RETEST_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `5` |
+| `strategies.high_frequency_scalp.breakout.touch_tol_atr` | `HFS_BREAKOUT_TOUCH_TOL_ATR` | `float` | `atr` | `configurable` | `0.2` |
 | `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `3600` |
 | `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
 | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `HFS_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |

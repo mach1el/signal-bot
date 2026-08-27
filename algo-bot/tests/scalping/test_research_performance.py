@@ -7,6 +7,7 @@ import pytest
 from app.scalping.models import (
   ARCHETYPE_BREAKOUT_RETEST,
   ARCHETYPE_IMPULSE_PULLBACK,
+  ARCHETYPE_MOMENTUM_CHASE,
   ARCHETYPE_RANGE_SWEEP,
   OPPORTUNITY_VERSION,
   ScalpOpportunity,
@@ -99,8 +100,29 @@ def test_range_sweep_counterfactual_does_not_block_identity():
   assert stamped.reasons == ("test",)
 
 
-def test_breakout_stamps_no_math_model_yet():
-  stamped = _stamp(_opp(archetype=ARCHETYPE_BREAKOUT_RETEST))
+def test_breakout_stamps_math_model():
+  stamped = _stamp(
+    _opp(
+      archetype=ARCHETYPE_BREAKOUT_RETEST,
+      measured={
+        "compression_box": {"box_low": 3990.0, "box_high": 4010.0},
+        "breakout_evidence": {
+          "accepted_break": True,
+          "retest_rejection": True,
+          "break_displacement": 3.0,
+          "state": "armed",
+        },
+      },
+    )
+  )
+  cf = stamped.measured["math_counterfactual"]
+  assert cf["math_model"] == "breakout_retest_continuation"
+  assert cf["allowed"] in {True, False}
+  assert stamped.measured["math_agree"] is not None
+
+
+def test_momentum_stamps_no_math_model_yet():
+  stamped = _stamp(_opp(archetype=ARCHETYPE_MOMENTUM_CHASE))
   cf = stamped.measured["math_counterfactual"]
   assert cf["reason_code"] == "no_math_model_yet"
   assert cf["allowed"] is None
