@@ -1737,6 +1737,7 @@ async def test_session_bootstrap_batches_startup_into_one_message():
 
   assert len(calls) == 1
   assert "Engine ready" in calls[0]
+  assert "Balance <b>$924.87</b>" in calls[0]
   assert "token grants live account 44669326" in calls[0]
   assert "configuration health healthy" in calls[0]
   assert "hedged two-sided" in calls[0]
@@ -1765,6 +1766,7 @@ async def test_session_bootstrap_notify_dedupes_ready_spam():
   ) is True
   assert len(calls) == 1
   assert "Engine ready" in calls[0]
+  assert "Balance <b>$924.87</b>" in calls[0]
   assert await delivery._deliver_auto_trade_event(
     client, event, profile="internal", chat_id=123, send=sent,
   ) is False
