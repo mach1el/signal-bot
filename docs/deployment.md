@@ -167,6 +167,7 @@ execution:
     enforce: true
     include_late_ny: true
     reaction_require_killzone: false
+    reaction_require_publish_window: false
     hfs_require_killzone: false
     require_sweep_body: false
     strict_premium_discount: true
