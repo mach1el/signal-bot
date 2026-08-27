@@ -21,6 +21,7 @@ from app.scalping.microstructure import (
   detect_momentum_ignition,
   detect_sweep_reclaim,
   build_micro_structure,
+  find_compression_box,
   macro_momentum_direction,
 )
 from app.scalping.models import (
@@ -54,6 +55,16 @@ def _cfg(**overrides):
       impulse_pullback_enabled=True,
       breakout_retest_enabled=True,
       momentum_chase_enabled=False,
+    ),
+    breakout=SimpleNamespace(
+      box_max_atr=1.5,
+      min_break_atr=0.25,
+      min_box_bars=8,
+      max_box_bars=20,
+      retest_lookback_bars=5,
+      require_retest_rejection=True,
+      min_touches_per_side=2,
+      touch_tol_atr=0.20,
     ),
     context=SimpleNamespace(
       maximum_m5_age_seconds=420,
@@ -299,28 +310,20 @@ def test_breakout_without_retest_waits():
 
 
 def _breakout_retest_touch_two_bars_back_df():
-  # detect_breakout_retest requires len(df) >= 5, and its break-scan only
-  # looks at the last 3 rows - two leading filler bars keep the minimum
-  # length without affecting which bar is "the break". Break is bar -3.
-  # Bar -2 is the actual retest touch (dips back to the level) but isn't
-  # the newest bar. Bar -1 (newest) has already moved back above and holds
-  # there with a bullish close, but its own low never touches the level -
-  # only a wider lookback recovers the bar -2 touch.
+  # Break at bar -3, rejection retest at bar -2 (wick through level, close
+  # reclaim above), hold at bar -1 above the level without another touch.
   idx = pd.date_range("2026-07-01 10:00", periods=5, freq="1min", tz="UTC")
   return pd.DataFrame({
-    "open":  [4049.0, 4050.0, 4051.0, 4054.0, 4054.8],
-    "high":  [4051.0, 4052.0, 4059.0, 4056.0, 4056.0],
+    "open":  [4049.0, 4050.0, 4051.0, 4056.0, 4054.8],
+    "high":  [4051.0, 4052.0, 4059.0, 4056.5, 4056.0],
     "low":   [4047.0, 4048.0, 4050.0, 4053.0, 4055.2],
-    "close": [4050.0, 4051.0, 4057.0, 4054.0, 4055.5],
+    "close": [4050.0, 4051.0, 4057.0, 4055.5, 4055.5],
     "volume": [1] * 5,
   }, index=idx)
 
 
 def test_breakout_retest_lookback_bars_1_misses_prior_bar_touch():
-  """2026-08-23 dig: the retest touch only ever checked the newest bar -
-  a genuine break-then-pullback happening 2 bars ago (bar 2 here) was
-  invisible when the newest bar had already moved on without touching
-  again itself. Default lookback (1) reproduces that original blind spot."""
+  """Newest-bar-only lookback misses the prior rejection retest."""
   df = _breakout_retest_touch_two_bars_back_df()
   result = detect_breakout_retest(
     df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
@@ -331,16 +334,14 @@ def test_breakout_retest_lookback_bars_1_misses_prior_bar_touch():
 
 
 def test_breakout_retest_lookback_bars_2_recovers_prior_bar_touch():
-  """Same bars as above, wider lookback recovers the bar-2 touch. The
-  reclaim signal itself still comes from the newest bar's own close/open -
-  only the touch precondition looks back, so this isn't firing off a
-  stale bar."""
+  """Wider lookback recovers the prior rejection; hold is newest close."""
   df = _breakout_retest_touch_two_bars_back_df()
   hit = detect_breakout_retest(
     df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
     retest_lookback_bars=2,
   )
   assert hit is not None
+  assert hit["state"] == "armed"
   assert hit["pattern"] == "breakout_retest"
   assert hit["direction"] == "BUY"
   assert hit["close"] == pytest.approx(4055.5)
@@ -348,8 +349,7 @@ def test_breakout_retest_lookback_bars_2_recovers_prior_bar_touch():
 
 
 def test_breakout_retest_still_invalidates_on_current_bar_failed_hold():
-  """A stale touch further back must not resurrect a candidate the
-  newest bar has since invalidated by closing back below the level."""
+  """A stale rejection must not resurrect a candidate that failed hold."""
   df = _breakout_retest_touch_two_bars_back_df()
   df = df.copy()
   df.iloc[-1, df.columns.get_loc("close")] = 4053.0  # closed back below 4055
@@ -358,13 +358,37 @@ def test_breakout_retest_still_invalidates_on_current_bar_failed_hold():
     df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
     retest_lookback_bars=2,
   )
-  assert result is None
+  assert result is not None
+  assert result.get("state") == "failed_break"
+
+
+def test_breakout_requires_rejection_not_touch_only():
+  """Touch that closes back into the box is not a rejection retest."""
+  idx = pd.date_range("2026-07-01 10:00", periods=5, freq="1min", tz="UTC")
+  df = pd.DataFrame({
+    "open":  [4049.0, 4050.0, 4051.0, 4054.0, 4054.8],
+    "high":  [4051.0, 4052.0, 4059.0, 4056.0, 4056.0],
+    "low":   [4047.0, 4048.0, 4050.0, 4053.0, 4055.2],
+    "close": [4050.0, 4051.0, 4057.0, 4054.0, 4055.5],  # bar -2 closes below level
+    "volume": [1] * 5,
+  }, index=idx)
+  waiting = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=2, require_retest_rejection=True,
+  )
+  assert waiting is not None
+  assert waiting.get("state") == "wait_retest"
+  # Touch-only mode still arms when hold is valid.
+  hit = detect_breakout_retest(
+    df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
+    retest_lookback_bars=2, require_retest_rejection=False,
+  )
+  assert hit is not None
+  assert hit.get("state") == "armed"
 
 
 def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
-  """Wiring check only - uses a df that stays in wait_retest for both
-  directions (never reaches opportunity construction) so the fixture
-  doesn't need the full ScalpContextSnapshot surface."""
+  """Wiring check — uses wait_retest path so full opportunity surface unused."""
   from app.scalping import strategies as strat_mod
   from app.scalping.models import ARCHETYPE_BREAKOUT_RETEST
 
@@ -373,9 +397,22 @@ def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
 
   def _spy(*args, **kwargs):
     captured["retest_lookback_bars"] = kwargs.get("retest_lookback_bars")
+    captured["box_high"] = kwargs.get("box_high")
+    captured["box_low"] = kwargs.get("box_low")
     return original(*args, **kwargs)
 
   monkeypatch.setattr(strat_mod, "detect_breakout_retest", _spy)
+  monkeypatch.setattr(
+    strat_mod,
+    "find_compression_box",
+    lambda *a, **k: {
+      "box_low": 4040.0,
+      "box_high": 4055.0,
+      "box_bars": 10,
+      "compression_atr": 0.8,
+      "touch_count": 6,
+    },
+  )
   cfg = _cfg()
   idx = pd.date_range("2026-07-01 10:00", periods=6, freq="1min", tz="UTC")
   df = pd.DataFrame({
@@ -386,8 +423,8 @@ def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
     "volume": [1] * 6,
   }, index=idx)
   context = SimpleNamespace(
-    active_range_low=4040.0,
-    active_range_high=4055.0,
+    active_range_low=4000.0,  # envelope must NOT be used
+    active_range_high=4200.0,
     atr=2.0,
     symbol="XAU",
     permitted_archetypes={ARCHETYPE_BREAKOUT_RETEST},
@@ -395,45 +432,42 @@ def test_discover_breakout_retest_passes_configured_lookback(monkeypatch):
   strat_mod.discover_breakout_retest(
     context, micro=None, m1_df=df, cfg=cfg, pip_size=0.1, now=1_780_000_000,
   )
-  assert captured["retest_lookback_bars"] == 4
+  assert captured["retest_lookback_bars"] == 5
+  assert captured["box_high"] == 4055.0
+  assert captured["box_low"] == 4040.0
 
 
 def test_breakout_retest_recovers_break_older_than_three_bars():
-  """2026-08-25 dig: hard-coded 3-bar break scan missed breaks 4–8 M1
-  bars earlier — the archetype never discovered on XAU. Default break
-  lookback (8) recovers a break at bar -5 with a later retest hold."""
+  """Default break lookback recovers a break at bar -5 with later rejection."""
   idx = pd.date_range("2026-07-01 10:00", periods=8, freq="1min", tz="UTC")
   # bar -5 (index 2): accepted BUY break above 4055
-  # bar -2: retest touch back to level
-  # bar -1: hold above with mixed/bearish body (close still >= level)
+  # bar -1: rejection (low touches level) + hold above
   df = pd.DataFrame({
-    "open":  [4049.0, 4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4055.5, 4056.2],
-    "high":  [4051.0, 4052.0, 4060.0, 4059.0, 4058.0, 4057.0, 4056.0, 4056.5],
-    "low":   [4047.0, 4048.0, 4050.0, 4055.5, 4055.0, 4054.5, 4053.0, 4055.0],
-    "close": [4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4055.5, 4054.0, 4055.8],
+    "open":  [4049.0, 4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4056.5, 4055.2],
+    "high":  [4051.0, 4052.0, 4060.0, 4059.0, 4058.0, 4057.0, 4057.0, 4056.5],
+    "low":   [4047.0, 4048.0, 4050.0, 4055.5, 4055.0, 4055.2, 4055.1, 4054.5],
+    "close": [4050.0, 4051.0, 4058.0, 4057.0, 4056.0, 4055.8, 4056.0, 4055.8],
     "volume": [1] * 8,
   }, index=idx)
-  # Old 3-bar window cannot see the break at index 2
   missed = detect_breakout_retest(
     df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
     retest_lookback_bars=4, break_lookback_bars=3,
   )
   assert missed is not None
-  assert missed.get("state") == "wait_retest"
+  assert missed.get("state") == "wait_break"
   hit = detect_breakout_retest(
     df, direction="BUY", box_high=4055.0, box_low=4040.0, min_displacement=1.0,
     retest_lookback_bars=4,
   )
   assert hit is not None
+  assert hit.get("state") == "armed"
   assert hit.get("pattern") == "breakout_retest"
   assert hit["close"] == pytest.approx(4055.8)
 
 
 def test_breakout_retest_hold_allows_mixed_body_above_level():
-  """Hold is close-beyond-level only — a mixed body that still closes above
-  resistance must not kill a valid BUY retest."""
+  """Hold is close-beyond-level only — mixed body above still arms."""
   df = _breakout_retest_touch_two_bars_back_df().copy()
-  # Newest bar: open above close (bearish body) but close still >= 4055
   df.iloc[-1, df.columns.get_loc("open")] = 4056.5
   df.iloc[-1, df.columns.get_loc("close")] = 4055.2
   df.iloc[-1, df.columns.get_loc("high")] = 4056.8
@@ -443,7 +477,65 @@ def test_breakout_retest_hold_allows_mixed_body_above_level():
     retest_lookback_bars=2,
   )
   assert hit is not None
+  assert hit["state"] == "armed"
   assert hit["pattern"] == "breakout_retest"
+
+
+def test_find_compression_box_accepts_tight_multi_touch():
+  idx = pd.date_range("2026-07-01 10:00", periods=14, freq="1min", tz="UTC")
+  # 10-bar coil ~1.0 wide, then expansion bars after the box.
+  opens = [4050.0] * 10 + [4051.0, 4052.0, 4054.0, 4056.0]
+  highs = [4050.5, 4050.8, 4051.0, 4050.6, 4051.0, 4050.7, 4051.0, 4050.9, 4051.0, 4050.5,
+           4053.0, 4055.0, 4057.0, 4058.0]
+  lows = [4049.5, 4049.2, 4049.0, 4049.4, 4049.0, 4049.3, 4049.0, 4049.1, 4049.0, 4049.5,
+          4050.5, 4051.0, 4053.0, 4055.0]
+  closes = [4050.0] * 10 + [4052.0, 4054.0, 4056.0, 4057.0]
+  df = pd.DataFrame({
+    "open": opens, "high": highs, "low": lows, "close": closes, "volume": [1] * 14,
+  }, index=idx)
+  box = find_compression_box(
+    df, atr=2.0, min_box_bars=8, max_box_bars=12, box_max_atr=1.5, min_touches_per_side=2,
+  )
+  assert box is not None
+  assert box["box_high"] - box["box_low"] <= 1.5 * 2.0
+  assert box["touch_count"] >= 4
+
+
+def test_find_compression_box_rejects_wide_envelope():
+  idx = pd.date_range("2026-07-01 10:00", periods=12, freq="1min", tz="UTC")
+  # Expanding swing — like a 24-bar M5 envelope on M1.
+  df = pd.DataFrame({
+    "open": list(range(4000, 4012)),
+    "high": list(range(4002, 4014)),
+    "low": list(range(3998, 4010)),
+    "close": list(range(4001, 4013)),
+    "volume": [1] * 12,
+  }, index=idx)
+  box = find_compression_box(
+    df, atr=2.0, min_box_bars=8, max_box_bars=12, box_max_atr=1.5, min_touches_per_side=2,
+  )
+  assert box is None
+
+
+def test_breakout_math_stamp_present():
+  from app.scalping.math_strategies import evaluate_breakout_retest_continuation
+
+  gate = evaluate_breakout_retest_continuation(
+    direction="BUY",
+    price=4056.0,
+    atr=2.0,
+    box_low=4040.0,
+    box_high=4055.0,
+    level=4055.0,
+    barrier=4070.0,
+    target_min_price=1.0,
+    break_displacement=2.0,
+    retest_rejection=True,
+    accepted_break=True,
+  )
+  assert gate.allowed is True
+  assert gate.reason_code == "breakout_retest_ok"
+
 
 def test_risk_daily_cap_and_no_martingale():
   cfg = _cfg()

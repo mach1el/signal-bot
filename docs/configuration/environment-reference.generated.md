@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `b81aae5175b0401e2d8e2bfb917fcddc3d2f3a1cfd7e6a2c3a4937ff5d04fe3b`
-- Environment-bound fields: `465`
+- Contract fingerprint: `8b37d428a86adad3fd3a503ac77b926f6b0e096c2d4e338aaf7a3f8000b0f6ad`
+- Environment-bound fields: `473`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -295,12 +295,20 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `FIBONACCI_EPSILON_ATR` | `analysis.fibonacci.epsilon_atr` | `float` | no | no | — | `0.15` |
 | `GIT_SHA` | `bootstrap.build.git_sha` | `string` | no | yes | — | `unknown` |
 | `HEALTH_FILE` | `market_data.ctrader_feed.health_file` | `string` | no | no | — | `/tmp/ctrader-feed.heartbeat` |
+| `HFS_BREAKOUT_BOX_MAX_ATR` | `strategies.high_frequency_scalp.breakout.box_max_atr` | `float` | no | no | — | `1.5` |
+| `HFS_BREAKOUT_MAX_BOX_BARS` | `strategies.high_frequency_scalp.breakout.max_box_bars` | `int` | no | no | — | `20` |
+| `HFS_BREAKOUT_MIN_BOX_BARS` | `strategies.high_frequency_scalp.breakout.min_box_bars` | `int` | no | no | — | `8` |
+| `HFS_BREAKOUT_MIN_BREAK_ATR` | `strategies.high_frequency_scalp.breakout.min_break_atr` | `float` | no | no | — | `0.25` |
+| `HFS_BREAKOUT_MIN_TOUCHES_PER_SIDE` | `strategies.high_frequency_scalp.breakout.min_touches_per_side` | `int` | no | no | — | `2` |
+| `HFS_BREAKOUT_REQUIRE_RETEST_REJECTION` | `strategies.high_frequency_scalp.breakout.require_retest_rejection` | `bool` | no | no | — | `True` |
 | `HFS_BREAKOUT_RETEST_ENABLED` | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `bool` | no | no | — | `True` |
+| `HFS_BREAKOUT_RETEST_LOOKBACK_BARS` | `strategies.high_frequency_scalp.breakout.retest_lookback_bars` | `int` | no | no | — | `5` |
+| `HFS_BREAKOUT_TOUCH_TOL_ATR` | `strategies.high_frequency_scalp.breakout.touch_tol_atr` | `float` | no | no | — | `0.2` |
 | `HFS_COOLDOWN_AFTER_LOSS_MINUTES` | `strategies.high_frequency_scalp.risk.cooldown_after_loss_minutes` | `int` | no | no | — | `5` |
 | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `int` | no | no | — | `3600` |
 | `HFS_DAILY_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.daily_loss_limit_r` | `float` | no | no | — | `3.0` |
 | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `int` | no | no | — | `86400` |
-| `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `False` |
+| `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
 | `HFS_MAXIMUM_CHASE_PIPS` | `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `float` | no | no | — | `40.0` |

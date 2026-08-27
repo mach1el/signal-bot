@@ -7,7 +7,8 @@ gated by `is_hfs_symbol` / HFS config (production focus remains XAU).
 **Own mechanism (research-first):** see
 [OWN_SCALP_MECHANISM.md](OWN_SCALP_MECHANISM.md). Hard gates are deferred —
 live still uses heuristic discovery; math stamps counterfactuals and
-performance joins only.
+performance joins only. Breakout Retest rules:
+[OWN_BREAKOUT_TECHNIQUE.md](OWN_BREAKOUT_TECHNIQUE.md).
 
 ## Mathematical program
 
@@ -15,6 +16,7 @@ Research-first roadmap (do not loosen thresholds first):
 
 1. [PHASE1_AUDIT.md](PHASE1_AUDIT.md) — pipeline + threshold inventory
 2. [OWN_SCALP_MECHANISM.md](OWN_SCALP_MECHANISM.md) — mechanism design + gate roadmap
+2b. [OWN_BREAKOUT_TECHNIQUE.md](OWN_BREAKOUT_TECHNIQUE.md) — ApexVoid breakout state machine
 3. `app/scalping/math_features.py` — ATR-normalized \(X_t\) features (PR A)
 4. `app/scalping/math_strategies.py` — Liquidity Sweep / Impulse Pullback / Range Edge (research)
 5. `app/scalping/research_stamp.py` — observe-only per-opp features + math counterfactual
@@ -66,7 +68,7 @@ Structure/technique decide permits (not killzone clock). See
 
 1. `range_sweep` — micro range edge false-break sweep/reclaim
 2. `impulse_pullback` — join displacement after pullback
-3. `breakout_retest` — accepted break + retest
+3. `breakout_retest` — M1 compression box → displacement break → rejection retest → hold ([OWN_BREAKOUT_TECHNIQUE.md](OWN_BREAKOUT_TECHNIQUE.md))
 4. `momentum_chase` — ignition chase (off by default in config)
 
 ## Promotion criteria (shadow → paper)

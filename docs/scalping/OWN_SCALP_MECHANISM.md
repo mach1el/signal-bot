@@ -76,7 +76,7 @@ f(X_t, \text{archetype}, \text{structure}) \rightarrow \{\text{score}, \text{rea
 | --- | --- | --- | --- |
 | `range_sweep` | Range Sweep Scalp | `liquidity_sweep_reversal` | Primary research pair |
 | `impulse_pullback` | Impulse Pullback Scalp | `impulse_pullback_continuation` | Needs origin/extreme in measured |
-| `breakout_retest` | Breakout Retest Scalp | *(none yet)* | Stamp `no_math_model_yet` |
+| `breakout_retest` | Breakout Retest Scalp | `breakout_retest_continuation` | Observe-only; live uses compression box — [OWN_BREAKOUT_TECHNIQUE.md](OWN_BREAKOUT_TECHNIQUE.md) |
 | `momentum_chase` | Momentum Chase Scalp | *(none yet)* | Off by default; stamp `no_math_model_yet` |
 | *(technique)* Range Edge | Range Edge Scalp | `range_edge_mean_reversion` | Technique lane only — scalp may stamp research alias, never dual-publish |
 
