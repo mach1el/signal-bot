@@ -1675,6 +1675,59 @@ async def test_manual_algo_events_never_dm_the_owner():
 
 
 @pytest.mark.asyncio
+async def test_session_bootstrap_batches_startup_into_one_message():
+  """Full engine bootstrap (config + ready + capability) → one owner DM."""
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append(text)
+    return SimpleNamespace(message_id=1)
+
+  client = redis_state.get_client()
+  await client.delete("auto_trade:session_bootstrap_batch")
+  await client.delete("auto_trade:session_notify:sent")
+
+  assert await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "config_health",
+      "message": "configuration health healthy",
+      "symbol": "XAU",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  ) is False
+  assert await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "ready",
+      "message": "demo executor ready: fpmarketssc balance 924.87",
+      "symbol": "XAU",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  ) is False
+  assert await delivery._deliver_auto_trade_event(
+    client,
+    {
+      "type": "account_capability",
+      "message": "demo account supports hedged two-sided XAU execution",
+      "symbol": "XAU",
+    },
+    profile="internal",
+    chat_id=123,
+    send=sent,
+  ) is True
+
+  assert len(calls) == 1
+  assert "Engine ready" in calls[0]
+  assert "configuration health healthy" in calls[0]
+  assert "hedged two-sided" in calls[0]
+
+
+@pytest.mark.asyncio
 async def test_session_bootstrap_notify_dedupes_ready_spam():
   """cTrader reconnect republishes ready — owner gets one DM per cooldown."""
   calls = []
@@ -1684,6 +1737,9 @@ async def test_session_bootstrap_notify_dedupes_ready_spam():
     return SimpleNamespace(message_id=1)
 
   client = redis_state.get_client()
+  await client.delete("auto_trade:session_bootstrap_batch")
+  await client.delete("auto_trade:session_notify:sent")
+
   event = {
     "type": "ready",
     "message": "demo executor ready: fpmarketssc balance 924.87",
