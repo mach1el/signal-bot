@@ -163,10 +163,87 @@ def test_build_hfs_1to1_stays_single_full_exit():
   match = build_hfs_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
-  # Discovery stop=15 / target=15 → ladder collapses to single 1R exit.
+  # Discovery stop=15 / target=15 → single 1R exit; plan books 100% there.
   assert match.targets_pips == (15,)
   assert match.full_take_profit_pips == 15
   assert _valid_match(match)
+
+
+def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
+  """1:2 scalp: half at 1R, then BE protects the 2R runner."""
+  from dataclasses import replace
+  from decimal import Decimal
+
+  from app.autotrade.trade_plan_builder import build_trade_plan_from_strategy_match
+
+  opp = replace(
+    _opp(),
+    expected_target_pips=30.0,
+    expected_target_price=4030.0,
+    expected_stop_pips=15.0,
+    expected_reward_risk=2.0,
+  )
+  match = build_hfs_strategy_match(
+    opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.targets_pips == (15, 30)
+  plan = build_trade_plan_from_strategy_match(
+    match,
+    plan_id="v8:test-1to2-be",
+    setup_id=match.match_id,
+    thesis_id=match.thesis_id or match.match_id,
+    pip_size=Decimal("0.1"),
+    spot_price=4001.5,
+    executable_quote=4001.5,
+    regime="range",
+    max_volume=100_000,
+    be_after_target_index=0,
+  )
+  assert [t.close_ratio for t in plan.targets] == [
+    Decimal("0.5"), Decimal("0.5"),
+  ]
+  assert plan.management.be_after_target_id == "TP1"
+
+
+def test_build_hfs_1to1_trade_plan_books_full_volume():
+  """1:1 scalp must not leave a runner — close_ratio on the sole TP is 1.0."""
+  from dataclasses import replace
+  from decimal import Decimal
+
+  from app.autotrade.trade_plan_builder import (
+    _equal_close_ratios,
+    build_trade_plan_from_strategy_match,
+  )
+
+  opp = replace(
+    _opp(),
+    expected_target_pips=15.0,
+    expected_target_price=4015.0,
+    expected_stop_pips=15.0,
+    expected_reward_risk=1.0,
+  )
+  match = build_hfs_strategy_match(
+    opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.targets_pips == (15,)
+  assert _equal_close_ratios(len(match.targets_pips)) == (Decimal("1"),)
+
+  plan = build_trade_plan_from_strategy_match(
+    match,
+    plan_id="v8:test-1to1",
+    setup_id=match.match_id,
+    thesis_id=match.thesis_id or match.match_id,
+    pip_size=Decimal("0.1"),
+    spot_price=4001.5,
+    executable_quote=4001.5,
+    regime="range",
+    max_volume=100_000,
+  )
+  assert len(plan.targets) == 1
+  assert plan.targets[0].close_ratio == Decimal("1")
+  assert plan.targets[0].target_id == "TP1"
+  # Full exit at TP1 — no BE trail contract on a single-target plan.
+  assert plan.management.be_after_target_id is None
 
 
 def test_build_hfs_strategy_match_carries_execution_eligibility():
