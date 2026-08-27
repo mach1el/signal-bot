@@ -1675,6 +1675,32 @@ async def test_manual_algo_events_never_dm_the_owner():
 
 
 @pytest.mark.asyncio
+async def test_session_bootstrap_notify_dedupes_ready_spam():
+  """cTrader reconnect republishes ready — owner gets one DM per cooldown."""
+  calls = []
+
+  async def sent(text, **kwargs):
+    calls.append(text)
+    return SimpleNamespace(message_id=1)
+
+  client = redis_state.get_client()
+  event = {
+    "type": "ready",
+    "message": "demo executor ready: fpmarketssc balance 924.87",
+    "symbol": "XAU",
+  }
+  assert await delivery._deliver_auto_trade_event(
+    client, event, profile="internal", chat_id=123, send=sent,
+  ) is True
+  assert len(calls) == 1
+  assert "Engine ready" in calls[0]
+  assert await delivery._deliver_auto_trade_event(
+    client, event, profile="internal", chat_id=123, send=sent,
+  ) is False
+  assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_missing_message_key_sends_standalone_without_position_id():
   calls = []
 
