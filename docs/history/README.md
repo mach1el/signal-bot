@@ -14,3 +14,4 @@ Active docs: [../README.md](../README.md).
 | `demo-eval-worker-veto-regression.md` | One-off regression note |
 | `algo-strategy-match-routing.md` | Superseded by ZoneWatch cutover docs |
 | `execution-pipeline-integrity.md` | Merged conceptually into autotrade integrity |
+| `auto-trade-logic-gaps-evidence.md` | PD asymmetry, causal breaks, confluence inversion (PR-B–H) |
