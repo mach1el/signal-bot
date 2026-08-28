@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `f790897c73533a6a78895c180a001834e4d2df8fd10b6e9cbf36a49a34e6a981`
-- Document fingerprint: `4216e7f36c1f7b458edc932dd8253fbd12ab9edcb59d5b70fe720ee89204f682`
+- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
+- Document fingerprint: `0a010538a7a0c0ea3f0a5270822ed2f7ad8abb9974352c0ab0e2ece71b5e2a0e`
 - Items: `542`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -320,7 +320,7 @@
 | `execution.technique.enforce` | `AUTO_TRADE_TECHNIQUE_ENFORCE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.include_late_ny` | `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.london_window_hours` | `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
-| `execution.technique.mad_hard_gate_enabled` | `AUTO_TRADE_TECHNIQUE_MAD_HARD_GATE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.mad_hard_gate_enabled` | `AUTO_TRADE_TECHNIQUE_MAD_HARD_GATE_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `execution.technique.ny_window_hours` | `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
 | `execution.technique.reaction_publish_windows` | `AUTO_TRADE_TECHNIQUE_REACTION_PUBLISH_WINDOWS` | `str` | `string` | `configurable` | `"7-11,13-16"` |
 | `execution.technique.reaction_require_killzone` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
