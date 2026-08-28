@@ -336,6 +336,42 @@ async def test_in_flight_forming_reservation_skips_price_track_and_index():
   assert edits == []
 
 
+def test_parse_forming_card_symbol_from_position_activated_header():
+  text = "\n".join([
+    "✅ <b>POSITION ACTIVATED · GBPUSD M5</b>",
+    "🟢 <b>BUY · Key Level Reaction</b>",
+  ])
+  assert setup_card.parse_forming_card_symbol(text) == "GBPUSD"
+
+
+@pytest.mark.asyncio
+async def test_edit_forming_card_stop_uses_fx_digits_after_activation(monkeypatch):
+  monkeypatch.setattr(setup_card, "digits_for", lambda symbol: {
+    "GBPUSD": 5, "EURUSD": 5, "XAU": 2,
+  }[str(symbol).upper()])
+  client = redis_state.get_client()
+  setup_id = "setup-stop-fx-activated"
+  await _confirmed_setup(client, setup_id)
+  original = "\n".join([
+    "✅ <b>POSITION ACTIVATED · GBPUSD M5</b>",
+    "🟢 <b>BUY · Key Level Reaction</b>",
+    "• <b>Stop:</b> <b>SL</b>",
+  ])
+  await setup_card.save_forming_card(
+    client, setup_id, chat_id=123, message_id=556, text=original,
+  )
+  edited = []
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append(text)
+
+  assert await setup_card.edit_forming_card_stop(
+    client, setup_id, 1.35806, edit_fn=edit_fn,
+  )
+  assert "• <b>Stop:</b> <b>1.35806</b>" in edited[0]
+  assert "• <b>Stop:</b> <b>1.36</b>" not in edited[0]
+
+
 @pytest.mark.asyncio
 async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   client = redis_state.get_client()
@@ -1147,12 +1183,12 @@ def test_root_card_shows_target_prices_with_pip_offsets():
   text = setup_card.format_plan_published_root_card(
     match,
     stop_price=4045.0,
-    target_prices=(4070.5, 4090.5, 4110.5),
+    target_prices=(4050.73, 4052.73, 4054.73),
   )
   assert "Targets" in text
-  assert "TP1 4,070.50 (+20)" in text
-  assert "TP2 4,090.50 (+40)" in text
-  assert "TP3 4,110.50 (+60)" in text
+  assert "TP1 4,050.73 (+20)" in text
+  assert "TP2 4,052.73 (+40)" in text
+  assert "TP3 4,054.73 (+60)" in text
 
 
 def test_root_card_falls_back_to_targets_pips_ladder():
@@ -1169,6 +1205,9 @@ def test_fx_root_card_shows_target_levels_with_instrument_digits(monkeypatch):
   monkeypatch.setattr(setup_card, "digits_for", lambda symbol: {
     "GBPUSD": 5, "EURUSD": 5, "XAU": 2,
   }[str(symbol).upper()])
+  monkeypatch.setattr(setup_card, "pip_for", lambda symbol: {
+    "GBPUSD": 0.0001, "EURUSD": 0.0001, "XAU": 0.1,
+  }[str(symbol).upper()])
 
   match = replace(
     _strategy_match_for_card("fx-tp-levels"),
@@ -1182,11 +1221,11 @@ def test_fx_root_card_shows_target_levels_with_instrument_digits(monkeypatch):
   text = setup_card.format_plan_published_root_card(
     match,
     stop_price=1.36380,
-    target_prices=(1.36647, 1.36847, 1.37047),
+    target_prices=(1.36620, 1.36820, 1.37020),
   )
-  assert "TP1 1.36647 (+20)" in text
-  assert "TP2 1.36847 (+40)" in text
-  assert "TP3 1.37047 (+60)" in text
+  assert "TP1 1.36620 (+20)" in text
+  assert "TP2 1.36820 (+40)" in text
+  assert "TP3 1.37020 (+60)" in text
   assert "1.36 " not in text  # must not collapse FX to 2dp
 
 
