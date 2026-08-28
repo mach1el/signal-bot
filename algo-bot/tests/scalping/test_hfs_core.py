@@ -109,7 +109,7 @@ def _cfg(**overrides):
   for key, value in overrides.items():
     setattr(hfs, key, value)
   return SimpleNamespace(
-    strategies=SimpleNamespace(high_frequency_scalp=hfs),
+    strategies=SimpleNamespace(scalping=hfs),
     market_data=SimpleNamespace(
       sessions=SimpleNamespace(
         asia_start=22, london_start=7, ny_start=13, daily_rollover_utc_hour=21,
@@ -176,11 +176,11 @@ def test_asia_permits_enabled_archetypes_under_technique_pack():
         include_late_ny=True,
         london_window_hours=3,
         ny_window_hours=3,
-        hfs_require_killzone=True,
+        scalp_require_killzone=True,
       ),
     ),
     strategies=SimpleNamespace(
-      high_frequency_scalp=SimpleNamespace(
+      scalping=SimpleNamespace(
         archetypes=SimpleNamespace(
           range_sweep_enabled=True,
           impulse_pullback_enabled=True,
@@ -870,7 +870,7 @@ def test_activation_chases_momentum_within_chase_budget():
     expires_at=200,
   )
   cfg = _cfg()
-  cfg.strategies.high_frequency_scalp.activation.maximum_chase_pips = 100.0
+  cfg.strategies.scalping.activation.maximum_chase_pips = 100.0
   # 10 pips above zone high — used to soft-wait forever; must chase.
   decision = evaluate_scalp_activation(
     opp,

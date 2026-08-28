@@ -21,7 +21,7 @@ pytestmark = pytest.mark.no_database
 def _cfg():
   return SimpleNamespace(
     strategies=SimpleNamespace(
-      high_frequency_scalp=SimpleNamespace(
+      scalping=SimpleNamespace(
         risk=SimpleNamespace(
           risk_fraction_per_trade=0.10,
           maximum_concurrent_positions=1,

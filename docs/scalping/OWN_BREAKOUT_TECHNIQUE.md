@@ -103,7 +103,7 @@ Idle cycle reasons use `breakout_retest:{reason}` for `scalp:last_cycle`.
 | `evaluate_breakout_retest_continuation` | Observe-only counterfactual stamp |
 | `research_stamp` | `math_counterfactual` — **does not** flip allow/block |
 
-## Config (`strategies.high_frequency_scalp.breakout`)
+## Config (`strategies.scalping.breakout`)
 
 | Knob | Default (XAU M1) | Role |
 | --- | --- | --- |

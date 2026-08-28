@@ -452,7 +452,7 @@ def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
       scaling=SimpleNamespace(add=SimpleNamespace(min_stop_pips=30)),
     ),
     strategies=SimpleNamespace(
-      high_frequency_scalp=SimpleNamespace(
+      scalping=SimpleNamespace(
         stop=SimpleNamespace(minimum_pips=12, maximum_pips=30),
       ),
     ),

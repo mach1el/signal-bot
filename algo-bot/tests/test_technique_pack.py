@@ -56,7 +56,7 @@ def _technique_cfg(
         london_window_hours=3,
         ny_window_hours=3,
         reaction_require_killzone=True,
-        hfs_require_killzone=hfs_kz,
+        scalp_require_killzone=hfs_kz,
         require_sweep_body=require_sweep,
         strict_premium_discount=strict_pd,
       ),
@@ -74,7 +74,7 @@ def _technique_cfg(
           min_grade="B",
         ),
       ),
-      high_frequency_scalp=SimpleNamespace(
+      scalping=SimpleNamespace(
         archetypes=SimpleNamespace(
           range_sweep_enabled=True,
           impulse_pullback_enabled=True,

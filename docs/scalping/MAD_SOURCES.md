@@ -31,7 +31,7 @@ These are **engineering calibrations**, not copied from ICT docs:
 | Accum RQ (building) | 0.8–24.0 ATR | `_RQ_BUILDING_ACCUM_MAX` |
 | Reversal block | `expand` only | `mad_hard_gate` |
 | Continuation require | `manip` or `expand` | `mad_hard_gate` |
-| HFS exempt | No MAD rank/gate | Owner 2026-08-26 |
+| M1 scalping exempt | No MAD rank/gate | Owner 2026-08-26 |
 
 ## Gate matrix rationale
 
@@ -64,4 +64,4 @@ or live FX funnel shows improved expectancy on holdout.
 ## Related docs
 
 - [MAD.md](MAD.md) — live rules and Redis keys
-- [TECHNIQUE_HFS_REDEFINE.md](TECHNIQUE_HFS_REDEFINE.md) — family map (L3 Reaction vs L3r Range Edge)
+- [TECHNIQUE_SCALP_REDEFINE.md](TECHNIQUE_SCALP_REDEFINE.md) — family map (L3 Reaction vs L3r Range Edge)
