@@ -24,6 +24,7 @@ from app.configuration.models.instruments import (
   InstrumentTargetMode,
   InstrumentsConfig,
   XAU_CURRENT_V1_POLICY,
+  XAU_FIXED_2R_V1_POLICY,
   effective_rollout,
   resolve_manual_profile,
 )
@@ -109,13 +110,26 @@ def test_production_yaml_xau_effective_parity():
   cfg = loaded.config
   effective = cfg.for_instrument("XAU")
   assert effective.identity.rollout is InstrumentRollout.LIVE
-  assert effective.policy_name == XAU_CURRENT_V1_POLICY
+  assert effective.policy_name == XAU_FIXED_2R_V1_POLICY
   assert "XAUUSD" in effective.identity.aliases
-  for name, (left, right) in _parity_payload(cfg, effective).items():
+  # Structure fixed_rr pack expands execution/stop/session away from root
+  # ladder defaults — parity is identity + units + non-pack domains only.
+  payload = _parity_payload(cfg, effective)
+  for name in (
+    "pip_size",
+    "price_digits",
+    "contract_units_per_lot",
+    "timeframes",
+    "lifecycle",
+  ):
+    left, right = payload[name]
     assert left == right, name
   assert cfg.enabled_instruments() == ("EURUSD", "GBPJPY", "GBPUSD", "USDJPY", "XAU")
   assert cfg.live_instruments() == ("EURUSD", "GBPJPY", "GBPUSD", "USDJPY", "XAU")
   assert cfg.instrument_for_broker_symbol("xauusd").identity.canonical_symbol == "XAU"
+  assert int(effective.execution.reaction.stop_min_pips) == 25
+  assert int(effective.execution.reaction.stop_max_pips) == 100
+  assert effective.targeting.mode is InstrumentTargetMode.FIXED_RR
 
 
 def test_production_yaml_fx_live_executable_units():
@@ -146,6 +160,7 @@ def test_production_yaml_fx_live_executable_units():
   # GBPJPY front-loads partials (fx_fixed_2r_frontload_v1, 2026 dig: ATR
   # ~180 pips/day vs EURUSD's ~70) -- same 2R contract, different split.
   assert gbpjpy.policy_name == "fx_fixed_2r_frontload_v1"
+  assert xau.policy_name == XAU_FIXED_2R_V1_POLICY
   assert eurusd.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert eurusd.targeting.reward_risk == 2.0
@@ -160,9 +175,19 @@ def test_production_yaml_fx_live_executable_units():
   assert gbpjpy.targeting.trail_to_r == 1.0
   assert eurusd.targeting.entry_clips == 2
   assert gbpjpy.targeting.entry_clips == 2
-  assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
-  assert xau.targeting.reward_risk is None
+  assert xau.targeting.mode is InstrumentTargetMode.FIXED_RR
+  assert xau.targeting.reward_risk == 2.0
+  assert xau.targeting.target_r_multiples == (1.0, 1.5, 2.0)
+  assert xau.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert xau.targeting.trail_after_r == 1.5
+  assert xau.targeting.trail_to_r == 1.0
   assert xau.targeting.entry_clips == 2
+  assert int(xau.execution.reaction.stop_min_pips) == 25
+  assert int(xau.execution.reaction.stop_max_pips) == 100
+  assert float(xau.execution.stops.sl_distance) == 10.0
+  # Scalp RR floor must stay 1.10 — pack must not overwrite with technique 2.0.
+  assert float(xau.strategies.scalping.policy.minimum_reward_risk) == 1.10
+  assert xau.execution.technique.reaction_publish_windows == "0-11,13-16"
   assert xau.manual.enabled is True
   assert xau.manual.algo_enabled is True
   assert xau.manual.entry_mode is InstrumentManualEntryMode.ZONE_LADDER
@@ -216,6 +241,11 @@ def test_production_yaml_fx_live_executable_units():
   # level guard. Neither duplicates anything the packs already expand.
   assert cfg.instruments.root["GBPJPY"].overrides == {
     "actionability.gates.event_cluster_guard_enabled": True,
+    "analysis.levels.minimum_key_touches": 3,
+    "strategies.reaction.key_level.require_explicit_role": True,
+    "strategies.reaction.key_level.require_killzone": True,
+    "strategies.reaction.key_level.require_htf_alignment": True,
+    "strategies.reaction.key_level.min_grade": "A",
   }
   assert set(cfg.instruments.root["USDJPY"].overrides) == {
     "risk.exposure.defended_levels",

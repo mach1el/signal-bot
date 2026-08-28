@@ -22,8 +22,13 @@ allowed after explicit trading-policy review.
 
 Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
-- XAU uses `xau_current_v1`: the existing pip target ladder, partial exits,
-  and gold stop geometry remain unchanged.
+- XAU uses `xau_fixed_2r_v1` (pack `xau_fixed_2r_v1`): **technique** SL from
+  structure inside a 25–100 pip envelope, TP at 1R/1.5R/2R with 25/25/50
+  closes (same shape as `fx_fixed_2r_v1`). **M1 scalping** stays on
+  `strategies.scalping` discovery (1:2 / 1:1) via
+  `technique_fixed_rr_targeting` — instrument fixed_rr must not expand scalp
+  matches. Compatibility policy `xau_current_v1` remains for ladder inheritance
+  in tests / non-live defaults.
 - EURUSD and USDJPY use `fx_fixed_2r_v1`; GBPJPY uses `fx_fixed_2r_frontload_v1`
   (same 1R/1.5R/2R ladder, front-loaded 40/25/35 partials instead of 25/25/50
   — see "Per-symbol position management" below). Both are `FIXED_RR_POLICY_
