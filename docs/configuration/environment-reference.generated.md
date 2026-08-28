@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `f790897c73533a6a78895c180a001834e4d2df8fd10b6e9cbf36a49a34e6a981`
+- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
 - Environment-bound fields: `475`
 - Deprecated aliases: `64`
 
@@ -188,7 +188,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_TECHNIQUE_IFVG_ENABLED` | `strategies.technique.ifvg.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `execution.technique.include_late_ny` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `execution.technique.london_window_hours` | `int` | no | no | — | `3` |
-| `AUTO_TRADE_TECHNIQUE_MAD_HARD_GATE_ENABLED` | `execution.technique.mad_hard_gate_enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_MAD_HARD_GATE_ENABLED` | `execution.technique.mad_hard_gate_enabled` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `execution.technique.ny_window_hours` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_TECHNIQUE_OB_ENABLED` | `strategies.technique.ob.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_REACTION_PUBLISH_WINDOWS` | `execution.technique.reaction_publish_windows` | `str` | no | no | — | `7-11,13-16` |

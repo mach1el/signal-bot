@@ -1233,7 +1233,8 @@ async def test_prepare_activation_preblocks_planned_stop_envelope_error(
 
 
 @pytest.mark.asyncio
-async def test_prepare_activation_blocks_fx_on_mad_hard_gate(monkeypatch):
+async def test_prepare_activation_does_not_apply_mad_hard_gate(monkeypatch):
+  """MAD must not veto activation — entry quality / structure only."""
   from dataclasses import replace
   from app.core import instrument_geometry
   from tests.test_config_effective_instrument_context import _load_production_example
@@ -1288,6 +1289,13 @@ async def test_prepare_activation_blocks_fx_on_mad_hard_gate(monkeypatch):
     strategy_mode="range_scalp",
   )
   telemetry = AsyncMock()
+  mad_gate = AsyncMock(
+    return_value=(
+      False,
+      "mad_gate_reversal_avoid_expand",
+      {"mad_phase": "expand"},
+    )
+  )
   monkeypatch.setattr(cutover, "_record_policy_telemetry", telemetry)
   monkeypatch.setattr(cutover, "_m1_trigger_for_zone", AsyncMock(return_value=None))
   monkeypatch.setattr(cutover, "_recent_m1_impulse_bars", AsyncMock(return_value=0))
@@ -1333,16 +1341,9 @@ async def test_prepare_activation_blocks_fx_on_mad_hard_gate(monkeypatch):
     "app.autotrade.reaction_funnel.bump_funnel",
     AsyncMock(),
   )
-
-  async def _block_mad(_client, **kwargs):
-    return False, "mad_gate_reversal_avoid_expand", {
-      "mad_phase": "expand",
-      "mad_gate_strategy": "range_edge_mean_reversion",
-    }
-
   monkeypatch.setattr(
     "app.analysis.mad_phase.evaluate_technique_mad_gate",
-    _block_mad,
+    mad_gate,
   )
 
   prepared = await cutover._prepare_activation(
@@ -1352,9 +1353,10 @@ async def test_prepare_activation_blocks_fx_on_mad_hard_gate(monkeypatch):
     quote=(1.0852, 1.0854, 1_785_390_200),
     evidence=SimpleNamespace(executable_quote=1.0852, inside=True),
   )
-  assert prepared is None
-  telemetry.assert_awaited()
-  assert telemetry.await_args.kwargs["reason_code"] == "mad_gate_reversal_avoid_expand"
+  assert prepared is not None
+  mad_gate.assert_not_awaited()
+  for call in telemetry.await_args_list:
+    assert call.kwargs.get("reason_code") != "mad_gate_reversal_avoid_expand"
 
 
 @pytest.mark.asyncio
