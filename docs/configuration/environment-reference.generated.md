@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
-- Environment-bound fields: `475`
+- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
+- Environment-bound fields: `479`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -170,6 +170,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_STRATEGY_MATCH_ENABLED` | `runtime.auto_trade.strategy_match_enabled` | `bool` | no | yes | `AUTO_TRADE_STRATEGY_BRIDGE_ENABLED`, `AUTO_TRADE_FORMING_GATE_ENABLED` | `True` |
 | `AUTO_TRADE_STRATEGY_MATCH_MAX_AGE_SECONDS` | `lifecycle.strategy_match.maximum_age_seconds` | `int` | no | no | `AUTO_TRADE_FORMING_MAX_AGE_SECONDS` | `420` |
 | `AUTO_TRADE_STREAM_MAXLEN` | `contract.streams.candidate_maximum_length` | `int` | no | no | — | `1000` |
+| `AUTO_TRADE_STRICT_PD_ARCHETYPES` | `execution.technique.strict_premium_discount_archetypes` | `str` | no | no | — | `reversal,range_reversion` |
 | `AUTO_TRADE_STRUCTURAL_GUARD_MODE` | `actionability.structural_guard.guard_mode` | `str` | no | yes | — | `balanced` |
 | `AUTO_TRADE_STRUCTURAL_REACTION_LOOKBACK_BARS` | `execution.policy.structural_reaction_lookback_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_SUPPLY_REACTION_ENABLED` | `strategies.reaction.supply.enabled` | `bool` | no | no | — | `True` |
@@ -249,10 +250,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `CHOP_LOOKBACK` | `analysis.regime.chop.lookback` | `int` | no | no | — | `24` |
 | `CHOP_RANGE_ATR` | `analysis.regime.chop.range_atr` | `float` | no | no | — | `4.0` |
 | `COIL_CONTRACT` | `analysis.measurements.coil_contract` | `float` | no | no | — | `0.8` |
+| `CONFLUENCE_TECHNIQUE_BONUS_SCORE` | `analysis.zones.confluence.technique_bonus_score` | `float` | no | no | — | `2.5` |
 | `CONTESTED_CORRIDOR_GAP_ATR` | `actionability.contested_corridor.gap_atr` | `float` | no | no | — | `0.5` |
-| `COUNTER_EXTREME_PD` | `strategies.counter_trend.extreme_pd` | `float` | no | no | — | `0.25` |
-| `COUNTER_LEVEL_MIN_TOUCHES` | `strategies.counter_trend.level_min_touches` | `int` | no | no | — | `3` |
-| `COUNTER_MIN_ZONE_SCORE` | `strategies.counter_trend.min_zone_score` | `float` | no | no | — | `10.0` |
 | `CTRADER_ACCESS_TOKEN` | `bootstrap.ctrader.credentials.access_token` | `string` | yes | no | — | `<redacted>` |
 | `CTRADER_ACCOUNT_ID` | `bootstrap.ctrader.credentials.account_id` | `long` | no | no | — | `<required>` |
 | `CTRADER_BACKFILL_BARS` | `market_data.ctrader_feed.backfill_bars` | `int` | no | no | — | `1500` |
@@ -273,11 +272,15 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `DELIVERY_DELETE_ON_TERMINAL` | `delivery.lifecycle.delete_on_terminal` | `bool` | no | no | — | `True` |
 | `DELIVERY_THREAD_LIFECYCLE` | `delivery.lifecycle.thread_lifecycle` | `bool` | no | no | — | `True` |
 | `DISPLACEMENT_ATR_MULT` | `analysis.displacement.atr_mult` | `float` | no | no | — | `1.5` |
+| `ENTRY_ACTIVATION_M5_AUTHORITATIVE_FALLBACK` | `execution.activation.m5_authoritative_fallback` | `str` | no | no | — | `off` |
+| `ENTRY_ACTIVATION_M5_CONFIRMATION_MAX_AGE_BARS` | `execution.activation.m5_confirmation_maximum_age_bars` | `int` | no | no | — | `6` |
 | `ENTRY_ACTIVATION_MODE` | `execution.activation.mode` | `str` | no | no | — | `shadow` |
 | `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `execution.activation.reaction_trigger_maximum_age_bars` | `int` | no | no | — | `2` |
 | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `bool` | no | no | — | `True` |
 | `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `actionability.entry_location.missing_context_policy` | `str` | no | no | — | `block` |
 | `ENTRY_LOCATION_MODE` | `actionability.entry_location.mode` | `str` | no | no | — | `shadow` |
+| `ENTRY_LOCATION_MOMENTUM_BUY_MIN_POSITION` | `actionability.entry_location.momentum.momentum_buy_minimum_position` | `float` | no | no | — | `0.15` |
+| `ENTRY_LOCATION_MOMENTUM_SELL_MAX_POSITION` | `actionability.entry_location.momentum.momentum_sell_maximum_position` | `float` | no | no | — | `0.85` |
 | `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `actionability.entry_location.range_reversion.buy_maximum_position` | `float` | no | no | — | `0.4` |
 | `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `float` | no | no | — | `0.2` |
 | `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `actionability.entry_location.range_reversion.sell_minimum_position` | `float` | no | no | — | `0.6` |
@@ -448,6 +451,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SWEEP_BODY_FRAC` | `analysis.liquidity.sweep.body_frac` | `float` | no | no | — | `0.5` |
 | `SWEEP_REACT_BARS` | `analysis.liquidity.sweep.react_bars` | `int` | no | no | — | `3` |
 | `SWING_FRACTAL_N` | `analysis.swings.fractal_size` | `int` | no | no | — | `2` |
+| `TECHNIQUE_VALIDATION_ENABLED` | `analysis.techniques.validation_enabled` | `bool` | no | no | — | `True` |
 | `TELEGRAM_BOT_TOKEN` | `bootstrap.telegram.bot_token` | `str` | yes | no | — | `<redacted>` |
 | `TELEGRAM_OWNER_ID` | `delivery.telegram.telegram_owner_id` | `Optional[int]` | no | no | — | `None` |
 | `TIINGO_API_KEY` | `market_data.tiingo.api_key` | `Optional[str]` | yes | no | — | `<redacted>` |

@@ -451,7 +451,7 @@ def test_trend_pullback_prefers_best_scored_zone_over_nearest_zone():
   assert result is not None
   assert result.entry_zone.low == 103
   assert result.entry_zone.high == 105
-  assert result.confluence == 2
+  assert result.confluence == 1
   assert result.reasons[1:4] == ["fresh", "OB", "HTF zone"]
 
 
@@ -489,14 +489,59 @@ def test_live_spot_is_used_for_entry_validation():
   assert detectors.trend_pullback(live_wrong_side) is None
 
 
+@pytest.mark.no_database
 def test_star_score_remap_and_mitigated_cap():
   fresh_two = Zone(100, 101, "demand", score=9, touches=0)
   fresh_three = Zone(100, 101, "demand", score=13, touches=0)
   mitigated = Zone(100, 101, "demand", score=13, touches=1)
+  max_zone = Zone(100, 101, "demand", score=detectors._ZONE_SCORE_MAX, touches=0)
 
-  assert detectors._confluence_from_zone(fresh_two, []) == 2
-  assert detectors._confluence_from_zone(fresh_three, []) == 3
+  assert detectors._confluence_from_zone(fresh_two, []) == 1
+  assert detectors._confluence_from_zone(fresh_three, []) == 2
   assert detectors._confluence_from_zone(mitigated, []) == 2
+  assert detectors._confluence_from_zone(max_zone, []) == 3
+
+
+@pytest.mark.no_database
+def test_normalised_factor_threshold_matches_legacy_cut_points():
+  """PR-E regression: 12/20.5 and 8/20.5 factor scores still map to 3★/2★."""
+  three_star = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    touches=3,
+    wick_rejection=True,
+    displacement_grade=True,
+    structural_agreement=True,
+  )
+  two_star = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    wick_rejection=True,
+    displacement_grade=True,
+  )
+  assert detectors._raw_factor_score(three_star) >= 12.0
+  assert detectors._confluence_from_factors(three_star) == 3
+  assert 7.0 <= detectors._raw_factor_score(two_star) < 12.0
+  assert detectors._confluence_from_factors(two_star) == 2
+
+
+@pytest.mark.no_database
+def test_key_level_reaction_confluence_varies_with_htf_alignment_and_touches():
+  zone = Zone(100, 101, "demand", score=0.0)
+  minimal = detectors.ConfluenceFactors(
+    wick_rejection=True,
+    structural_agreement=True,
+    touches=2,
+  )
+  strong = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    wick_rejection=True,
+    structural_agreement=True,
+    touches=3,
+  )
+  assert detectors._confluence_from_zone(zone, minimal) == 2
+  assert detectors._confluence_from_zone(zone, strong) == 3
+  assert detectors._confluence_from_zone(
+    zone, strong,
+  ) > detectors._confluence_from_zone(zone, minimal)
 
 
 def test_confluence_rubric_is_shared_across_detectors():
@@ -785,192 +830,35 @@ def test_range_edge_scalp_requires_room_to_eq():
   assert detectors.range_edge_scalp(ctx) is None
 
 
-def _counter_ctx(
-  *,
-  zone: Zone | None = None,
-  zones: list[Zone] | None = None,
-  levels: list[Level] | None = None,
-  breaks: list[Break] | None = None,
-  grabs: list[Grab] | None = None,
-  session_levels: list[SessionLevel] | None = None,
-  position: float = 0.2,
-  allow: bool = True,
-) -> detectors.DetectionContext:
-  df = _buy_rejection_df()
+def test_counter_bias_below_minimum_confluence_rejects_and_records_metric():
   ctx = _ctx(
-    df,
-    bias="down",
-    zones=zones if zones is not None else ([zone] if zone is not None else []),
-    levels=levels,
-    breaks=breaks,
-    grabs=grabs,
-    session_levels=session_levels,
-    dealing_range=DealingRange(high=150, low=100, eq=125, position=position, zone="discount"),
+    _buy_rejection_df(),
+    zones=[
+      Zone(
+        103,
+        105,
+        "demand",
+        source="order_block",
+        score=detectors.STAR_TWO_SCORE,
+      ),
+    ],
   )
-  return replace(
+  ctx = replace(
     ctx,
-    settings=replace(ctx.settings, allow_counter_trend=allow),
-  )
-
-
-def test_counter_reaction_requires_fresh_scored_zone_sweep_and_extreme_pd():
-  df = _buy_rejection_df()
-  zone = Zone(
-    106,
-    110,
-    "demand",
-    source="supply_demand",
-    score=11,
-    score_reasons=["fresh", "S/D", "sweep A"],
-  )
-  grab = Grab(Pool("sell", 107, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab]))
-
-  assert result is not None
-  assert result.setup == "Zone Reaction"
-  assert result.direction == "BUY"
-  assert result.mode == "counter_reaction"
-  assert "sweep A" in result.reasons
-  assert "PD 0.20" in result.reasons
-
-  assert detectors.zone_reaction(_counter_ctx(zone=replace(zone, touches=1), grabs=[grab])) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[])) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab], position=0.4)) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab], allow=False)) is None
-
-
-def test_chop_zone_reaction_requires_edge_and_grade_a_sweep():
-  df = _buy_rejection_df()
-  edge_zone = Zone(
-    101,
-    103,
-    "demand",
-    source="supply_demand",
-    score=11,
-    score_reasons=["fresh", "S/D"],
-  )
-  edge_grab = Grab(Pool("sell", 102, 0.1, 2), 4, "bull", df.index[4], "A")
-  edge_ctx = replace(
-    _counter_ctx(zone=edge_zone, grabs=[edge_grab]),
-    regime=_chop_regime(100, 112),
-  )
-
-  result = detectors.zone_reaction(edge_ctx)
-
-  assert result is not None
-  assert result.direction == "BUY"
-  assert "sweep A" in result.reasons
-  assert "range 100-112" in result.reasons
-  assert "TP anchor range high 112" in result.reasons
-
-  mid_zone = replace(edge_zone, bottom=105, top=107)
-  mid_ctx = replace(
-    _counter_ctx(
-      zone=mid_zone,
-      grabs=[Grab(Pool("sell", 106, 0.1, 2), 4, "bull", df.index[4], "A")],
+    htf_bias="down",
+    settings=replace(
+      ctx.settings,
+      allow_counter_trend=True,
+      confluence_floor=2,
+      counter_bias_minimum_confluence=4,
     ),
-    regime=_chop_regime(100, 112),
   )
-  assert detectors.zone_reaction(mid_ctx) is None
-
-  grade_b_ctx = replace(
-    _counter_ctx(
-      zone=edge_zone,
-      breaks=[Break("CHoCH", "up", 108, 4, df.index[4])],
-      grabs=[Grab(Pool("sell", 102, 0.1, 2), 4, "bull", df.index[4], "B")],
-    ),
-    regime=_chop_regime(100, 112),
-  )
-  legacy = replace(
-    grade_b_ctx,
-    settings=replace(grade_b_ctx.settings, chop_filter_enabled=False),
-  )
-  assert detectors.zone_reaction(legacy) is not None
-  assert detectors.zone_reaction(grade_b_ctx) is None
-
-
-def test_counter_swing_requires_fresh_htf_order_block():
-  df = _buy_rejection_df()
-  zone = Zone(
-    106,
-    110,
-    "demand",
-    source="order_block",
-    sources=["order_block"],
-    score=13,
-    score_reasons=["fresh", "OB", "HTF zone"],
-    break_kind="BOS",
-  )
-  grab = Grab(Pool("sell", 107, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab]))
-
-  assert result is not None
-  assert result.mode == "counter_swing"
-  assert "fresh HTF OB" in result.reasons
-  assert any(reason.startswith("TP anchor EQ") for reason in result.reasons)
-
-
-def test_counter_level_reaction_from_strong_bare_key_level_only_scalps():
-  df = _buy_rejection_df()
-  grab = Grab(Pool("sell", 105, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(
-    _counter_ctx(levels=[Level(105, "reaction", touches=4, band=0.2)], grabs=[grab])
-  )
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert "key 105 x4" in result.reasons
-  assert result.entry_zone.source == "level"
-
-  weak = detectors.zone_reaction(
-    _counter_ctx(levels=[Level(105, "reaction", touches=2, band=0.2)], grabs=[grab])
-  )
-  assert weak is None
-
-
-def test_counter_unswept_session_level_reaction():
-  df = _buy_rejection_df()
-  ts = df.index[-2]
-  grab = Grab(Pool("sell", 105, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(
-    _counter_ctx(
-      grabs=[grab],
-      session_levels=[SessionLevel("PDL", 105, ts, swept=False)],
-    )
-  )
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert "PDL" in result.reasons
-
-
-def test_unbroken_trendline_support_fires_scalp_reaction_after_grade_a_sweep():
-  df = _buy_rejection_df()
-  line = Trendline("support", (0, 2, 4), 0.0, 105.0, 3, False, None)
-  grab = Grab(Pool("sell", 105, 0.1, 3), 4, "bull", df.index[4], "A")
-  ctx = _ctx(
-    df,
-    bias="down",
-    grabs=[grab],
-    trendlines=[line],
-    dealing_range=DealingRange(150, 100, 125, 0.2, "discount"),
-  )
-
-  result = detectors.zone_reaction(ctx)
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert result.entry_zone.source == "trendline"
-  assert "TL support ×3" in result.reasons
-  broken = replace(line, broken=True, break_index=3)
-  broken_st = replace(ctx.structures["M5"], trendlines=[broken])
-  assert detectors.zone_reaction(
-    replace(ctx, structures={"M5": broken_st})
-  ) is None
+  detectors.drain_discovery_rejections()
+  result = detectors.trend_pullback(ctx)
+  assert result is None
+  assert detectors.drain_discovery_rejections() == {
+    detectors.COUNTER_BIAS_BELOW_MINIMUM_CONFLUENCE: 1,
+  }
 
 
 def test_trendline_break_retest_fires_outside_chop_only():
@@ -1148,3 +1036,128 @@ def test_build_context_htf_bias_computed_once_h1_has_enough_bars():
     htf_order=["H1", "M15"],
   )
   assert ctx.htf_bias != "unknown"
+
+
+def _technique_ctx(
+  instances,
+  *,
+  df=None,
+  bias="down",
+  zone_merge_overlap=0.5,
+):
+  from app.analysis.engine import AnalysisContext, TimeframeAnalysis
+
+  if df is None:
+    df = _buy_rejection_df()
+  tf = "M5"
+  zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  structure = detectors.StructureSet(
+    swings=[],
+    bias=bias,
+    levels=[],
+    equal_levels=[],
+    fvg_zones=[],
+    order_blocks=[],
+    breaks=[],
+    zones=[zone],
+    liquidity_grabs=[],
+  )
+  ctx = detectors.DetectionContext(
+    symbol="XAU",
+    tf=tf,
+    frames={tf: df},
+    indicators={tf: _indicators(df, atr=3.0)},
+    structures={tf: structure},
+    htf_bias=bias,
+    settings=detectors.DetectorSettings(
+      confluence_floor=2,
+      zone_merge_overlap=zone_merge_overlap,
+    ),
+  )
+  analysis = AnalysisContext(
+    frames=ctx.frames,
+    per_tf={
+      tf: TimeframeAnalysis(
+        df=df,
+        atr=ctx.indicators[tf].atr,
+        swings=[],
+        structure="trend",
+        breaks=[],
+        key_levels=[],
+        legs=[],
+        supply_demand_zones=[],
+        order_blocks=[],
+        flip_zones=[],
+        fvg_zones=[],
+        zones=[zone],
+        liquidity_pools=[],
+        liquidity_grabs=[],
+        momentum="neutral",
+        technique_instances=instances,
+      ),
+    },
+    htf_bias=bias,
+  )
+  return replace(ctx, analysis=analysis)
+
+
+@pytest.mark.no_database
+def test_technique_reaction_prefers_best_confluence_not_first_instance():
+  from app.analysis.technique_geometry import TECHNIQUE_SD, TechniqueInstance
+  from app.analysis.technique_detectors import supply_demand_technique_reaction
+
+  df = _buy_rejection_df()
+  far = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 106.0, 107.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 4.0},
+    origin_index=1,
+  )
+  near = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 101.0, 106.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 10.0},
+    origin_index=2,
+  )
+  ctx = _technique_ctx([far, near], df=df)
+  result = supply_demand_technique_reaction(ctx)
+  assert result is not None
+  assert result.entry_zone.low == pytest.approx(101.0)
+  assert result.entry_zone.high == pytest.approx(106.0)
+
+
+@pytest.mark.no_database
+def test_technique_reaction_covers_instance_with_band_builder_overlap():
+  from unittest.mock import patch
+
+  from app.analysis.confluence_zone import ConfluenceBand
+  from app.analysis.technique_geometry import TECHNIQUE_SD, TechniqueInstance
+  from app.analysis.technique_detectors import supply_demand_technique_reaction
+
+  instance = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 101.0, 106.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 10.0},
+    origin_index=1,
+  )
+  ctx = _technique_ctx([instance], zone_merge_overlap=0.3)
+  band = ConfluenceBand(
+    low=101.0,
+    high=106.0,
+    side="buy",
+    technique_tags=(TECHNIQUE_SD, "order_block"),
+    zone_id="test-band",
+    provenance=(instance.instance_id,),
+  )
+  seen: list[float] = []
+
+  def _capture(_band, _inst, *, min_overlap=0.5):
+    seen.append(min_overlap)
+    return False
+
+  with patch(
+    "app.analysis.technique_detectors._confluence_bands_for_ctx",
+    return_value=[band],
+  ), patch(
+    "app.analysis.technique_detectors.confluence_band_covers_instance",
+    side_effect=_capture,
+  ):
+    supply_demand_technique_reaction(ctx)
+  assert seen == [0.3]

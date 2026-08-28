@@ -3,6 +3,8 @@ import math
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.no_database
+
 from app.analysis.engine import (
   AnalysisSettings,
   Regime,
@@ -30,6 +32,49 @@ from app.analysis.zones import (
   reconcile_opposing,
   score_zones,
 )
+
+
+def test_causal_structure_replay_defers_unconfirmed_swings_and_breaks():
+  """Replay must not act on fractals until index+fractal_n bars have closed."""
+  fractal_n = 2
+  df = _df([
+    (100, 101, 99, 100),
+    (100, 102, 99, 101),
+    (101, 103, 100, 102),
+    (102, 104, 101, 103),
+    (103, 105, 102, 104),
+    (104, 110, 103, 109),  # 5: swing high candidate 110
+    (109, 109, 108, 111),  # 6: close breaks 110 before fractal confirms
+    (111, 108, 107, 111),  # 7: fractal at 5 now confirmed (5+2 <= 7)
+  ])
+  atr = pd.Series([2.0] * len(df), index=df.index)
+
+  full_swings = find_swings(
+    df, fractal_n=fractal_n, zigzag_atr_mult=0.0, atr=atr,
+  )
+  causal_swings = find_swings(
+    df, fractal_n=fractal_n, zigzag_atr_mult=0.0, atr=atr, as_of=6,
+  )
+  high_at_five = next(s for s in full_swings if int(s.index) == 5 and s.kind == "high")
+  assert high_at_five.price == 110.0
+  assert not any(int(s.index) == 5 for s in causal_swings)
+
+  lookahead = structure_breaks(
+    full_swings, df, causal=False, fractal_n=fractal_n,
+  )
+  replay = structure_breaks(
+    full_swings, df, causal=True, fractal_n=fractal_n,
+  )
+  up_lookahead = [
+    item for item in lookahead
+    if item.direction == "up" and item.level == 110.0
+  ]
+  up_replay = [
+    item for item in replay
+    if item.direction == "up" and item.level == 110.0
+  ]
+  assert up_lookahead and int(up_lookahead[0].index) == 6
+  assert up_replay and int(up_replay[0].index) >= 7
 
 
 def _df(rows: list[tuple[float, float, float, float]]) -> pd.DataFrame:

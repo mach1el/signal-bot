@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
-- Document fingerprint: `0a010538a7a0c0ea3f0a5270822ed2f7ad8abb9974352c0ab0e2ece71b5e2a0e`
-- Items: `542`
+- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
+- Document fingerprint: `8f3ab6e030692cab757d6e9dfb9b8d9494d7a10035573e68fb2d53bf8e04d58a`
+- Items: `546`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -20,6 +20,8 @@
 | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `bool` | `boolean` | `configurable` | `true` |
 | `actionability.entry_location.missing_context_policy` | `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `str` | `enum` | `configurable` | `"block"` |
 | `actionability.entry_location.mode` | `ENTRY_LOCATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `actionability.entry_location.momentum.momentum_buy_minimum_position` | `ENTRY_LOCATION_MOMENTUM_BUY_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.15` |
+| `actionability.entry_location.momentum.momentum_sell_maximum_position` | `ENTRY_LOCATION_MOMENTUM_SELL_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.85` |
 | `actionability.entry_location.range_reversion.buy_maximum_position` | `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
 | `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `float` | `fraction` | `configurable` | `0.2` |
 | `actionability.entry_location.range_reversion.sell_minimum_position` | `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
@@ -120,6 +122,7 @@
 | `analysis.swings.fractal_size` | `SWING_FRACTAL_N` | `int` | `bars` | `configurable` | `2` |
 | `analysis.swings.zigzag.atr_mult` | `ZIGZAG_ATR_MULT` | `float` | `atr` | `configurable` | `1.0` |
 | `analysis.swings.zigzag.pct` | `ZIGZAG_PCT` | `float` | `percent` | `configurable` | `0.0` |
+| `analysis.techniques.validation_enabled` | `TECHNIQUE_VALIDATION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `analysis.trendlines.dedup_slope_percent` | `—` | `float` | `percent` | `algorithm_constant` | `0.2` |
 | `analysis.trendlines.dedup_value_atr` | `—` | `float` | `atr` | `algorithm_constant` | `0.5` |
 | `analysis.trendlines.maximum_slope_atr` | `TL_MAX_SLOPE_ATR` | `float` | `atr` | `configurable` | `0.15` |
@@ -130,6 +133,7 @@
 | `analysis.triggers.m1.wick_fraction` | `M1_TRIGGER_WICK_FRACTION` | `float` | `fraction` | `configurable` | `0.5` |
 | `analysis.zones.alert_ttl` | `ZONE_ALERT_TTL` | `int` | `seconds` | `configurable` | `14400` |
 | `analysis.zones.confluence.merge_gap_price` | `ZONE_MERGE_GAP` | `float` | `price` | `configurable` | `1.0` |
+| `analysis.zones.confluence.technique_bonus_score` | `CONFLUENCE_TECHNIQUE_BONUS_SCORE` | `float` | `score` | `configurable` | `2.5` |
 | `analysis.zones.discovery.maximum_width_atr` | `MAX_ZONE_WIDTH_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `analysis.zones.merge_max_width` | `ZONE_MERGE_MAX_WIDTH` | `float` | `price` | `configurable` | `6.0` |
 | `analysis.zones.merge_overlap` | `ZONE_MERGE_OVERLAP` | `float` | `fraction` | `configurable` | `0.5` |
@@ -245,6 +249,8 @@
 
 | Path | ENV | Type | Unit | Kind | Default |
 |---|---|---|---|---|---|
+| `execution.activation.m5_authoritative_fallback` | `ENTRY_ACTIVATION_M5_AUTHORITATIVE_FALLBACK` | `str` | `enum` | `configurable` | `"off"` |
+| `execution.activation.m5_confirmation_maximum_age_bars` | `ENTRY_ACTIVATION_M5_CONFIRMATION_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `6` |
 | `execution.activation.mode` | `ENTRY_ACTIVATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
 | `execution.activation.reaction_trigger_maximum_age_bars` | `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `execution.broker_recovery.absence_confirmations` | `AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` | `int` | `price` | `configurable` | `2` |
@@ -328,6 +334,7 @@
 | `execution.technique.require_sweep_body` | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.scalp_require_killzone` | `AUTO_TRADE_TECHNIQUE_SCALP_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.strict_premium_discount` | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.strict_premium_discount_archetypes` | `AUTO_TRADE_STRICT_PD_ARCHETYPES` | `str` | `string` | `configurable` | `"reversal,range_reversion"` |
 | `execution.trend.hard_entry_drift_pips` | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `execution.trend.max_entry_drift_atr` | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `float` | `atr` | `configurable` | `0.85` |
 | `execution.trend.min_entry_drift_pips` | `AUTO_TRADE_TREND_MIN_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `15.0` |
@@ -492,9 +499,6 @@
 | `strategies.breakout.break_retest_enabled` | `AUTO_TRADE_BREAK_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.breakout.breakout_enabled` | `AUTO_TRADE_BREAKOUT_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.counter_trend.allow_counter_trend` | `ALLOW_COUNTER_TREND` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
-| `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
-| `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
 | `strategies.mapped_zone.counter_bias_enabled` | `AUTO_TRADE_MAP_COUNTER_BIAS_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.mapped_zone.enabled` | `AUTO_TRADE_MAPPED_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.matching.multiple_matches_enabled` | `AUTO_TRADE_MULTI_MATCH_ENABLED` | `bool` | `boolean` | `configurable` | `false` |

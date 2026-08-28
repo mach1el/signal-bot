@@ -24,12 +24,20 @@ NOW = 1_700_000_000
 ZONE_ENTERED = NOW - 120
 
 
-def _activation_cfg(mode: str = "enforce", max_age: int = 2):
+def _activation_cfg(
+  mode: str = "enforce",
+  max_age: int = 2,
+  *,
+  m5_fallback: str = "off",
+  m5_max_age: int = 6,
+):
   return SimpleNamespace(
     execution=SimpleNamespace(
       activation=SimpleNamespace(
         mode=mode,
         reaction_trigger_maximum_age_bars=max_age,
+        m5_authoritative_fallback=m5_fallback,
+        m5_confirmation_maximum_age_bars=m5_max_age,
       ),
     ),
   )
@@ -86,6 +94,8 @@ def _activate(
   breakout_evidence: dict | None = None,
   continuation_evidence: dict | None = None,
   m5_authoritative: bool = False,
+  m5_confirmation_bar_ts: str | int | None = None,
+  m5_fallback: str = "off",
 ):
   return evaluate_entry_activation(
     strategy=strategy,
@@ -96,10 +106,11 @@ def _activate(
     trigger=trigger,
     location_decision=location or _location_allowed(),
     now=now,
-    cfg=_activation_cfg(mode),
+    cfg=_activation_cfg(mode, m5_fallback=m5_fallback),
     breakout_evidence=breakout_evidence,
     continuation_evidence=continuation_evidence,
     m5_authoritative=m5_authoritative,
+    m5_confirmation_bar_ts=m5_confirmation_bar_ts,
   )
 
 
@@ -260,11 +271,24 @@ def test_m5_authoritative_in_zone_allows_without_m1():
     trigger=None,
     quote_inside=True,
     m5_authoritative=True,
+    m5_fallback="quote_inside",
   )
   assert decision.allowed is True
   assert decision.would_block is False
   assert decision.reason_code == "reaction_m5_authoritative_in_zone"
   assert decision.measured["m1_fallback_reason"] == "reaction_trigger_missing"
+
+
+def test_m5_fallback_off_blocks_without_m1_even_when_authoritative():
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=True,
+    m5_fallback="off",
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "reaction_trigger_missing"
 
 
 def test_m5_authoritative_outside_zone_still_blocked():
@@ -273,9 +297,47 @@ def test_m5_authoritative_outside_zone_still_blocked():
     trigger=None,
     quote_inside=False,
     m5_authoritative=True,
+    m5_fallback="quote_inside",
   )
   assert decision.allowed is False
   assert decision.reason_code == "quote_outside_zone"
+
+
+def test_m5_quote_inside_fresh_requires_recent_confirmation():
+  fresh_ts = NOW - 300
+  decision = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=True,
+    m5_fallback="quote_inside_fresh",
+    m5_confirmation_bar_ts=str(fresh_ts),
+  )
+  assert decision.allowed is True
+  assert decision.reason_code == "reaction_m5_authoritative_in_zone"
+
+  stale_ts = NOW - 7 * 300
+  stale = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=True,
+    m5_fallback="quote_inside_fresh",
+    m5_confirmation_bar_ts=str(stale_ts),
+  )
+  assert stale.allowed is False
+  assert stale.reason_code == "reaction_trigger_missing"
+
+  missing = _activate(
+    strategy="Key Level Reaction",
+    trigger=None,
+    quote_inside=True,
+    m5_authoritative=True,
+    m5_fallback="quote_inside_fresh",
+    m5_confirmation_bar_ts=None,
+  )
+  assert missing.allowed is False
+  assert missing.reason_code == "reaction_trigger_missing"
 
 
 def test_m5_authoritative_false_without_m1_still_missing():
@@ -284,6 +346,7 @@ def test_m5_authoritative_false_without_m1_still_missing():
     trigger=None,
     quote_inside=True,
     m5_authoritative=False,
+    m5_fallback="quote_inside",
   )
   assert decision.allowed is False
   assert decision.reason_code == "reaction_trigger_missing"
@@ -295,6 +358,7 @@ def test_m1_preferred_over_m5_bridge():
     trigger=_trigger(pattern="wick_rejection", direction="BUY"),
     quote_inside=True,
     m5_authoritative=True,
+    m5_fallback="quote_inside",
   )
   assert decision.allowed is True
   assert decision.reason_code == "entry_activation_allowed"
@@ -319,6 +383,8 @@ def test_apply_trigger_to_match_stamps_fields():
     touch_bar_ts: str | None = None
     confirmation_bar_ts: str | None = None
     reaction_type: str | None = None
+    m5_confirmation_bar_ts: str | None = "1700000000"
+    m5_reaction_type: str | None = "wick_rejection"
     entry_activation_trigger: str | None = None
     entry_activation_trigger_ts: str | None = None
 
@@ -327,12 +393,57 @@ def test_apply_trigger_to_match_stamps_fields():
   assert updated.entry_activation_trigger == "wick_rejection"
   assert updated.entry_activation_trigger_ts == str(NOW - 30)
   assert updated.confirmation_bar_ts == str(NOW - 30)
+  assert updated.reaction_type == "wick_rejection"
+  assert updated.m5_confirmation_bar_ts == "1700000000"
+  assert updated.m5_reaction_type == "wick_rejection"
+
+
+def test_demand_sweep_reclaim_blocks_m5_fallback():
+  cfg = SimpleNamespace(
+    execution=SimpleNamespace(
+      activation=SimpleNamespace(
+        mode="enforce",
+        reaction_trigger_maximum_age_bars=2,
+        m5_authoritative_fallback="quote_inside",
+        m5_confirmation_maximum_age_bars=6,
+      ),
+      technique=SimpleNamespace(enforce=True, require_sweep_body=False),
+    ),
+  )
+  no_sweep = [
+    {"h": 4342.0, "l": 4338.0, "c": 4339.5},
+    {"h": 4341.0, "l": 4338.5, "c": 4339.0},
+    {"h": 4341.3, "l": 4338.4, "c": 4340.0},
+  ]
+  decision = evaluate_entry_activation(
+    strategy="Demand Zone",
+    direction="BUY",
+    zone_entered_at=ZONE_ENTERED,
+    quote_inside=True,
+    decisive_break=False,
+    trigger=None,
+    location_decision=_location_allowed(),
+    now=NOW,
+    cfg=cfg,
+    m5_authoritative=True,
+    m5_confirmation_bar_ts=str(NOW - 300),
+    impulse_bars=no_sweep,
+    zone_low=4337.0,
+    zone_high=4340.0,
+  )
+  assert decision.allowed is False
+  assert decision.reason_code == "demand_requires_sweep_reclaim"
 
 
 def test_m5_authoritative_blocked_under_technique_enforce():
   cfg = SimpleNamespace(
     execution=SimpleNamespace(
-      activation=SimpleNamespace(mode="enforce", reaction_trigger_maximum_age_bars=2),
+      activation=SimpleNamespace(
+        mode="enforce",
+        reaction_trigger_maximum_age_bars=2,
+        m5_authoritative_fallback="off",
+        m5_confirmation_maximum_age_bars=6,
+      ),
       technique=SimpleNamespace(enforce=True, require_sweep_body=False),
     ),
   )
@@ -604,5 +715,42 @@ async def test_activation_allowed_metrics_emitted_once():
   assert int(
     await client.hget(
       metrics_key, "activation_allowed:entry_activation_allowed",
+    ) or 0
+  ) == 1
+
+
+@pytest.mark.asyncio
+async def test_m5_fallback_allowed_metrics_include_m1_fail_reason():
+  from app.persistence import redis_state
+
+  client = redis_state.get_client()
+  decision = EntryActivationDecision(
+    allowed=True,
+    reason_code="reaction_m5_authoritative_in_zone",
+    hard_block=False,
+    requires_trigger=True,
+    trigger_type=None,
+    would_block=False,
+    measured={"m1_fallback_reason": "reaction_trigger_missing"},
+  )
+  await emit_activation_gate_metrics(
+    client,
+    symbol="XAU",
+    strategy="Key Level Reaction",
+    direction="BUY",
+    decision=decision,
+    allowed=True,
+  )
+  metrics_key = "auto_trade:metrics:XAU"
+  dim_key = f"{metrics_key}:activation_allowed:reaction_m5_authoritative_in_zone"
+  assert int(
+    await client.hget(
+      metrics_key, "activation_allowed:reaction_m5_authoritative_in_zone",
+    ) or 0
+  ) == 1
+  assert int(
+    await client.hget(
+      dim_key,
+      "direction=BUY:m1_fail_reason=reaction_trigger_missing:strategy=Key Level Reaction",
     ) or 0
   ) == 1

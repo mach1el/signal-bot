@@ -12,11 +12,20 @@ import pytest
 
 from app.analysis.confluence_zone import (
   ConfluenceMember,
+  build_confluence_bands,
   claim_confluence_zone,
   confluence_zone_id,
   merge_confluence_zones,
   release_confluence_zone,
   resolve_confluence_zone_id,
+)
+from app.analysis.technique_geometry import (
+  TECHNIQUE_CRT,
+  TECHNIQUE_FVG,
+  TECHNIQUE_IFVG,
+  TECHNIQUE_OB,
+  TECHNIQUE_SD,
+  TechniqueInstance,
 )
 from app.persistence import redis_state
 
@@ -225,3 +234,101 @@ def test_zone_id_survives_ordinary_atr_drift():
     for band_low, band_high in bands
   }
   assert len(band_ids) == 1
+
+
+def test_build_confluence_bands_bonus_scores_extra_techniques():
+  member_score = 3.0
+  two_technique = [
+    TechniqueInstance(
+      TECHNIQUE_SD, "buy", 4100.0, 4101.0, None, ("supply_demand",),
+      measured={"score": member_score, "touches": 0},
+      origin_index=1,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_OB, "buy", 4100.5, 4101.5, None, ("order_block",),
+      measured={"score": member_score, "touches": 1},
+      origin_index=2,
+    ),
+  ]
+  five_technique = [
+    *two_technique,
+    TechniqueInstance(
+      TECHNIQUE_FVG, "buy", 4100.6, 4101.4, None, ("bullish_fvg",),
+      measured={"score": member_score, "touches": 0},
+      origin_index=3,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_IFVG, "buy", 4100.7, 4101.3, None, ("ifvg",),
+      measured={"score": member_score, "touches": 2},
+      origin_index=4,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_CRT, "buy", 4100.8, 4101.2, None, ("crt",),
+      measured={"score": member_score, "touches": 4},
+      origin_index=5,
+    ),
+  ]
+  bonus = 2.5
+  two_band = build_confluence_bands(
+    two_technique, symbol="XAU", atr=2.0, pip_size=0.1,
+    min_overlap=0.5, confluence_bonus=bonus,
+  )[0]
+  five_band = build_confluence_bands(
+    five_technique, symbol="XAU", atr=2.0, pip_size=0.1,
+    min_overlap=0.5, confluence_bonus=bonus,
+  )[0]
+
+  assert two_band.score == pytest.approx(member_score + bonus * 1)
+  assert five_band.score == pytest.approx(member_score + bonus * 4)
+  assert five_band.score > two_band.score
+  assert five_band.touches == 4
+  assert two_band.touches == 1
+
+
+def test_build_confluence_bands_bonus_scores_extra_techniques():
+  member_score = 3.0
+  two_technique = [
+    TechniqueInstance(
+      TECHNIQUE_SD, "buy", 4100.0, 4101.0, None, ("supply_demand",),
+      measured={"score": member_score, "touches": 0},
+      origin_index=1,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_OB, "buy", 4100.5, 4101.5, None, ("order_block",),
+      measured={"score": member_score, "touches": 1},
+      origin_index=2,
+    ),
+  ]
+  five_technique = [
+    *two_technique,
+    TechniqueInstance(
+      TECHNIQUE_FVG, "buy", 4100.6, 4101.4, None, ("bullish_fvg",),
+      measured={"score": member_score, "touches": 0},
+      origin_index=3,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_IFVG, "buy", 4100.7, 4101.3, None, ("ifvg",),
+      measured={"score": member_score, "touches": 2},
+      origin_index=4,
+    ),
+    TechniqueInstance(
+      TECHNIQUE_CRT, "buy", 4100.8, 4101.2, None, ("crt",),
+      measured={"score": member_score, "touches": 4},
+      origin_index=5,
+    ),
+  ]
+  bonus = 2.5
+  two_band = build_confluence_bands(
+    two_technique, symbol="XAU", atr=2.0, pip_size=0.1,
+    min_overlap=0.5, confluence_bonus=bonus,
+  )[0]
+  five_band = build_confluence_bands(
+    five_technique, symbol="XAU", atr=2.0, pip_size=0.1,
+    min_overlap=0.5, confluence_bonus=bonus,
+  )[0]
+
+  assert two_band.score == pytest.approx(member_score + bonus * 1)
+  assert five_band.score == pytest.approx(member_score + bonus * 4)
+  assert five_band.score > two_band.score
+  assert five_band.touches == 4
+  assert two_band.touches == 1
