@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `c8452b112182a8ce9f519c6524d4b513dbbc635cee552e44b515c7d2963a8132`
-- Environment-bound fields: `481`
+- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
+- Environment-bound fields: `479`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -250,10 +250,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `CHOP_LOOKBACK` | `analysis.regime.chop.lookback` | `int` | no | no | — | `24` |
 | `CHOP_RANGE_ATR` | `analysis.regime.chop.range_atr` | `float` | no | no | — | `4.0` |
 | `COIL_CONTRACT` | `analysis.measurements.coil_contract` | `float` | no | no | — | `0.8` |
+| `CONFLUENCE_TECHNIQUE_BONUS_SCORE` | `analysis.zones.confluence.technique_bonus_score` | `float` | no | no | — | `2.5` |
 | `CONTESTED_CORRIDOR_GAP_ATR` | `actionability.contested_corridor.gap_atr` | `float` | no | no | — | `0.5` |
-| `COUNTER_EXTREME_PD` | `strategies.counter_trend.extreme_pd` | `float` | no | no | — | `0.25` |
-| `COUNTER_LEVEL_MIN_TOUCHES` | `strategies.counter_trend.level_min_touches` | `int` | no | no | — | `3` |
-| `COUNTER_MIN_ZONE_SCORE` | `strategies.counter_trend.min_zone_score` | `float` | no | no | — | `10.0` |
 | `CTRADER_ACCESS_TOKEN` | `bootstrap.ctrader.credentials.access_token` | `string` | yes | no | — | `<redacted>` |
 | `CTRADER_ACCOUNT_ID` | `bootstrap.ctrader.credentials.account_id` | `long` | no | no | — | `<required>` |
 | `CTRADER_BACKFILL_BARS` | `market_data.ctrader_feed.backfill_bars` | `int` | no | no | — | `1500` |

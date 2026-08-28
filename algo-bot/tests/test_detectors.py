@@ -830,192 +830,35 @@ def test_range_edge_scalp_requires_room_to_eq():
   assert detectors.range_edge_scalp(ctx) is None
 
 
-def _counter_ctx(
-  *,
-  zone: Zone | None = None,
-  zones: list[Zone] | None = None,
-  levels: list[Level] | None = None,
-  breaks: list[Break] | None = None,
-  grabs: list[Grab] | None = None,
-  session_levels: list[SessionLevel] | None = None,
-  position: float = 0.2,
-  allow: bool = True,
-) -> detectors.DetectionContext:
-  df = _buy_rejection_df()
+def test_counter_bias_below_minimum_confluence_rejects_and_records_metric():
   ctx = _ctx(
-    df,
-    bias="down",
-    zones=zones if zones is not None else ([zone] if zone is not None else []),
-    levels=levels,
-    breaks=breaks,
-    grabs=grabs,
-    session_levels=session_levels,
-    dealing_range=DealingRange(high=150, low=100, eq=125, position=position, zone="discount"),
+    _buy_rejection_df(),
+    zones=[
+      Zone(
+        103,
+        105,
+        "demand",
+        source="order_block",
+        score=detectors.STAR_TWO_SCORE,
+      ),
+    ],
   )
-  return replace(
+  ctx = replace(
     ctx,
-    settings=replace(ctx.settings, allow_counter_trend=allow),
-  )
-
-
-def test_counter_reaction_requires_fresh_scored_zone_sweep_and_extreme_pd():
-  df = _buy_rejection_df()
-  zone = Zone(
-    106,
-    110,
-    "demand",
-    source="supply_demand",
-    score=11,
-    score_reasons=["fresh", "S/D", "sweep A"],
-  )
-  grab = Grab(Pool("sell", 107, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab]))
-
-  assert result is not None
-  assert result.setup == "Zone Reaction"
-  assert result.direction == "BUY"
-  assert result.mode == "counter_reaction"
-  assert "sweep A" in result.reasons
-  assert "PD 0.20" in result.reasons
-
-  assert detectors.zone_reaction(_counter_ctx(zone=replace(zone, touches=1), grabs=[grab])) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[])) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab], position=0.4)) is None
-  assert detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab], allow=False)) is None
-
-
-def test_chop_zone_reaction_requires_edge_and_grade_a_sweep():
-  df = _buy_rejection_df()
-  edge_zone = Zone(
-    101,
-    103,
-    "demand",
-    source="supply_demand",
-    score=11,
-    score_reasons=["fresh", "S/D"],
-  )
-  edge_grab = Grab(Pool("sell", 102, 0.1, 2), 4, "bull", df.index[4], "A")
-  edge_ctx = replace(
-    _counter_ctx(zone=edge_zone, grabs=[edge_grab]),
-    regime=_chop_regime(100, 112),
-  )
-
-  result = detectors.zone_reaction(edge_ctx)
-
-  assert result is not None
-  assert result.direction == "BUY"
-  assert "sweep A" in result.reasons
-  assert "range 100-112" in result.reasons
-  assert "TP anchor range high 112" in result.reasons
-
-  mid_zone = replace(edge_zone, bottom=105, top=107)
-  mid_ctx = replace(
-    _counter_ctx(
-      zone=mid_zone,
-      grabs=[Grab(Pool("sell", 106, 0.1, 2), 4, "bull", df.index[4], "A")],
+    htf_bias="down",
+    settings=replace(
+      ctx.settings,
+      allow_counter_trend=True,
+      confluence_floor=2,
+      counter_bias_minimum_confluence=4,
     ),
-    regime=_chop_regime(100, 112),
   )
-  assert detectors.zone_reaction(mid_ctx) is None
-
-  grade_b_ctx = replace(
-    _counter_ctx(
-      zone=edge_zone,
-      breaks=[Break("CHoCH", "up", 108, 4, df.index[4])],
-      grabs=[Grab(Pool("sell", 102, 0.1, 2), 4, "bull", df.index[4], "B")],
-    ),
-    regime=_chop_regime(100, 112),
-  )
-  legacy = replace(
-    grade_b_ctx,
-    settings=replace(grade_b_ctx.settings, chop_filter_enabled=False),
-  )
-  assert detectors.zone_reaction(legacy) is not None
-  assert detectors.zone_reaction(grade_b_ctx) is None
-
-
-def test_counter_swing_requires_fresh_htf_order_block():
-  df = _buy_rejection_df()
-  zone = Zone(
-    106,
-    110,
-    "demand",
-    source="order_block",
-    sources=["order_block"],
-    score=13,
-    score_reasons=["fresh", "OB", "HTF zone"],
-    break_kind="BOS",
-  )
-  grab = Grab(Pool("sell", 107, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(_counter_ctx(zone=zone, grabs=[grab]))
-
-  assert result is not None
-  assert result.mode == "counter_swing"
-  assert "fresh HTF OB" in result.reasons
-  assert any(reason.startswith("TP anchor EQ") for reason in result.reasons)
-
-
-def test_counter_level_reaction_from_strong_bare_key_level_only_scalps():
-  df = _buy_rejection_df()
-  grab = Grab(Pool("sell", 105, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(
-    _counter_ctx(levels=[Level(105, "reaction", touches=4, band=0.2)], grabs=[grab])
-  )
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert "key 105 x4" in result.reasons
-  assert result.entry_zone.source == "level"
-
-  weak = detectors.zone_reaction(
-    _counter_ctx(levels=[Level(105, "reaction", touches=2, band=0.2)], grabs=[grab])
-  )
-  assert weak is None
-
-
-def test_counter_unswept_session_level_reaction():
-  df = _buy_rejection_df()
-  ts = df.index[-2]
-  grab = Grab(Pool("sell", 105, 0.1, 2), 4, "bull", df.index[4], "A")
-
-  result = detectors.zone_reaction(
-    _counter_ctx(
-      grabs=[grab],
-      session_levels=[SessionLevel("PDL", 105, ts, swept=False)],
-    )
-  )
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert "PDL" in result.reasons
-
-
-def test_unbroken_trendline_support_fires_scalp_reaction_after_grade_a_sweep():
-  df = _buy_rejection_df()
-  line = Trendline("support", (0, 2, 4), 0.0, 105.0, 3, False, None)
-  grab = Grab(Pool("sell", 105, 0.1, 3), 4, "bull", df.index[4], "A")
-  ctx = _ctx(
-    df,
-    bias="down",
-    grabs=[grab],
-    trendlines=[line],
-    dealing_range=DealingRange(150, 100, 125, 0.2, "discount"),
-  )
-
-  result = detectors.zone_reaction(ctx)
-
-  assert result is not None
-  assert result.mode == "counter_reaction"
-  assert result.entry_zone.source == "trendline"
-  assert "TL support ×3" in result.reasons
-  broken = replace(line, broken=True, break_index=3)
-  broken_st = replace(ctx.structures["M5"], trendlines=[broken])
-  assert detectors.zone_reaction(
-    replace(ctx, structures={"M5": broken_st})
-  ) is None
+  detectors.drain_discovery_rejections()
+  result = detectors.trend_pullback(ctx)
+  assert result is None
+  assert detectors.drain_discovery_rejections() == {
+    detectors.COUNTER_BIAS_BELOW_MINIMUM_CONFLUENCE: 1,
+  }
 
 
 def test_trendline_break_retest_fires_outside_chop_only():

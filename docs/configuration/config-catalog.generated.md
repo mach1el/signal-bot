@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `c8452b112182a8ce9f519c6524d4b513dbbc635cee552e44b515c7d2963a8132`
-- Document fingerprint: `da60002e3d47e4b8e1d693cde27000a36a60ae5017b0e0fc653c94f5b1cd7471`
-- Items: `548`
+- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
+- Document fingerprint: `8f3ab6e030692cab757d6e9dfb9b8d9494d7a10035573e68fb2d53bf8e04d58a`
+- Items: `546`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -133,6 +133,7 @@
 | `analysis.triggers.m1.wick_fraction` | `M1_TRIGGER_WICK_FRACTION` | `float` | `fraction` | `configurable` | `0.5` |
 | `analysis.zones.alert_ttl` | `ZONE_ALERT_TTL` | `int` | `seconds` | `configurable` | `14400` |
 | `analysis.zones.confluence.merge_gap_price` | `ZONE_MERGE_GAP` | `float` | `price` | `configurable` | `1.0` |
+| `analysis.zones.confluence.technique_bonus_score` | `CONFLUENCE_TECHNIQUE_BONUS_SCORE` | `float` | `score` | `configurable` | `2.5` |
 | `analysis.zones.discovery.maximum_width_atr` | `MAX_ZONE_WIDTH_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `analysis.zones.merge_max_width` | `ZONE_MERGE_MAX_WIDTH` | `float` | `price` | `configurable` | `6.0` |
 | `analysis.zones.merge_overlap` | `ZONE_MERGE_OVERLAP` | `float` | `fraction` | `configurable` | `0.5` |
@@ -498,9 +499,6 @@
 | `strategies.breakout.break_retest_enabled` | `AUTO_TRADE_BREAK_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.breakout.breakout_enabled` | `AUTO_TRADE_BREAKOUT_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.counter_trend.allow_counter_trend` | `ALLOW_COUNTER_TREND` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
-| `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
-| `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
 | `strategies.mapped_zone.counter_bias_enabled` | `AUTO_TRADE_MAP_COUNTER_BIAS_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.mapped_zone.enabled` | `AUTO_TRADE_MAPPED_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.matching.multiple_matches_enabled` | `AUTO_TRADE_MULTI_MATCH_ENABLED` | `bool` | `boolean` | `configurable` | `false` |

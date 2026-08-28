@@ -1330,18 +1330,6 @@
       "repr": "True",
       "type": "builtins.bool"
     },
-    "strategies.counter_trend.extreme_pd": {
-      "repr": "0.25",
-      "type": "builtins.float"
-    },
-    "strategies.counter_trend.level_min_touches": {
-      "repr": "3",
-      "type": "builtins.int"
-    },
-    "strategies.counter_trend.min_zone_score": {
-      "repr": "10.0",
-      "type": "builtins.float"
-    },
     "strategies.mapped_zone.counter_bias_enabled": {
       "repr": "True",
       "type": "builtins.bool"
