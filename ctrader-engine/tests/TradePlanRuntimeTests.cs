@@ -261,6 +261,36 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
+  public async Task UnknownCloseNearProtectiveStopPromotesSlNotManual()
+  {
+    // Production 2026-08-28 Flip Zone: exit within a few pips of SL must
+    // not read as manual when the deal window misses the fill.
+    var store = new FakeV7Store();
+    store.EnqueuePlan(PlanJson(stopPrice: 4082.50m));
+    var client = new FakeV7TradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+    };
+    var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
+
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
+    );
+    var positionId = Assert.Single(runtime.TrackedStates).PositionId;
+    Assert.NotNull(positionId);
+
+    client.RemovePosition(positionId.Value);
+    await runtime.PollAsync(
+      client, Symbol, new SpotPrice("XAU", 4082.55m, 4082.60m, 2), CancellationToken.None
+    );
+
+    Assert.Empty(runtime.TrackedStates);
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
+    Assert.DoesNotContain("manual_or_external", closed.Message, StringComparison.OrdinalIgnoreCase);
+  }
+
+  [Fact]
   public async Task PartialUnknownClosePastStopPromotesSlAndKeepsManagingRemainingLeg()
   {
     // Production 2026-08-26 HFS Range Sweep v8:a80bf164…: L1 SL'd, deal
