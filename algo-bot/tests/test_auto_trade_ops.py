@@ -121,6 +121,47 @@ def test_position_closed_labels_manual_or_external_close():
   assert "Closed by broker SL/TP" not in closed
 
 
+def test_position_closed_near_stop_not_labeled_manual():
+  """2026-08-28 XAU Flip Zone: SL @ 4604.47, exit 4604.16 mislabeled manual."""
+  event = {
+    "type": "position_closed",
+    "message": (
+      "PLAN CLOSED · manual_or_external · losing -34 pips · @ 4604.16"
+    ),
+    "reason_code": "manual_or_external_close",
+    "group_realized_pips": -34.0,
+    "price": 4604.16,
+    "stop_loss": 4604.47,
+    "direction": "SELL",
+    "symbol": "XAU",
+  }
+  compact = delivery._format_position_closed_compact_line(
+    event, str(event["message"]),
+  )
+  assert "Closed manually" not in compact
+  assert "🛡 SL" in compact
+  assert "Losing: -34.0 pips" in compact
+
+
+def test_position_closed_break_even_message_uses_be_label():
+  event = {
+    "type": "position_closed",
+    "message": "PLAN CLOSED · stop_loss_or_take_profit · break-even · @ 4600.84",
+    "reason_code": "stop_loss_or_take_profit",
+    "group_realized_pips": 0.0,
+    "price": 4600.84,
+    "stop_loss": 4600.84,
+    "direction": "SELL",
+    "symbol": "XAU",
+    "break_even_applied": True,
+  }
+  compact = delivery._format_position_closed_compact_line(
+    event, str(event["message"]),
+  )
+  assert "Closed manually" not in compact
+  assert "0 pips (BE)" in compact
+
+
 def test_position_closed_manual_close_reports_winning_pips():
   closed = delivery.render_auto_trade_event({
     "type": "position_closed",
