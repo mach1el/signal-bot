@@ -21,7 +21,7 @@ Default policy is **disabled**. Do not enable until shadow + paper holdout are g
 3. Replay lab ([REPLAY_LAB.md](REPLAY_LAB.md)): development + validation positive expectancy; **holdout untouched during tuning**
 4. Shadow density + block reasons reviewed (`math_shadow` Redis last key; per-opp `measured.math_liquidity_sweep` on range_sweep)
 5. Paper MAE/MFE acceptable
-6. Enable one strategy only at reduced risk; keep Impulse Pullback / Momentum Chase off
+6. Enable one strategy only at reduced risk; keep Impulse Pullback off until validated
 
 ## Modes
 

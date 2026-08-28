@@ -69,7 +69,6 @@ Structure/technique decide permits (not killzone clock). See
 1. `range_sweep` — micro range edge false-break sweep/reclaim
 2. `impulse_pullback` — join displacement after pullback
 3. `breakout_retest` — M1 compression box → displacement break → rejection retest → hold ([OWN_BREAKOUT_TECHNIQUE.md](OWN_BREAKOUT_TECHNIQUE.md))
-4. `momentum_chase` — ignition chase (off by default in config)
 
 ## Promotion criteria (shadow → paper)
 

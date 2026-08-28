@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `8b37d428a86adad3fd3a503ac77b926f6b0e096c2d4e338aaf7a3f8000b0f6ad`
-- Document fingerprint: `501f0daf42bb649d2ffe96841f5807bf9fb331ad6421cb5d92ef2ff3f3da2c5f`
+- Contract fingerprint: `c8d409206e2fff900f411fb045e64c994d1f7283cc7315bba36ced9f3fba7c44`
+- Document fingerprint: `d00c8b1958602cfee96385930672c534223ca934a3578e25e1c202a59c3e072d`
 - Items: `540`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -324,6 +324,7 @@
 | `execution.technique.ny_window_hours` | `AUTO_TRADE_TECHNIQUE_NY_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
 | `execution.technique.reaction_publish_windows` | `AUTO_TRADE_TECHNIQUE_REACTION_PUBLISH_WINDOWS` | `str` | `string` | `configurable` | `"7-11,13-16"` |
 | `execution.technique.reaction_require_killzone` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.reaction_require_publish_window` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_PUBLISH_WINDOW` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.require_sweep_body` | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.strict_premium_discount` | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.trend.hard_entry_drift_pips` | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `30.0` |
@@ -498,7 +499,6 @@
 | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.archetypes.momentum_chase_enabled` | `HFS_MOMENTUM_CHASE_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.breakout.box_max_atr` | `HFS_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `strategies.high_frequency_scalp.breakout.max_box_bars` | `HFS_BREAKOUT_MAX_BOX_BARS` | `int` | `bars` | `configurable` | `20` |
