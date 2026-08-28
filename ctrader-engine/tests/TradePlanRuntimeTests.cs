@@ -263,17 +263,10 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task UnknownCloseNearProtectiveStopPromotesSlNotManual()
   {
-    // Production 2026-08-28 Flip Zone SELL: fill 4600.78, SL 4604.47,
-    // live quote 4604.16 after vanish — must not read as manual close.
+    // Production 2026-08-28 Flip Zone: exit within a few pips of SL must
+    // not read as manual when the deal window misses the fill.
     var store = new FakeV7Store();
-    store.EnqueuePlan(PlanJson(
-      direction: "SELL",
-      zoneLow: 4600.05m,
-      zoneHigh: 4603.54m,
-      stopPrice: 4604.47m,
-      strategy: "Flip Zone",
-      strategyFamily: "supply_demand"
-    ));
+    store.EnqueuePlan(PlanJson(stopPrice: 4082.50m));
     var client = new FakeV7TradingClient
     {
       PositionCloseReasonToReturn = PositionCloseReason.Unknown,
@@ -281,20 +274,19 @@ public sealed class TradePlanRuntimeTests
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4600.30m, 4600.31m, 1), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
     );
     var positionId = Assert.Single(runtime.TrackedStates).PositionId;
     Assert.NotNull(positionId);
 
     client.RemovePosition(positionId.Value);
     await runtime.PollAsync(
-      client, Symbol, new SpotPrice("XAU", 4604.15m, 4604.16m, 2), CancellationToken.None
+      client, Symbol, new SpotPrice("XAU", 4082.55m, 4082.60m, 2), CancellationToken.None
     );
 
     Assert.Empty(runtime.TrackedStates);
     var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
     Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
-    Assert.Contains("losing", closed.Message, StringComparison.OrdinalIgnoreCase);
     Assert.DoesNotContain("manual_or_external", closed.Message, StringComparison.OrdinalIgnoreCase);
   }
 

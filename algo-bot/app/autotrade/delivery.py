@@ -568,13 +568,15 @@ _CLOSE_REASON_LABELS = {
 
 
 def _use_stop_close_format(event: dict, *, reason: str, cleaned: str) -> bool:
-  if reason == "stop_loss_or_take_profit":
-    return True
   if terminal_loss_at_protective_stop(event):
     return True
   if reason == "manual_or_external_close" and close_at_protective_stop(event):
     return True
   if _NO_TP_ARCHIVED_RE.search(cleaned or ""):
+    return True
+  if reason == "stop_loss_or_take_profit" and (
+    (_resolve_close_pips(event, cleaned, allow_stop_fallback=True) or 0) < 0
+  ):
     return True
   return False
 
