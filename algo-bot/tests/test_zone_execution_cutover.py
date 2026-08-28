@@ -1233,6 +1233,131 @@ async def test_prepare_activation_preblocks_planned_stop_envelope_error(
 
 
 @pytest.mark.asyncio
+async def test_prepare_activation_blocks_fx_on_mad_hard_gate(monkeypatch):
+  from dataclasses import replace
+  from app.core import instrument_geometry
+  from tests.test_config_effective_instrument_context import _load_production_example
+
+  eurusd_cfg = _load_production_example().config.for_instrument("EURUSD")
+  monkeypatch.setattr(
+    instrument_geometry,
+    "instrument_runtime",
+    lambda symbol: eurusd_cfg if str(symbol).upper() == "EURUSD" else eurusd_cfg,
+  )
+  install_runtime_overrides(
+    monkeypatch,
+    overrides={
+      "execution.activation.mode": "enforce",
+      "execution.technique.enforce": True,
+      "execution.technique.mad_hard_gate_enabled": True,
+      "actionability.entry_location.mode": "shadow",
+    },
+  )
+  record = zw.ZoneWatch(
+    version=zw.ZONE_WATCH_VERSION,
+    zone_id="zone-mad",
+    symbol="EURUSD",
+    direction="SELL",
+    low=1.0850,
+    high=1.0855,
+    width=0.0005,
+    source_timeframe="M15",
+    structural_sources=("range",),
+    confluence_tags=("range",),
+    technique_tags=(),
+    grade=zw.GRADE_B,
+    score=1.0,
+    freshness=0,
+    touch_count=0,
+    discovered_at=1_785_390_000,
+    last_confirmed_at=1_785_390_000,
+    last_touch_at=None,
+    invalidation_price=None,
+    state=zw.WATCHING_RETEST,
+    market_map_id="",
+    structure_signature="",
+    updated_at=1_785_390_000,
+  )
+  match = replace(
+    _match(strategy="Range Edge Scalp"),
+    match_id="setup-mad",
+    symbol="EURUSD",
+    confluence_zone_id="zone-mad",
+    structural_zone_id="zone-mad",
+    family="range",
+    strategy_mode="range_scalp",
+  )
+  telemetry = AsyncMock()
+  monkeypatch.setattr(cutover, "_record_policy_telemetry", telemetry)
+  monkeypatch.setattr(cutover, "_m1_trigger_for_zone", AsyncMock(return_value=None))
+  monkeypatch.setattr(cutover, "_recent_m1_impulse_bars", AsyncMock(return_value=0))
+  monkeypatch.setattr(
+    cutover,
+    "_resolve_location_range_bounds",
+    AsyncMock(return_value={
+      "m15_range_low": 1.0800,
+      "m15_range_high": 1.0900,
+    }),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_closed_bar_decisive_break",
+    AsyncMock(return_value=False),
+  )
+  monkeypatch.setattr(
+    cutover,
+    "_location_and_activation_for_record",
+    lambda **_kwargs: (
+      SimpleNamespace(
+        allowed=True,
+        reason_code="location_allowed",
+        would_block=False,
+        measured={"mode": "shadow"},
+      ),
+      SimpleNamespace(
+        allowed=True,
+        reason_code="reaction_trigger_fresh",
+        would_block=False,
+        requires_trigger=True,
+        measured={"mode": "enforce"},
+      ),
+      SimpleNamespace(
+        effective_range_source="scanner",
+        effective_range_low=1.0800,
+        effective_range_high=1.0900,
+        effective_range_position_raw=0.5,
+      ),
+    ),
+  )
+  monkeypatch.setattr(
+    "app.autotrade.reaction_funnel.bump_funnel",
+    AsyncMock(),
+  )
+
+  async def _block_mad(_client, **kwargs):
+    return False, "mad_gate_reversal_avoid_expand", {
+      "mad_phase": "expand",
+      "mad_gate_strategy": "range_edge_mean_reversion",
+    }
+
+  monkeypatch.setattr(
+    "app.analysis.mad_phase.evaluate_technique_mad_gate",
+    _block_mad,
+  )
+
+  prepared = await cutover._prepare_activation(
+    SimpleNamespace(),
+    record=record,
+    match=match,
+    quote=(1.0852, 1.0854, 1_785_390_200),
+    evidence=SimpleNamespace(executable_quote=1.0852, inside=True),
+  )
+  assert prepared is None
+  telemetry.assert_awaited()
+  assert telemetry.await_args.kwargs["reason_code"] == "mad_gate_reversal_avoid_expand"
+
+
+@pytest.mark.asyncio
 async def test_activate_match_terminalizes_zone_on_v8_stop_invalidate(
   monkeypatch,
 ):

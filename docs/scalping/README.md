@@ -25,7 +25,8 @@ Research-first roadmap (do not loosen thresholds first):
 8. `app/scalping/replay.py` / `replay_lab.py` — paper outcomes + calibration ([REPLAY_LAB.md](REPLAY_LAB.md))
 9. `app/scalping/rollout.py` — shadow sidecar helpers
 10. [CONTROLLED_LIVE.md](CONTROLLED_LIVE.md) — promotion checklist (gates later)
-11. [MAD.md](MAD.md) — Asia range seal + accum/manip/expand (technique Range Edge only)
+11. [MAD.md](MAD.md) — Asia phase clock + FX technique hard gates
+12. [MAD_SOURCES.md](MAD_SOURCES.md) — ICT AMD lineage vs ApexVoid rules
 
 Collect performance first; design hard gates later from data. Holdout is never
 used for tuning. Demo host: ship live and trace from Redis/ledger.
