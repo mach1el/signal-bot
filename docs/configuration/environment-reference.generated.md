@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `a4327e119712986e6ddd91a38d0caa57b90882f2b4b194e3c952fd74f18e1adb`
-- Environment-bound fields: `478`
+- Contract fingerprint: `c8452b112182a8ce9f519c6524d4b513dbbc635cee552e44b515c7d2963a8132`
+- Environment-bound fields: `481`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -274,6 +274,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `DELIVERY_DELETE_ON_TERMINAL` | `delivery.lifecycle.delete_on_terminal` | `bool` | no | no | — | `True` |
 | `DELIVERY_THREAD_LIFECYCLE` | `delivery.lifecycle.thread_lifecycle` | `bool` | no | no | — | `True` |
 | `DISPLACEMENT_ATR_MULT` | `analysis.displacement.atr_mult` | `float` | no | no | — | `1.5` |
+| `ENTRY_ACTIVATION_M5_AUTHORITATIVE_FALLBACK` | `execution.activation.m5_authoritative_fallback` | `str` | no | no | — | `off` |
+| `ENTRY_ACTIVATION_M5_CONFIRMATION_MAX_AGE_BARS` | `execution.activation.m5_confirmation_maximum_age_bars` | `int` | no | no | — | `6` |
 | `ENTRY_ACTIVATION_MODE` | `execution.activation.mode` | `str` | no | no | — | `shadow` |
 | `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `execution.activation.reaction_trigger_maximum_age_bars` | `int` | no | no | — | `2` |
 | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `bool` | no | no | — | `True` |
@@ -451,6 +453,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SWEEP_BODY_FRAC` | `analysis.liquidity.sweep.body_frac` | `float` | no | no | — | `0.5` |
 | `SWEEP_REACT_BARS` | `analysis.liquidity.sweep.react_bars` | `int` | no | no | — | `3` |
 | `SWING_FRACTAL_N` | `analysis.swings.fractal_size` | `int` | no | no | — | `2` |
+| `TECHNIQUE_VALIDATION_ENABLED` | `analysis.techniques.validation_enabled` | `bool` | no | no | — | `True` |
 | `TELEGRAM_BOT_TOKEN` | `bootstrap.telegram.bot_token` | `str` | yes | no | — | `<redacted>` |
 | `TELEGRAM_OWNER_ID` | `delivery.telegram.telegram_owner_id` | `Optional[int]` | no | no | — | `None` |
 | `TIINGO_API_KEY` | `market_data.tiingo.api_key` | `Optional[str]` | yes | no | — | `<redacted>` |

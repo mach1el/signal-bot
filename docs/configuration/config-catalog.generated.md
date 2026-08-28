@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `a4327e119712986e6ddd91a38d0caa57b90882f2b4b194e3c952fd74f18e1adb`
-- Document fingerprint: `d0795d29c06dc748135600930cf9bd57b7a6143e9872435ed059f3de62a3bfd3`
-- Items: `545`
+- Contract fingerprint: `c8452b112182a8ce9f519c6524d4b513dbbc635cee552e44b515c7d2963a8132`
+- Document fingerprint: `da60002e3d47e4b8e1d693cde27000a36a60ae5017b0e0fc653c94f5b1cd7471`
+- Items: `548`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -122,6 +122,7 @@
 | `analysis.swings.fractal_size` | `SWING_FRACTAL_N` | `int` | `bars` | `configurable` | `2` |
 | `analysis.swings.zigzag.atr_mult` | `ZIGZAG_ATR_MULT` | `float` | `atr` | `configurable` | `1.0` |
 | `analysis.swings.zigzag.pct` | `ZIGZAG_PCT` | `float` | `percent` | `configurable` | `0.0` |
+| `analysis.techniques.validation_enabled` | `TECHNIQUE_VALIDATION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `analysis.trendlines.dedup_slope_percent` | `—` | `float` | `percent` | `algorithm_constant` | `0.2` |
 | `analysis.trendlines.dedup_value_atr` | `—` | `float` | `atr` | `algorithm_constant` | `0.5` |
 | `analysis.trendlines.maximum_slope_atr` | `TL_MAX_SLOPE_ATR` | `float` | `atr` | `configurable` | `0.15` |
@@ -247,6 +248,8 @@
 
 | Path | ENV | Type | Unit | Kind | Default |
 |---|---|---|---|---|---|
+| `execution.activation.m5_authoritative_fallback` | `ENTRY_ACTIVATION_M5_AUTHORITATIVE_FALLBACK` | `str` | `enum` | `configurable` | `"off"` |
+| `execution.activation.m5_confirmation_maximum_age_bars` | `ENTRY_ACTIVATION_M5_CONFIRMATION_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `6` |
 | `execution.activation.mode` | `ENTRY_ACTIVATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
 | `execution.activation.reaction_trigger_maximum_age_bars` | `ENTRY_ACTIVATION_REACTION_TRIGGER_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `execution.broker_recovery.absence_confirmations` | `AUTO_TRADE_BROKER_ABSENCE_CONFIRMATIONS` | `int` | `price` | `configurable` | `2` |

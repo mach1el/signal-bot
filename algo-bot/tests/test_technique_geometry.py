@@ -61,8 +61,9 @@ def test_fvg_discovery_three_candle_gap():
   zones = [
     Zone(101.0, 101.5, "demand", origin_index=2, source="bullish_fvg"),
   ]
-  instances = collect_technique_instances(
+  instances, _rejects = collect_technique_instances(
     sd_zones=[], ob_zones=[], fvg_zones=zones, df=df,
+    price=102.0, atr=2.0, validation_enabled=False,
   )
   assert len(instances) == 1
   assert instances[0].technique == TECHNIQUE_FVG
@@ -312,9 +313,11 @@ def test_collect_technique_instances_clips_sd_ob_fvg_entries():
   fvg_zones = [
     Zone(4400.0, 4424.0, "demand", origin_index=1, source="bullish_fvg"),
   ]
-  instances = collect_technique_instances(
+  instances, _rejects = collect_technique_instances(
     sd_zones=sd_zones, ob_zones=ob_zones, fvg_zones=fvg_zones, df=df,
+    price=4402.0, atr=10.0,
     settings=TechniqueGeometrySettings(fvg_entry_max_width_price=5.0),
+    validation_enabled=False,
   )
   by_technique = {item.technique: item for item in instances}
   assert by_technique[TECHNIQUE_SD].high - by_technique[TECHNIQUE_SD].low == pytest.approx(5.0)
@@ -387,3 +390,162 @@ def test_discover_crt_clips_entry_and_keeps_h1_structural_bounds(monkeypatch):
   assert item.measured["structural_high"] == pytest.approx(4434.0)
   assert item.measured["entry_clipped"] is True
   assert item.origin_index == 2  # closed impulse, not forming bar
+
+
+def _valid_buy_instance(**overrides) -> TechniqueInstance:
+  measured = {"mitigated": False, "body_frac": 0.8, "has_bos": True}
+  measured.update(overrides.get("measured") or {})
+  return TechniqueInstance(
+    technique=overrides.get("technique", TECHNIQUE_SD),
+    side=overrides.get("side", "buy"),
+    low=overrides.get("low", 100.0),
+    high=overrides.get("high", 101.0),
+    origin_ts=None,
+    sources=("supply_demand",),
+    measured=measured,
+    origin_index=overrides.get("origin_index", 0),
+  )
+
+
+def test_validate_rejects_mitigated_flag():
+  settings = TechniqueGeometrySettings(pip_size=0.1)
+  df = _df([(100, 101, 99, 100.5)])
+  instance = _valid_buy_instance(measured={"mitigated": True})
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.5, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["mitigated"]
+
+
+def test_validate_rejects_not_invalidated():
+  settings = TechniqueGeometrySettings(pip_size=0.1)
+  df = _df([
+    (100, 101, 99, 100),
+    (100, 101, 98, 97),
+  ])
+  instance = _valid_buy_instance(low=100.0, high=101.0, origin_index=0)
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.5, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["not_invalidated"]
+
+
+def test_validate_rejects_proximal_retest():
+  settings = TechniqueGeometrySettings(pip_size=0.1)
+  df = _df([(100, 101, 99, 100)])
+  instance = _valid_buy_instance(low=100.0, high=101.0, origin_index=0)
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=110.0, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["proximal_retest"]
+
+
+def test_validate_rejects_fvg_min_width():
+  settings = TechniqueGeometrySettings(pip_size=0.1, fvg_min_pips=2.0)
+  df = _df([(100, 101, 99, 100.05)])
+  instance = _valid_buy_instance(
+    technique=TECHNIQUE_FVG, low=100.0, high=100.05, origin_index=0,
+  )
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.05, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["fvg_min_width"]
+
+
+def test_validate_rejects_fvg_not_fully_filled():
+  settings = TechniqueGeometrySettings(pip_size=0.1)
+  df = _df([
+    (100, 101, 99, 100),
+    (100, 101, 99.5, 100),
+  ])
+  instance = _valid_buy_instance(
+    technique=TECHNIQUE_FVG, low=100.0, high=101.0, origin_index=0,
+  )
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.5, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["fvg_not_fully_filled"]
+
+
+def test_validate_rejects_width_within_atr():
+  settings = TechniqueGeometrySettings(pip_size=0.1, max_zone_atr=1.0)
+  df = _df([(100, 105, 99, 102)])
+  instance = _valid_buy_instance(low=100.0, high=105.0, origin_index=0)
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=102.0, atr=1.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["width_within_atr"]
+
+
+def test_validate_rejects_ob_momentum_body():
+  settings = TechniqueGeometrySettings(pip_size=0.1, momentum_body_frac=0.6)
+  df = _df([(100, 101, 99.9, 100.01)])
+  instance = _valid_buy_instance(
+    technique=TECHNIQUE_OB,
+    measured={"mitigated": False, "body_frac": 0.2, "has_bos": True},
+    origin_index=0,
+  )
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.01, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["ob_momentum_body"]
+
+
+def test_validate_rejects_ob_missing_bos():
+  settings = TechniqueGeometrySettings(pip_size=0.1)
+  df = _df([(100, 101, 99, 100.5)])
+  instance = _valid_buy_instance(
+    technique=TECHNIQUE_OB,
+    measured={"mitigated": False, "body_frac": 0.8, "has_bos": False},
+    origin_index=0,
+  )
+  reasons: list[str] = []
+  assert not validate_technique_instance(
+    instance, df, price=100.5, atr=2.0, settings=settings, reasons=reasons,
+  )
+  assert reasons == ["ob_missing_bos"]
+
+
+def test_collect_technique_instances_records_reject_counters():
+  df = _df([(100, 101, 99, 100)])
+  zones = [
+    Zone(100.0, 101.0, "demand", origin_index=0, source="supply_demand"),
+  ]
+  instances, rejects = collect_technique_instances(
+    sd_zones=zones, ob_zones=[], fvg_zones=[], df=df,
+    price=110.0, atr=2.0,
+    settings=TechniqueGeometrySettings(pip_size=0.1),
+    validation_enabled=True,
+  )
+  assert instances == []
+  assert rejects == {"proximal_retest": 1}
+
+
+def test_collect_technique_instances_validation_disabled_skips_filter():
+  df = _df([(100, 101, 99, 100)])
+  zones = [
+    Zone(100.0, 101.0, "demand", origin_index=0, source="supply_demand"),
+  ]
+  with_validation, rejects_on = collect_technique_instances(
+    sd_zones=zones, ob_zones=[], fvg_zones=[], df=df,
+    price=110.0, atr=2.0,
+    settings=TechniqueGeometrySettings(pip_size=0.1),
+    validation_enabled=True,
+  )
+  without_validation, rejects_off = collect_technique_instances(
+    sd_zones=zones, ob_zones=[], fvg_zones=[], df=df,
+    price=110.0, atr=2.0,
+    settings=TechniqueGeometrySettings(pip_size=0.1),
+    validation_enabled=False,
+  )
+  assert with_validation == []
+  assert rejects_on == {"proximal_retest": 1}
+  assert len(without_validation) == 1
+  assert rejects_off == {}
