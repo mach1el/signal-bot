@@ -1270,7 +1270,7 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
     strategy_mode="hfs_scalp",
     direction="BUY",
     family="hfs",
-    structural_source="hfs",
+    structural_source="scalp",
     structural_kind="demand",
     key_level=4089.0,
     entry_low=4088.10,

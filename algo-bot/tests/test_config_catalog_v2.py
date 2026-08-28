@@ -44,14 +44,14 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 540,
-  "configurable": 473,
+  "entries": 542,
+  "configurable": 475,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 395, "shared": 96, "ctrader": 49},
-  "projection": 491,
-  "env": 473,
-  "deprecated_aliases": 21,
+  "owners": {"python": 397, "shared": 96, "ctrader": 49},
+  "projection": 493,
+  "env": 475,
+  "deprecated_aliases": 64,
 }
 
 
@@ -313,10 +313,10 @@ _INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
   "risk.tiers.b_multiplier",
   # 12 Aug 2026 HFS quality dig: Impulse bleed on late chase / wide stops /
   # mid-range location; tighten chase and pullback location gates.
-  "strategies.high_frequency_scalp.activation.maximum_chase_pips",
-  "strategies.high_frequency_scalp.stop.maximum_pips",
-  "strategies.high_frequency_scalp.location.pullback_buy_maximum_position",
-  "strategies.high_frequency_scalp.location.pullback_sell_minimum_position",
+  "strategies.scalping.activation.maximum_chase_pips",
+  "strategies.scalping.stop.maximum_pips",
+  "strategies.scalping.location.pullback_buy_maximum_position",
+  "strategies.scalping.location.pullback_sell_minimum_position",
 }
 
 

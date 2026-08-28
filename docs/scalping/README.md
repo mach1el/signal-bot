@@ -2,7 +2,7 @@
 
 Shadow/paper/live event-driven scalping on closed M1 bars with immutable M5
 context. Separate lane from technique ZoneWatch publishers. Symbols are
-gated by `is_hfs_symbol` / HFS config (production focus remains XAU).
+gated by `is_scalping_symbol` / scalping config (production focus remains XAU).
 
 **Own mechanism (research-first):** see
 [OWN_SCALP_MECHANISM.md](OWN_SCALP_MECHANISM.md). Hard gates are deferred —

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.bot.handlers import channel as channel_handlers
-from app.scalping.context import _hfs_symbols, is_hfs_symbol
+from app.scalping.context import _scalping_symbols, is_scalping_symbol
 from app.signals.parsing import _take_symbol
 from tests.test_config_effective_instrument_context import _load_production_example
 
@@ -27,13 +27,13 @@ def test_take_symbol_canonicalizes_aliases(monkeypatch):
 
 def test_hfs_excludes_fx_fixed_rr_live_books():
   cfg = _load_production_example().config
-  allowed = _hfs_symbols(cfg)
+  allowed = _scalping_symbols(cfg)
   assert "XAU" in allowed
   for symbol in ("EURUSD", "GBPJPY", "GBPUSD", "USDJPY"):
     if symbol in cfg.live_instruments():
       assert symbol not in allowed
-      assert not is_hfs_symbol(symbol, cfg)
-  assert is_hfs_symbol("XAU", cfg)
+      assert not is_scalping_symbol(symbol, cfg)
+  assert is_scalping_symbol("XAU", cfg)
 
 
 @pytest.mark.asyncio

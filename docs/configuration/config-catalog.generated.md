@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `354d961c37977232d925d8cc31710a50ee87a7992850e98d59d81bb23a31c548`
-- Document fingerprint: `a440ebc12a1e0d12dd61f11155fd90d6ff39c0806977ca98cff3acc4750db7f4`
+- Contract fingerprint: `f790897c73533a6a78895c180a001834e4d2df8fd10b6e9cbf36a49a34e6a981`
+- Document fingerprint: `4216e7f36c1f7b458edc932dd8253fbd12ab9edcb59d5b70fe720ee89204f682`
 - Items: `542`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -318,7 +318,6 @@
 | `execution.targeting.tp_weights` | `AUTO_TRADE_TP_WEIGHTS` | `list[int]` | `count` | `configurable` | `[20, 20, 20, 20, 20]` |
 | `execution.targeting.unfilled_leg_after_tp_policy` | `AUTO_TRADE_UNFILLED_LEG_AFTER_TP_POLICY` | `str` | `enum` | `configurable` | `"cancel"` |
 | `execution.technique.enforce` | `AUTO_TRADE_TECHNIQUE_ENFORCE` | `bool` | `boolean` | `configurable` | `true` |
-| `execution.technique.hfs_require_killzone` | `AUTO_TRADE_TECHNIQUE_HFS_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.include_late_ny` | `AUTO_TRADE_TECHNIQUE_INCLUDE_LATE_NY` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.london_window_hours` | `AUTO_TRADE_TECHNIQUE_LONDON_WINDOW_HOURS` | `int` | `count` | `configurable` | `3` |
 | `execution.technique.mad_hard_gate_enabled` | `AUTO_TRADE_TECHNIQUE_MAD_HARD_GATE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
@@ -327,6 +326,7 @@
 | `execution.technique.reaction_require_killzone` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.reaction_require_publish_window` | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_PUBLISH_WINDOW` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.require_sweep_body` | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.scalp_require_killzone` | `AUTO_TRADE_TECHNIQUE_SCALP_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.strict_premium_discount` | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.trend.hard_entry_drift_pips` | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `execution.trend.max_entry_drift_atr` | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `float` | `atr` | `configurable` | `0.85` |
@@ -495,48 +495,6 @@
 | `strategies.counter_trend.extreme_pd` | `COUNTER_EXTREME_PD` | `float` | `fraction` | `configurable` | `0.25` |
 | `strategies.counter_trend.level_min_touches` | `COUNTER_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
 | `strategies.counter_trend.min_zone_score` | `COUNTER_MIN_ZONE_SCORE` | `float` | `score` | `configurable` | `10.0` |
-| `strategies.high_frequency_scalp.activation.maximum_chase_pips` | `HFS_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `40.0` |
-| `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
-| `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
-| `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.archetypes.impulse_pullback_allowed_sessions` | `HFS_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `str` | `string` | `configurable` | `"london"` |
-| `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.breakout.box_max_atr` | `HFS_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
-| `strategies.high_frequency_scalp.breakout.max_box_bars` | `HFS_BREAKOUT_MAX_BOX_BARS` | `int` | `bars` | `configurable` | `20` |
-| `strategies.high_frequency_scalp.breakout.min_box_bars` | `HFS_BREAKOUT_MIN_BOX_BARS` | `int` | `bars` | `configurable` | `8` |
-| `strategies.high_frequency_scalp.breakout.min_break_atr` | `HFS_BREAKOUT_MIN_BREAK_ATR` | `float` | `atr` | `configurable` | `0.25` |
-| `strategies.high_frequency_scalp.breakout.min_touches_per_side` | `HFS_BREAKOUT_MIN_TOUCHES_PER_SIDE` | `int` | `count` | `configurable` | `2` |
-| `strategies.high_frequency_scalp.breakout.require_retest_rejection` | `HFS_BREAKOUT_REQUIRE_RETEST_REJECTION` | `bool` | `boolean` | `configurable` | `true` |
-| `strategies.high_frequency_scalp.breakout.retest_lookback_bars` | `HFS_BREAKOUT_RETEST_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `5` |
-| `strategies.high_frequency_scalp.breakout.touch_tol_atr` | `HFS_BREAKOUT_TOUCH_TOL_ATR` | `float` | `atr` | `configurable` | `0.2` |
-| `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `3600` |
-| `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
-| `strategies.high_frequency_scalp.context.m1_lookback_bars` | `HFS_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |
-| `strategies.high_frequency_scalp.context.maximum_m5_age_seconds` | `HFS_MAXIMUM_M5_AGE_SECONDS` | `int` | `seconds` | `configurable` | `420` |
-| `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `HFS_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
-| `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `HFS_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
-| `strategies.high_frequency_scalp.location.range_buy_maximum_position` | `HFS_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
-| `strategies.high_frequency_scalp.location.range_sell_minimum_position` | `HFS_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.65` |
-| `strategies.high_frequency_scalp.mode` | `HFS_MODE` | `str` | `enum` | `configurable` | `"live"` |
-| `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `int` | `count` | `configurable` | `10` |
-| `strategies.high_frequency_scalp.policy.maximum_opportunities_per_cycle` | `HFS_MAXIMUM_OPPORTUNITIES_PER_CYCLE` | `int` | `count` | `configurable` | `3` |
-| `strategies.high_frequency_scalp.policy.maximum_spread_pips` | `HFS_MAXIMUM_SPREAD_PIPS` | `float` | `pips` | `configurable` | `5.0` |
-| `strategies.high_frequency_scalp.policy.minimum_reward_risk` | `HFS_MINIMUM_REWARD_RISK` | `float` | `multiplier` | `configurable` | `1.1` |
-| `strategies.high_frequency_scalp.risk.cooldown_after_loss_minutes` | `HFS_COOLDOWN_AFTER_LOSS_MINUTES` | `int` | `minutes` | `configurable` | `5` |
-| `strategies.high_frequency_scalp.risk.daily_loss_limit_r` | `HFS_DAILY_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `3.0` |
-| `strategies.high_frequency_scalp.risk.maximum_concurrent_positions` | `HFS_MAXIMUM_CONCURRENT_POSITIONS` | `int` | `count` | `configurable` | `1` |
-| `strategies.high_frequency_scalp.risk.maximum_consecutive_losses` | `HFS_MAXIMUM_CONSECUTIVE_LOSSES` | `int` | `count` | `configurable` | `3` |
-| `strategies.high_frequency_scalp.risk.maximum_daily_trades` | `HFS_MAXIMUM_DAILY_TRADES` | `int` | `count` | `configurable` | `30` |
-| `strategies.high_frequency_scalp.risk.maximum_session_trades` | `HFS_MAXIMUM_SESSION_TRADES` | `int` | `count` | `configurable` | `12` |
-| `strategies.high_frequency_scalp.risk.mode` | `HFS_RISK_MODE` | `str` | `enum` | `configurable` | `"live"` |
-| `strategies.high_frequency_scalp.risk.risk_fraction_per_trade` | `HFS_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
-| `strategies.high_frequency_scalp.risk.session_loss_limit_r` | `HFS_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
-| `strategies.high_frequency_scalp.stop.buffer_atr` | `HFS_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
-| `strategies.high_frequency_scalp.stop.maximum_pips` | `HFS_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
-| `strategies.high_frequency_scalp.stop.minimum_pips` | `HFS_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
-| `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `HFS_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
-| `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `HFS_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |
 | `strategies.mapped_zone.counter_bias_enabled` | `AUTO_TRADE_MAP_COUNTER_BIAS_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.mapped_zone.enabled` | `AUTO_TRADE_MAPPED_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.matching.multiple_matches_enabled` | `AUTO_TRADE_MULTI_MATCH_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
@@ -577,6 +535,48 @@
 | `strategies.scalp.scalp_barrier_fallback_min_confirmations` | `SCALP_BARRIER_FALLBACK_MIN_CONFIRMATIONS` | `int` | `count` | `configurable` | `1` |
 | `strategies.scalp.scalp_post_impulse_range_enabled` | `SCALP_POST_IMPULSE_RANGE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalp.scalp_range_provisional_enabled` | `SCALP_RANGE_PROVISIONAL_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.activation.maximum_chase_pips` | `SCALPING_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `40.0` |
+| `strategies.scalping.activation.rearm_distance_atr` | `SCALPING_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
+| `strategies.scalping.activation.trigger_maximum_age_bars` | `SCALPING_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
+| `strategies.scalping.archetypes.breakout_retest_enabled` | `SCALPING_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.archetypes.impulse_pullback_allowed_sessions` | `SCALPING_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `str` | `string` | `configurable` | `"london"` |
+| `strategies.scalping.archetypes.impulse_pullback_enabled` | `SCALPING_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.archetypes.range_sweep_enabled` | `SCALPING_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.breakout.box_max_atr` | `SCALPING_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
+| `strategies.scalping.breakout.max_box_bars` | `SCALPING_BREAKOUT_MAX_BOX_BARS` | `int` | `bars` | `configurable` | `20` |
+| `strategies.scalping.breakout.min_box_bars` | `SCALPING_BREAKOUT_MIN_BOX_BARS` | `int` | `bars` | `configurable` | `8` |
+| `strategies.scalping.breakout.min_break_atr` | `SCALPING_BREAKOUT_MIN_BREAK_ATR` | `float` | `atr` | `configurable` | `0.25` |
+| `strategies.scalping.breakout.min_touches_per_side` | `SCALPING_BREAKOUT_MIN_TOUCHES_PER_SIDE` | `int` | `count` | `configurable` | `2` |
+| `strategies.scalping.breakout.require_retest_rejection` | `SCALPING_BREAKOUT_REQUIRE_RETEST_REJECTION` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.breakout.retest_lookback_bars` | `SCALPING_BREAKOUT_RETEST_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `5` |
+| `strategies.scalping.breakout.touch_tol_atr` | `SCALPING_BREAKOUT_TOUCH_TOL_ATR` | `float` | `atr` | `configurable` | `0.2` |
+| `strategies.scalping.context.current_context_ttl_seconds` | `SCALPING_CURRENT_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `3600` |
+| `strategies.scalping.context.historic_context_ttl_seconds` | `SCALPING_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
+| `strategies.scalping.context.m1_lookback_bars` | `SCALPING_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |
+| `strategies.scalping.context.maximum_m5_age_seconds` | `SCALPING_MAXIMUM_M5_AGE_SECONDS` | `int` | `seconds` | `configurable` | `420` |
+| `strategies.scalping.location.pullback_buy_maximum_position` | `SCALPING_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
+| `strategies.scalping.location.pullback_sell_minimum_position` | `SCALPING_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
+| `strategies.scalping.location.range_buy_maximum_position` | `SCALPING_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
+| `strategies.scalping.location.range_sell_minimum_position` | `SCALPING_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.65` |
+| `strategies.scalping.mode` | `SCALPING_MODE` | `str` | `enum` | `configurable` | `"live"` |
+| `strategies.scalping.policy.maximum_active_opportunities` | `SCALPING_MAXIMUM_ACTIVE_OPPORTUNITIES` | `int` | `count` | `configurable` | `10` |
+| `strategies.scalping.policy.maximum_opportunities_per_cycle` | `SCALPING_MAXIMUM_OPPORTUNITIES_PER_CYCLE` | `int` | `count` | `configurable` | `3` |
+| `strategies.scalping.policy.maximum_spread_pips` | `SCALPING_MAXIMUM_SPREAD_PIPS` | `float` | `pips` | `configurable` | `5.0` |
+| `strategies.scalping.policy.minimum_reward_risk` | `SCALPING_MINIMUM_REWARD_RISK` | `float` | `multiplier` | `configurable` | `1.1` |
+| `strategies.scalping.risk.cooldown_after_loss_minutes` | `SCALPING_COOLDOWN_AFTER_LOSS_MINUTES` | `int` | `minutes` | `configurable` | `5` |
+| `strategies.scalping.risk.daily_loss_limit_r` | `SCALPING_DAILY_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `3.0` |
+| `strategies.scalping.risk.maximum_concurrent_positions` | `SCALPING_MAXIMUM_CONCURRENT_POSITIONS` | `int` | `count` | `configurable` | `1` |
+| `strategies.scalping.risk.maximum_consecutive_losses` | `SCALPING_MAXIMUM_CONSECUTIVE_LOSSES` | `int` | `count` | `configurable` | `3` |
+| `strategies.scalping.risk.maximum_daily_trades` | `SCALPING_MAXIMUM_DAILY_TRADES` | `int` | `count` | `configurable` | `30` |
+| `strategies.scalping.risk.maximum_session_trades` | `SCALPING_MAXIMUM_SESSION_TRADES` | `int` | `count` | `configurable` | `12` |
+| `strategies.scalping.risk.mode` | `SCALPING_RISK_MODE` | `str` | `enum` | `configurable` | `"live"` |
+| `strategies.scalping.risk.risk_fraction_per_trade` | `SCALPING_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
+| `strategies.scalping.risk.session_loss_limit_r` | `SCALPING_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
+| `strategies.scalping.stop.buffer_atr` | `SCALPING_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
+| `strategies.scalping.stop.maximum_pips` | `SCALPING_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
+| `strategies.scalping.stop.minimum_pips` | `SCALPING_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
+| `strategies.scalping.target.minimum_net_target_pips` | `SCALPING_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
+| `strategies.scalping.target.preferred_ladder_pips` | `SCALPING_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |
 | `strategies.selection.box_breakout_enabled` | `AUTO_TRADE_BOX_BREAKOUT_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.selection.momentum_ride_enabled` | `AUTO_TRADE_MOMENTUM_RIDE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.selection.retest_enabled` | `AUTO_TRADE_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

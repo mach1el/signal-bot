@@ -55,7 +55,7 @@ OHLC (Redis)
 
 ## 2. Live HFS enablement
 
-From `config/trading-bot.yml` → `strategies.high_frequency_scalp`:
+From `config/trading-bot.yml` → `strategies.scalping`:
 
 | Archetype | Enabled |
 |-----------|---------|
@@ -63,7 +63,7 @@ From `config/trading-bot.yml` → `strategies.high_frequency_scalp`:
 | `breakout_retest` (HFS Breakout Retest) | **true** |
 | `impulse_pullback` | **true** (London/NY killzones; excluded in Asia) |
 
-Mode: `live`. Symbols: XAU / ladder-pip only (`context._hfs_symbols`).
+Mode: `live`. Symbols: XAU / ladder-pip only (`context._scalping_symbols`).
 
 ## 3. Threshold inventory (ATR vs pip / $ / tick / fraction)
 

@@ -22,7 +22,7 @@ from app.configuration.python_loader import load_python_canonical_settings
 from app.configuration.python_sources import load_python_runtime_source_bundle
 from app.configuration.source_policy import PythonConfigurationSourcePolicy
 from app.runtime.instrument_config import instrument_runtime_view
-from app.scalping.context import compute_context_id, is_hfs_symbol
+from app.scalping.context import compute_context_id, is_scalping_symbol
 from app.scalping.microstructure import build_micro_structure
 from app.scalping.strategies import _select_target
 
@@ -63,9 +63,9 @@ def test_effective_runtime_exposes_symbol_geometry(
   from app.configuration.models.instruments import InstrumentTargetMode
 
   if cfg.targeting.mode is InstrumentTargetMode.FIXED_RR:
-    assert not is_hfs_symbol(symbol, cfg)
+    assert not is_scalping_symbol(symbol, cfg)
   else:
-    assert is_hfs_symbol(symbol, cfg)
+    assert is_scalping_symbol(symbol, cfg)
 
 
 @pytest.mark.parametrize(

@@ -131,7 +131,7 @@ def test_hfs_confirmation_allows_same_cycle_publish():
       strategy="HFS Impulse Pullback",
       family="hfs",
       strategy_mode="hfs_scalp",
-      structural_source="hfs",
+      structural_source="scalp",
       structural_zone_id="hfs-ep-1",
       reaction_type="impulse_pullback",
       touch_bar_ts="1785942720",

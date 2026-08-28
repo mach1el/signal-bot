@@ -289,7 +289,7 @@ async def test_publish_releases_thesis_when_build_raises_trade_plan_error(
     strategy="HFS Range Sweep",
     strategy_mode="hfs_scalp",
     family="hfs",
-    structural_source="hfs",
+    structural_source="scalp",
   )
   await _confirm_setup(client, match)
   key = active_thesis_key("XAU", match.thesis_id)
@@ -328,7 +328,7 @@ async def test_hfs_chase_quote_is_not_parked_as_waiting_retest():
     strategy_mode="hfs_scalp",
     direction="SELL",
     family="hfs",
-    structural_source="hfs",
+    structural_source="scalp",
     structural_kind="supply",
     key_level=4090.0,
     entry_low=4088.0,

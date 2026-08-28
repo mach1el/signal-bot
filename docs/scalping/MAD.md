@@ -13,7 +13,7 @@ prod-calibrated** — see [MAD_SOURCES.md](MAD_SOURCES.md).
 
 | Lane | MAD policy |
 |------|------------|
-| **HFS / M1 scalp** | No ranking or hard gates. Redis refresh for shared telemetry only. |
+| **M1 scalping** | No ranking or hard gates. Redis refresh for shared telemetry only. |
 | **Technique soft** | `accum` → +1 confluence on **Range Edge Scalp** only (`mad_soft_bonus`). |
 | **FX technique hard** | Live `mad_hard_gate` at ZoneWatch activation when enforce + enabled. |
 | **Gold ladder (XAU)** | Phase telemetry only; no FX-style hard gate. |
@@ -63,12 +63,12 @@ Blocked when phase is **`accum`** or **`unclear`** only.
 |-----|---------|
 | `mad:asia_range:{SYMBOL}` | Building/sealed Asia high–low |
 | `mad:phase:{SYMBOL}` | Phase + `features` + `would_gate` previews |
-| `scalp:last_mad:{SYMBOL}` | Telemetry alias (not an HFS control input) |
+| `scalp:last_mad:{SYMBOL}` | Telemetry alias (not a scalping control input) |
 
 ## Research (observe-only on HFS)
 
 - `app.scalping.mad_replay` — MAD-2 counterfactual expectancy by phase × session
-- HFS math shadow stamps `would_gate`; HFS ranking does **not** apply MAD
+- Scalping math shadow stamps `would_gate`; Scalping ranking does **not** apply MAD
 
 ## Code
 
