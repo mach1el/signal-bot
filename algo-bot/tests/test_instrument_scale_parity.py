@@ -59,10 +59,14 @@ def test_effective_runtime_exposes_symbol_geometry(
   assert cfg.units.pip_size == pytest.approx(pip_size)
   assert cfg.units.price_digits == digits
   assert cfg.analysis.market_map.change_min == pytest.approx(map_change)
-  # HFS remains gold-only; FX fixed_rr instrument views must not opt in.
+  # XAU hosts M1 scalping even with technique structure fixed_rr.
+  # FX fixed_rr books must not opt into scalp cycles.
   from app.configuration.models.instruments import InstrumentTargetMode
 
-  if cfg.targeting.mode is InstrumentTargetMode.FIXED_RR:
+  if symbol.upper() == "XAU":
+    assert cfg.targeting.mode is InstrumentTargetMode.FIXED_RR
+    assert is_scalping_symbol(symbol, cfg)
+  elif cfg.targeting.mode is InstrumentTargetMode.FIXED_RR:
     assert not is_scalping_symbol(symbol, cfg)
   else:
     assert is_scalping_symbol(symbol, cfg)

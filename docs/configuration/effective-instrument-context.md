@@ -98,12 +98,16 @@ Derived rollout values appear in effective provenance as
 
 Instruments may reference a named policy. Currently registered:
 
+- `xau_fixed_2r_v1` — XAU technique structure fixed_rr (1R/1.5R/2R, 25/25/50);
+  pack expands stop envelope 25–100 and `tokyo_london_ny` publish windows.
+  M1 scalping on XAU is gated separately (`technique_fixed_rr_targeting`).
 - `xau_current_v1` — inherit the current resolved global trading domains
   (strategies, actionability, execution, risk, lifecycle, and shared market
-  data / analysis shells) as the XAU compatibility policy
+  data / analysis shells) as the XAU ladder compatibility policy
+- `fx_fixed_2r_v1` / `fx_fixed_2r_frontload_v1` — FX structure fixed_rr packs
 
-Unknown policies fail closed. When omitted for XAU, the resolver binds
-`xau_current_v1` deterministically.
+Unknown policies fail closed. When omitted for XAU without a pack, the
+resolver still binds `xau_current_v1` deterministically for compatibility.
 
 Sparse `instruments.<ID>.overrides` may override dotted catalog paths after
 policy selection. Named packs (`reaction_session`, `stop_envelope`,

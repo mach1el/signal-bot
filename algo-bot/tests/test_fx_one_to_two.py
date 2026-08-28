@@ -235,8 +235,8 @@ def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
     assert effective.targeting.entry_clips == 2
     assert effective.execution.technique.require_sweep_body is False
     assert fixed_reward_risk(symbol, cfg) == 2.0
-  assert fixed_reward_risk("XAU", cfg) is None
-  assert fixed_reward_risk("XAUUSD", cfg) is None
+  assert fixed_reward_risk("XAU", cfg) == 2.0
+  assert fixed_reward_risk("XAUUSD", cfg) == 2.0
 
 
 def test_hfs_fixed_rr_prefers_two_r_then_falls_back_to_one_r():
@@ -284,7 +284,7 @@ def test_hfs_fixed_rr_takes_two_r_when_room_fits():
   assert target[1] == 30.0
 
 
-def test_fx_reaction_stop_envelopes_diverge_while_gold_stays_locked():
+def test_fx_reaction_stop_envelopes_diverge_while_gold_uses_structure_band():
   from app.autotrade.protective_stop import stop_bounds_for_reaction_room
 
   cfg = _load_production_example().config
@@ -313,8 +313,8 @@ def test_fx_reaction_stop_envelopes_diverge_while_gold_stays_locked():
   assert eurusd_measured["fixed_rr_targeting"] is True
   assert (gbpjpy_min, gbpjpy_max) == (15, 30)
   assert gbpjpy_measured["fixed_rr_targeting"] is True
-  assert (gold_min, gold_max) == (60, 60)
-  assert gold_measured["fixed_rr_targeting"] is False
+  assert (gold_min, gold_max) == (25, 100)
+  assert gold_measured["fixed_rr_targeting"] is True
 
 
 def test_fx_auto_reaction_books_pack_volume_multiplier():
@@ -577,12 +577,14 @@ def test_gbpjpy_sell_uses_two_r_contract_with_frontloaded_partials():
   assert plan.management.trail_to_target_id == "TP1"
 
 
-def test_xau_keeps_its_existing_ladder_policy():
+def test_xau_technique_uses_structure_fixed_rr_policy():
   cfg = _load_production_example().config
   xau = cfg.for_instrument("XAU")
-  assert xau.targeting.mode is InstrumentTargetMode.LADDER_PIPS
-  assert xau.targeting.reward_risk is None
-  assert xau.targeting.target_r_multiples == ()
-  assert xau.targeting.close_ratios == ()
-  assert xau.targeting.trail_after_r is None
-  assert xau.targeting.trail_to_r is None
+  assert xau.targeting.mode is InstrumentTargetMode.FIXED_RR
+  assert xau.targeting.reward_risk == 2.0
+  assert xau.targeting.target_r_multiples == (1.0, 1.5, 2.0)
+  assert xau.targeting.close_ratios == (0.25, 0.25, 0.50)
+  assert xau.targeting.trail_after_r == 1.5
+  assert xau.targeting.trail_to_r == 1.0
+  assert int(xau.execution.reaction.stop_min_pips) == 25
+  assert int(xau.execution.reaction.stop_max_pips) == 100
