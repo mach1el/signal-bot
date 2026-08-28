@@ -1,53 +1,83 @@
-# MAD — Asia phase clock (technique only)
+# MAD — Asia phase clock (FX technique + telemetry)
 
-Demo runs **live**. MAD is a **symbol-level** Asia phase clock.
+MAD is ApexVoid's **operational** Asia session phase clock: **accumulation →
+manipulation → expansion**. It stamps every watched symbol in Redis and gates
+**FX fixed_rr** technique publish/activation when
+`execution.technique.mad_hard_gate_enabled: true` (default).
 
-## Owner rule (binding)
+Conceptual lineage: [ICT Power of Three / AMD](MAD_SOURCES.md) (Asia box →
+London sweep → delivery). ApexVoid thresholds and gate matrix are **owner +
+prod-calibrated** — see [MAD_SOURCES.md](MAD_SOURCES.md).
 
-- MAD does **not** apply to HFS / scalping ranking or gates.
-- The **only** live MAD soft use is **`accum` → Range Edge Scalp** (technique confluence nudge).
-- `manip` / `expand` must not rank Impulse, Momentum, Range Sweep, Breakout, or reaction setups.
+## Owner rules (binding)
 
-HFS may still refresh Redis MAD for shared telemetry; it must not score or allow/block from it.
+| Lane | MAD policy |
+|------|------------|
+| **HFS / M1 scalp** | No ranking or hard gates. Redis refresh for shared telemetry only. |
+| **Technique soft** | `accum` → +1 confluence on **Range Edge Scalp** only (`mad_soft_bonus`). |
+| **FX technique hard** | Live `mad_hard_gate` at ZoneWatch activation when enforce + enabled. |
+| **Gold ladder (XAU)** | Phase telemetry only; no FX-style hard gate. |
+
+## Phase classification
+
+| Phase | Rule |
+|-------|------|
+| **manip** | Bar sweeps sealed/building Asia H/L and closes back inside |
+| **expand** | Sealed box broken ≥0.35 ATR without reclaim, or impulse ≥1.25 ATR from mid |
+| **accum** | Inside Asia box, range structure, RQ 0.8–6.0 ATR (building: up to 24 ATR) |
+| **unclear** | Else — **neutral** for all gates |
+
+## Live hard gate (FX `fixed_rr` only)
+
+Applied in `zone_execution_cutover._prepare_activation()` after activation
+passes, before publish.
+
+### Reversal families — block on `expand`
+
+Do not fade / mean-revert while price is distributing away from the Asia box.
+
+| Setup (taxonomy) | Gate key |
+|------------------|----------|
+| Key Level / Session / Trendline Reaction | `structural_reaction` |
+| Demand / Supply / Zone / Flip / Confluence | `structural_reaction` |
+| Order Block / FVG / iFVG / CRT / S&D | `structural_reaction` |
+| Liquidity Sweep / Snap-Back | `liquidity_sweep_reversal` |
+| Range Edge / One-Sided / Fade / Chop | `range_edge_mean_reversion` |
+
+Allowed phases: **`accum`**, **`manip`**, **`unclear`**.
+
+### Continuation families — require `manip` or `expand`
+
+Need displacement (Judas reclaim or accepted break) before continuation entry.
+
+| Setup | Gate key |
+|-------|----------|
+| Impulse / Momentum Pullback | `impulse_pullback_continuation` |
+| Breakout Retest | `breakout_retest` |
+
+Blocked when phase is **`accum`** or **`unclear`** only.
 
 ## Redis
 
 | Key | Meaning |
 |-----|---------|
 | `mad:asia_range:{SYMBOL}` | Building/sealed Asia high–low |
-| `mad:phase:{SYMBOL}` | Phase payload (+ `features`, observe `would_gate`) |
+| `mad:phase:{SYMBOL}` | Phase + `features` + `would_gate` previews |
 | `scalp:last_mad:{SYMBOL}` | Telemetry alias (not an HFS control input) |
 
-## Soft affinity (live)
+## Research (observe-only on HFS)
 
-| Phase | Live use |
-|-------|----------|
-| `accum` | Soft confluence +1 on **Range Edge Scalp** only |
-| `manip` / `expand` / `unclear` | No soft favor |
-
-## Phase rules
-
-1. **manip** — bar sweeps Asia high/low and closes back inside
-2. **expand** — sealed Asia box broken by ≥0.35 ATR without reclaim, or impulse ≥1.25 ATR from mid
-3. **accum** — price inside Asia box, range structure:
-   - sealed box: RQ 0.8–6.0 ATR (`asia_box_accum`)
-   - building Asia (unsealed): RQ 0.8–24.0 ATR (`asia_building_accum`)
-4. else **unclear**
-
-## Observe-only research
-
-- `features` / `would_gate` on Redis are research stamps — not live HFS hard blocks.
-- Offline MAD-2 (`app.scalping.mad_replay`) is counterfactual research only.
+- `app.scalping.mad_replay` — MAD-2 counterfactual expectancy by phase × session
+- HFS math shadow stamps `would_gate`; HFS ranking does **not** apply MAD
 
 ## Code
 
-- `app/analysis/mad_phase.py` — seal, classify, features, Redis; `mad_soft_bonus` = accum→Range Edge only
+- `app/analysis/mad_phase.py` — seal, classify, `mad_gate_strategy_for_setup`, gates
+- `app/autotrade/strategy_taxonomy.py` — exact strategy → family registry
 - Scanner attaches `DetectionContext.mad_phase` for technique detectors
-- HFS ranking does **not** call `mad_soft_bonus`
 
-## Verify on demo after deploy
+## Verify on demo
 
 ```bash
-redis-cli GET mad:phase:XAU | jq '.phase, .features'
-# Range Edge may show mad_accum in reasons when phase=accum; HFS scores must not.
+redis-cli GET mad:phase:EURUSD | jq '.phase, .would_gate.structural_reaction'
 ```

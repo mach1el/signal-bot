@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 import pandas as pd
 import pytest
+import pytest_asyncio
+from redis.asyncio import Redis
 
 from app.analysis.mad_phase import (
   PHASE_ACCUM,
@@ -23,6 +26,21 @@ from app.analysis.mad_phase import (
 
 
 pytestmark = pytest.mark.no_database
+
+
+@pytest_asyncio.fixture
+async def client():
+  url = os.getenv("REAL_REDIS_URL")
+  if not url:
+    pytest.skip("REAL_REDIS_URL is required for MAD Redis tests")
+  redis = Redis.from_url(url, decode_responses=True)
+  await redis.ping()
+  await redis.flushdb()
+  try:
+    yield redis
+  finally:
+    await redis.flushdb()
+    await redis.aclose()
 
 
 def _ts(year: int, month: int, day: int, hour: int, minute: int = 0) -> int:
@@ -227,3 +245,184 @@ def test_compute_mad_features_and_hard_gate():
   assert "features" in payload
   assert "would_gate" in payload
   assert "impulse_pullback_continuation" in payload["would_gate"]
+
+
+def test_mad_gate_strategy_for_setup_maps_technique_names():
+  from app.analysis.mad_phase import mad_gate_strategy_for_setup
+
+  assert mad_gate_strategy_for_setup("Range Edge Scalp") == (
+    "range_edge_mean_reversion"
+  )
+  assert mad_gate_strategy_for_setup(
+    "One-Sided Range Reaction",
+    family="range",
+  ) == "range_edge_mean_reversion"
+  assert mad_gate_strategy_for_setup("Liquidity Sweep") == (
+    "liquidity_sweep_reversal"
+  )
+  assert mad_gate_strategy_for_setup("Key Level Reaction") == (
+    "structural_reaction"
+  )
+  assert mad_gate_strategy_for_setup("Order Block") == "structural_reaction"
+  assert mad_gate_strategy_for_setup("FVG") == "structural_reaction"
+  assert mad_gate_strategy_for_setup("Supply Zone") == "structural_reaction"
+  assert mad_gate_strategy_for_setup(
+    "Zone Reaction",
+    family="zone",
+  ) == "structural_reaction"
+
+
+def test_mad_hard_gate_reversal_and_continuation_rules():
+  from app.analysis.mad_phase import (
+    PHASE_ACCUM,
+    PHASE_EXPAND,
+    PHASE_MANIP,
+    mad_hard_gate,
+  )
+
+  expand_block = mad_hard_gate(
+    phase=PHASE_EXPAND,
+    strategy="structural_reaction",
+  )
+  assert expand_block.would_block is True
+  assert expand_block.reason_code == "mad_gate_reversal_avoid_expand"
+
+  manip_ok = mad_hard_gate(phase=PHASE_MANIP, strategy="structural_reaction")
+  assert manip_ok.would_block is False
+
+  accum_ok = mad_hard_gate(phase=PHASE_ACCUM, strategy="structural_reaction")
+  assert accum_ok.would_block is False
+
+  impulse_accum = mad_hard_gate(
+    phase=PHASE_ACCUM,
+    strategy="impulse_pullback_continuation",
+  )
+  assert impulse_accum.would_block is True
+
+  breakout_manip = mad_hard_gate(phase=PHASE_MANIP, strategy="breakout_retest")
+  assert breakout_manip.would_block is False
+
+  breakout_accum = mad_hard_gate(phase=PHASE_ACCUM, strategy="breakout_retest")
+  assert breakout_accum.would_block is True
+
+@pytest.mark.asyncio
+@pytest.mark.real_redis
+async def test_evaluate_technique_mad_gate_blocks_fx_range_on_expand(client):
+  from app.analysis.mad_phase import (
+    MadPhaseSnapshot,
+    PHASE_EXPAND,
+    asia_range_key,
+    evaluate_technique_mad_gate,
+    mad_phase_key,
+    save_mad_phase,
+  )
+  from app.core.config import runtime_config
+  from tests.configuration.canonical_fixtures import apply_path_overrides
+
+  cfg = apply_path_overrides(
+    runtime_config(),
+    {
+      "execution.technique.enforce": True,
+      "execution.technique.mad_hard_gate_enabled": True,
+    },
+  )
+  snap = MadPhaseSnapshot(
+    phase=PHASE_EXPAND,
+    asia=None,
+    range_quality_atr=2.0,
+    price_vs_asia="above",
+    sweep_side=None,
+    reclaim=False,
+    reason_code="asia_break_or_impulse",
+    measured={},
+  )
+  await save_mad_phase(client, "EURUSD", snap)
+  allowed, reason, measured = await evaluate_technique_mad_gate(
+    client,
+    symbol="EURUSD",
+    strategy="Range Edge Scalp",
+    cfg=cfg,
+    family="range",
+  )
+  assert allowed is False
+  assert reason == "mad_gate_reversal_avoid_expand"
+  assert measured["mad_phase"] == PHASE_EXPAND
+  assert measured["mad_gate_strategy"] == "range_edge_mean_reversion"
+  await client.delete(mad_phase_key("EURUSD"))
+  await client.delete(asia_range_key("EURUSD"))
+
+@pytest.mark.asyncio
+@pytest.mark.real_redis
+async def test_evaluate_technique_mad_gate_blocks_key_level_on_expand(client):
+  from app.analysis.mad_phase import (
+    MadPhaseSnapshot,
+    PHASE_EXPAND,
+    evaluate_technique_mad_gate,
+    mad_phase_key,
+    save_mad_phase,
+  )
+  from app.core.config import runtime_config
+  from tests.configuration.canonical_fixtures import apply_path_overrides
+
+  cfg = apply_path_overrides(
+    runtime_config(),
+    {
+      "execution.technique.enforce": True,
+      "execution.technique.mad_hard_gate_enabled": True,
+    },
+  )
+  snap = MadPhaseSnapshot(
+    phase=PHASE_EXPAND,
+    asia=None,
+    range_quality_atr=2.0,
+    price_vs_asia="above",
+    sweep_side=None,
+    reclaim=False,
+    reason_code="asia_break_or_impulse",
+    measured={},
+  )
+  await save_mad_phase(client, "GBPJPY", snap)
+  allowed, reason, measured = await evaluate_technique_mad_gate(
+    client,
+    symbol="GBPJPY",
+    strategy="Key Level Reaction",
+    cfg=cfg,
+    family="reaction",
+  )
+  assert allowed is False
+  assert reason == "mad_gate_reversal_avoid_expand"
+  assert measured["mad_gate_strategy"] == "structural_reaction"
+  await client.delete(mad_phase_key("GBPJPY"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_redis
+async def test_save_mad_phase_persists_enriched_payload(client):
+  from app.analysis.mad_phase import (
+    MadPhaseSnapshot,
+    PHASE_ACCUM,
+    load_mad_phase,
+    mad_phase_key,
+    save_mad_phase,
+  )
+
+  snap = MadPhaseSnapshot(
+    phase=PHASE_ACCUM,
+    asia=None,
+    range_quality_atr=2.0,
+    price_vs_asia="inside",
+    sweep_side=None,
+    reclaim=False,
+    reason_code="asia_box_accum",
+    measured={},
+  )
+  await save_mad_phase(client, "GBPUSD", snap)
+  raw = await client.get(mad_phase_key("GBPUSD"))
+  import json
+
+  payload = json.loads(raw)
+  assert "features" in payload
+  assert "would_gate" in payload
+  loaded = await load_mad_phase(client, "GBPUSD")
+  assert loaded is not None
+  assert loaded.phase == PHASE_ACCUM

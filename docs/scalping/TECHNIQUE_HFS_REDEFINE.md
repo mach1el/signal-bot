@@ -35,8 +35,8 @@ scope is **all sessions**.
 |--------|------|-----|
 | L1 Continuation | HFS Impulse (+ optional Momentum) | Pullback / thrust with trend |
 | L2 Sweep-reclaim | HFS Range Sweep | Fade raid after reclaim |
-| L3 Reaction | ZoneWatch | Key Level / S/D / Trendline / Session |
-| L3r Range Edge | ZoneWatch | Mean-revert at edge; MAD accum soft only |
+| L3 Reaction | ZoneWatch | Key Level / S/D / Trendline / Session — FX `mad_hard_gate` (`structural_reaction`, block `expand`) |
+| L3r Range Edge | ZoneWatch | Mean-revert at edge; MAD accum soft only; FX gate blocks `expand` |
 | L4 Breakout retest | HFS | Accepted break + retest |
 
 Do not add new hard MAD gates to HFS in follow-ups without a separate owner

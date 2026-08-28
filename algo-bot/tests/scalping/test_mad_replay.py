@@ -149,7 +149,7 @@ def test_mad_counterfactual_range_blocked_on_expand():
   })
   row = replay_lab_event_with_mad(event)
   assert row["mad_would_block"] is True
-  assert row["mad_gate_reason"] == "mad_gate_range_avoid_expand"
+  assert row["mad_gate_reason"] == "mad_gate_reversal_avoid_expand"
 
 
 def test_mad_fixture_report_has_phase_session_table_and_discipline():
