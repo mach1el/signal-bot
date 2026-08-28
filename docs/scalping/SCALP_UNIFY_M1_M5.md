@@ -9,7 +9,7 @@ display tag, and keep open-plan / historical compatibility.
 
 | Layer | Change |
 | --- | --- |
-| Display | `Range Sweep Scalp`, `Impulse Pullback Scalp`, `Breakout Retest Scalp`, `Momentum Chase Scalp` |
+| Display | `Range Sweep Scalp`, `Impulse Pullback Scalp`, `Breakout Retest Scalp` |
 | Legacy | `HFS *` names still accepted in taxonomy, C#, protective stop, confirmation |
 | Publish | `family=scalp`, `strategy_mode=scalp_m1`; `structural_source=hfs` kept for thesis compatibility |
 | Context | `app.scalping.unified_context` loads shared M1/M5/M15/H1 windows for the M1 loop |
@@ -18,14 +18,13 @@ display tag, and keep open-plan / historical compatibility.
 ## Kept (no hard delete)
 
 - **Fade Scalp** / **Range Edge Scalp** — ZoneWatch technique path
-- **Momentum Chase Scalp** — off by default
+- Legacy **`Momentum Chase Scalp`** display alias for historical fills only (strategy removed)
 - Config section / env prefix `HFS_*` — operational rename later
 
 ## Overlaps (documented, not collapsed)
 
 | Overlap | Keep both because |
 | --- | --- |
-| Impulse Pullback vs Momentum Chase | Impulse is pullback continuation; Momentum is ignition chase (still optional) |
 | Range Sweep vs Range Edge vs Fade | Sweep is M1 reclaim of micro range; Edge/Fade are ZoneWatch edge reactions |
 
 ## Out of scope

@@ -7,7 +7,6 @@ import pytest
 from app.scalping.models import (
   ARCHETYPE_BREAKOUT_RETEST,
   ARCHETYPE_IMPULSE_PULLBACK,
-  ARCHETYPE_MOMENTUM_CHASE,
   ARCHETYPE_RANGE_SWEEP,
   OPPORTUNITY_VERSION,
   ScalpOpportunity,
@@ -119,14 +118,6 @@ def test_breakout_stamps_math_model():
   assert cf["math_model"] == "breakout_retest_continuation"
   assert cf["allowed"] in {True, False}
   assert stamped.measured["math_agree"] is not None
-
-
-def test_momentum_stamps_no_math_model_yet():
-  stamped = _stamp(_opp(archetype=ARCHETYPE_MOMENTUM_CHASE))
-  cf = stamped.measured["math_counterfactual"]
-  assert cf["reason_code"] == "no_math_model_yet"
-  assert cf["allowed"] is None
-  assert stamped.measured["math_agree"] is None
 
 
 def test_impulse_insufficient_inputs_without_origin():

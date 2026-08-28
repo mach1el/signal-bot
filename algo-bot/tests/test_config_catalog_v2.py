@@ -312,7 +312,7 @@ _INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
   "execution.zone_scaling.first_leg_fraction",
   "risk.tiers.b_multiplier",
   # 12 Aug 2026 HFS quality dig: Impulse bleed on late chase / wide stops /
-  # mid-range location; Momentum Chase disabled by schema default.
+  # mid-range location; tighten chase and pullback location gates.
   "strategies.high_frequency_scalp.activation.maximum_chase_pips",
   "strategies.high_frequency_scalp.stop.maximum_pips",
   "strategies.high_frequency_scalp.location.pullback_buy_maximum_position",

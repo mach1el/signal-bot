@@ -20,7 +20,6 @@ from app.scalping.context import permitted_archetypes_for_session
 from app.scalping.models import (
   ARCHETYPE_BREAKOUT_RETEST,
   ARCHETYPE_IMPULSE_PULLBACK,
-  ARCHETYPE_MOMENTUM_CHASE,
   ARCHETYPE_RANGE_SWEEP,
 )
 
@@ -31,7 +30,6 @@ _HFS_ALL = (
   ARCHETYPE_RANGE_SWEEP,
   ARCHETYPE_IMPULSE_PULLBACK,
   ARCHETYPE_BREAKOUT_RETEST,
-  ARCHETYPE_MOMENTUM_CHASE,
 )
 
 
@@ -81,7 +79,6 @@ def _technique_cfg(
           range_sweep_enabled=True,
           impulse_pullback_enabled=True,
           breakout_retest_enabled=True,
-          momentum_chase_enabled=True,
         ),
       ),
     ),

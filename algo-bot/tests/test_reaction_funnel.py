@@ -36,7 +36,7 @@ def test_normalize_setup_type_aliases():
   )
   assert archetype_from_strategy("HFS Impulse Pullback") == "impulse_pullback"
   assert archetype_from_strategy("Impulse Pullback Scalp") == "impulse_pullback"
-  assert archetype_from_strategy("momentum") == "momentum_chase"
+  assert archetype_from_strategy("momentum") is None
 
 
 @pytest.mark.parametrize(

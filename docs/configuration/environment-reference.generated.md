@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `8b37d428a86adad3fd3a503ac77b926f6b0e096c2d4e338aaf7a3f8000b0f6ad`
+- Contract fingerprint: `c8d409206e2fff900f411fb045e64c994d1f7283cc7315bba36ced9f3fba7c44`
 - Environment-bound fields: `473`
 - Deprecated aliases: `21`
 
@@ -193,6 +193,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_TECHNIQUE_OB_ENABLED` | `strategies.technique.ob.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_REACTION_PUBLISH_WINDOWS` | `execution.technique.reaction_publish_windows` | `str` | no | no | — | `7-11,13-16` |
 | `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_KILLZONE` | `execution.technique.reaction_require_killzone` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TECHNIQUE_REACTION_REQUIRE_PUBLISH_WINDOW` | `execution.technique.reaction_require_publish_window` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `execution.technique.require_sweep_body` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_SD_ENABLED` | `strategies.technique.sd.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `execution.technique.strict_premium_discount` | `bool` | no | no | — | `True` |
@@ -322,7 +323,6 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_MINIMUM_NET_TARGET_PIPS` | `strategies.high_frequency_scalp.target.minimum_net_target_pips` | `float` | no | no | — | `15.0` |
 | `HFS_MINIMUM_REWARD_RISK` | `strategies.high_frequency_scalp.policy.minimum_reward_risk` | `float` | no | no | — | `1.1` |
 | `HFS_MODE` | `strategies.high_frequency_scalp.mode` | `str` | no | no | — | `live` |
-| `HFS_MOMENTUM_CHASE_ENABLED` | `strategies.high_frequency_scalp.archetypes.momentum_chase_enabled` | `bool` | no | no | — | `False` |
 | `HFS_PREFERRED_LADDER_PIPS` | `strategies.high_frequency_scalp.target.preferred_ladder_pips` | `str` | no | no | — | `20,25,30` |
 | `HFS_PULLBACK_BUY_MAX_POSITION` | `strategies.high_frequency_scalp.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.6` |
 | `HFS_PULLBACK_SELL_MIN_POSITION` | `strategies.high_frequency_scalp.location.pullback_sell_minimum_position` | `float` | no | no | — | `0.4` |
