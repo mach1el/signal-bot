@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `c8d409206e2fff900f411fb045e64c994d1f7283cc7315bba36ced9f3fba7c44`
-- Document fingerprint: `d00c8b1958602cfee96385930672c534223ca934a3578e25e1c202a59c3e072d`
-- Items: `540`
+- Contract fingerprint: `42edd6bd009e4678610a16ba4537904e0aa574ab14a7a1833d439b596c3f7b0d`
+- Document fingerprint: `761920507385d2c06ca2c0011771ea63b7e3a3f947e7e46ed70cecfdd7390590`
+- Items: `541`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -498,6 +498,7 @@
 | `strategies.high_frequency_scalp.activation.rearm_distance_atr` | `HFS_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.high_frequency_scalp.activation.trigger_maximum_age_bars` | `HFS_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.high_frequency_scalp.archetypes.breakout_retest_enabled` | `HFS_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.high_frequency_scalp.archetypes.impulse_pullback_allowed_sessions` | `HFS_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `str` | `string` | `configurable` | `"london"` |
 | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `HFS_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.archetypes.range_sweep_enabled` | `HFS_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.high_frequency_scalp.breakout.box_max_atr` | `HFS_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
