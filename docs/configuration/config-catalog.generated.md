@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
-- Document fingerprint: `0a010538a7a0c0ea3f0a5270822ed2f7ad8abb9974352c0ab0e2ece71b5e2a0e`
-- Items: `542`
+- Contract fingerprint: `a4327e119712986e6ddd91a38d0caa57b90882f2b4b194e3c952fd74f18e1adb`
+- Document fingerprint: `d0795d29c06dc748135600930cf9bd57b7a6143e9872435ed059f3de62a3bfd3`
+- Items: `545`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -20,6 +20,8 @@
 | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `bool` | `boolean` | `configurable` | `true` |
 | `actionability.entry_location.missing_context_policy` | `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `str` | `enum` | `configurable` | `"block"` |
 | `actionability.entry_location.mode` | `ENTRY_LOCATION_MODE` | `str` | `enum` | `configurable` | `"shadow"` |
+| `actionability.entry_location.momentum.momentum_buy_minimum_position` | `ENTRY_LOCATION_MOMENTUM_BUY_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.15` |
+| `actionability.entry_location.momentum.momentum_sell_maximum_position` | `ENTRY_LOCATION_MOMENTUM_SELL_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.85` |
 | `actionability.entry_location.range_reversion.buy_maximum_position` | `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
 | `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `float` | `fraction` | `configurable` | `0.2` |
 | `actionability.entry_location.range_reversion.sell_minimum_position` | `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
@@ -328,6 +330,7 @@
 | `execution.technique.require_sweep_body` | `AUTO_TRADE_TECHNIQUE_REQUIRE_SWEEP_BODY` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.scalp_require_killzone` | `AUTO_TRADE_TECHNIQUE_SCALP_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `true` |
 | `execution.technique.strict_premium_discount` | `AUTO_TRADE_TECHNIQUE_STRICT_PREMIUM_DISCOUNT` | `bool` | `boolean` | `configurable` | `true` |
+| `execution.technique.strict_premium_discount_archetypes` | `AUTO_TRADE_STRICT_PD_ARCHETYPES` | `str` | `string` | `configurable` | `"reversal,range_reversion"` |
 | `execution.trend.hard_entry_drift_pips` | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `execution.trend.max_entry_drift_atr` | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `float` | `atr` | `configurable` | `0.85` |
 | `execution.trend.min_entry_drift_pips` | `AUTO_TRADE_TREND_MIN_ENTRY_DRIFT_PIPS` | `float` | `pips` | `configurable` | `15.0` |

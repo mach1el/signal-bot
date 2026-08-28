@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `d9e06207415d007ccd8340863196737e86e4d0bd6ae24f9d5c064fc6cc7b0b0d`
-- Environment-bound fields: `475`
+- Contract fingerprint: `a4327e119712986e6ddd91a38d0caa57b90882f2b4b194e3c952fd74f18e1adb`
+- Environment-bound fields: `478`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -170,6 +170,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_STRATEGY_MATCH_ENABLED` | `runtime.auto_trade.strategy_match_enabled` | `bool` | no | yes | `AUTO_TRADE_STRATEGY_BRIDGE_ENABLED`, `AUTO_TRADE_FORMING_GATE_ENABLED` | `True` |
 | `AUTO_TRADE_STRATEGY_MATCH_MAX_AGE_SECONDS` | `lifecycle.strategy_match.maximum_age_seconds` | `int` | no | no | `AUTO_TRADE_FORMING_MAX_AGE_SECONDS` | `420` |
 | `AUTO_TRADE_STREAM_MAXLEN` | `contract.streams.candidate_maximum_length` | `int` | no | no | — | `1000` |
+| `AUTO_TRADE_STRICT_PD_ARCHETYPES` | `execution.technique.strict_premium_discount_archetypes` | `str` | no | no | — | `reversal,range_reversion` |
 | `AUTO_TRADE_STRUCTURAL_GUARD_MODE` | `actionability.structural_guard.guard_mode` | `str` | no | yes | — | `balanced` |
 | `AUTO_TRADE_STRUCTURAL_REACTION_LOOKBACK_BARS` | `execution.policy.structural_reaction_lookback_bars` | `int` | no | no | — | `3` |
 | `AUTO_TRADE_SUPPLY_REACTION_ENABLED` | `strategies.reaction.supply.enabled` | `bool` | no | no | — | `True` |
@@ -278,6 +279,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `ENTRY_LOCATION_BREAKOUT_ALLOW_EXPANSION` | `actionability.entry_location.breakout_retest.allow_directional_expansion` | `bool` | no | no | — | `True` |
 | `ENTRY_LOCATION_MISSING_CONTEXT_POLICY` | `actionability.entry_location.missing_context_policy` | `str` | no | no | — | `block` |
 | `ENTRY_LOCATION_MODE` | `actionability.entry_location.mode` | `str` | no | no | — | `shadow` |
+| `ENTRY_LOCATION_MOMENTUM_BUY_MIN_POSITION` | `actionability.entry_location.momentum.momentum_buy_minimum_position` | `float` | no | no | — | `0.15` |
+| `ENTRY_LOCATION_MOMENTUM_SELL_MAX_POSITION` | `actionability.entry_location.momentum.momentum_sell_maximum_position` | `float` | no | no | — | `0.85` |
 | `ENTRY_LOCATION_RANGE_BUY_MAX_POSITION` | `actionability.entry_location.range_reversion.buy_maximum_position` | `float` | no | no | — | `0.4` |
 | `ENTRY_LOCATION_RANGE_EQ_EXCLUSION_WIDTH` | `actionability.entry_location.range_reversion.equilibrium_exclusion_width` | `float` | no | no | — | `0.2` |
 | `ENTRY_LOCATION_RANGE_SELL_MIN_POSITION` | `actionability.entry_location.range_reversion.sell_minimum_position` | `float` | no | no | — | `0.6` |
