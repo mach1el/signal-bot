@@ -12,6 +12,9 @@ from app.autotrade.entry_activation import (
   evaluate_entry_activation,
   apply_trigger_to_match,
   activation_archetype,
+  ACTIVATION_BLOCK_REASON_CODES,
+  EntryActivationDecision,
+  emit_activation_gate_metrics,
 )
 
 
@@ -539,3 +542,67 @@ def test_key_buy_blocked_into_expanding_bid():
   )
   assert decision.allowed is False
   assert decision.reason_code == "key_buy_into_impulse"
+
+
+@pytest.mark.parametrize(
+  "reason_code",
+  sorted(ACTIVATION_BLOCK_REASON_CODES),
+)
+@pytest.mark.asyncio
+async def test_activation_blocked_metrics_emitted_once(reason_code: str):
+  from app.persistence import redis_state
+
+  client = redis_state.get_client()
+  decision = EntryActivationDecision(
+    allowed=False,
+    reason_code=reason_code,
+    hard_block=True,
+    requires_trigger=True,
+    trigger_type=None,
+    would_block=True,
+    measured={},
+  )
+  await emit_activation_gate_metrics(
+    client,
+    symbol="XAU",
+    strategy="Key Level Reaction",
+    direction="BUY",
+    decision=decision,
+    allowed=False,
+  )
+  metrics_key = "auto_trade:metrics:XAU"
+  assert int(await client.hget(metrics_key, "activation_blocked") or 0) == 1
+  assert int(
+    await client.hget(metrics_key, f"activation_blocked:{reason_code}") or 0
+  ) == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_allowed_metrics_emitted_once():
+  from app.persistence import redis_state
+
+  client = redis_state.get_client()
+  decision = EntryActivationDecision(
+    allowed=True,
+    reason_code="entry_activation_allowed",
+    hard_block=False,
+    requires_trigger=True,
+    trigger_type="wick_rejection",
+    would_block=False,
+    measured={},
+  )
+  await emit_activation_gate_metrics(
+    client,
+    symbol="XAU",
+    strategy="Key Level Reaction",
+    direction="BUY",
+    decision=decision,
+    allowed=True,
+  )
+  metrics_key = "auto_trade:metrics:XAU"
+  assert int(await client.hget(metrics_key, "activation_allowed") or 0) == 1
+  assert int(
+    await client.hget(
+      metrics_key, "activation_allowed:entry_activation_allowed",
+    ) or 0
+  ) == 1
