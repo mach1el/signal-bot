@@ -12,6 +12,7 @@ from app.scalping.context import (
   build_scalp_context_snapshot,
   compute_context_id,
   is_context_fresh,
+  is_impulse_pullback_session_allowed,
   permitted_archetypes_for_session,
 )
 from app.scalping.lifecycle import transition
@@ -53,6 +54,7 @@ def _cfg(**overrides):
       range_sweep_enabled=True,
       impulse_pullback_enabled=True,
       breakout_retest_enabled=True,
+      impulse_pullback_allowed_sessions="london",
     ),
     breakout=SimpleNamespace(
       box_max_atr=1.5,
@@ -1256,3 +1258,99 @@ def test_impulse_pullback_vetoes_sell_against_fresh_reclaim(monkeypatch):
   allowed = discover_impulse_pullback(ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600)
   assert len(allowed) == 1
   assert allowed[0].direction == "SELL"
+
+
+def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
+  from app.scalping.strategies import discover_impulse_pullback, idle_discovery_reasons
+
+  match = {
+    "pattern": "impulse_pullback",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "origin": 4590.0,
+    "extreme": 4600.0,
+    "retracement": 0.5,
+    "preferred": True,
+    "close": 4595.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: match if direction == "BUY" else None,
+  )
+
+  base = dict(
+    version=CONTEXT_VERSION,
+    context_id="ctx-asia",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=4580.0,
+    dealing_range_high=4610.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=50.0,
+    sell_corridor_room_pips=50.0,
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=4.0,
+  )
+  idx = pd.date_range("2026-08-28 03:00", periods=40, freq="1min", tz="UTC")
+  m1 = pd.DataFrame(
+    {
+      "open": [4594.0] * 40,
+      "high": [4596.0] * 40,
+      "low": [4593.0] * 40,
+      "close": [4595.0] * 40,
+      "volume": [1] * 40,
+    },
+    index=idx,
+  )
+
+  asia_ctx = ScalpContextSnapshot(**base, session="asia")
+  assert discover_impulse_pullback(asia_ctx, None, m1, _cfg(), pip_size=0.1, now=1_780_003_600) == []
+  reasons = idle_discovery_reasons(asia_ctx, m1, _cfg(), pip_size=0.1)
+  assert "impulse_pullback:outside_allowed_session:asia" in reasons
+
+  london_ctx = ScalpContextSnapshot(**base, session="london")
+  found = discover_impulse_pullback(london_ctx, None, m1, _cfg(), pip_size=0.1, now=1_780_003_600)
+  assert len(found) == 1
+  assert found[0].direction == "BUY"
+
+  opp = found[0]
+  asia_activation = evaluate_scalp_activation(
+    opp,
+    asia_ctx,
+    quote_bid=4594.9,
+    quote_ask=4595.1,
+    quote_ts=1_780_003_600,
+    now=1_780_003_600,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert not asia_activation.allowed
+  assert asia_activation.reason_code == "scalp_impulse_outside_allowed_session"
+
+  london_activation = evaluate_scalp_activation(
+    opp,
+    london_ctx,
+    quote_bid=4594.9,
+    quote_ask=4595.1,
+    quote_ts=1_780_003_600,
+    now=1_780_003_600,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert london_activation.allowed
+
+  assert is_impulse_pullback_session_allowed("london", _cfg())
+  assert not is_impulse_pullback_session_allowed("asia", _cfg())

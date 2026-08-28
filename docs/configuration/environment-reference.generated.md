@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `c8d409206e2fff900f411fb045e64c994d1f7283cc7315bba36ced9f3fba7c44`
-- Environment-bound fields: `473`
+- Contract fingerprint: `42edd6bd009e4678610a16ba4537904e0aa574ab14a7a1833d439b596c3f7b0d`
+- Environment-bound fields: `474`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -309,6 +309,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `HFS_CURRENT_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.current_context_ttl_seconds` | `int` | no | no | — | `3600` |
 | `HFS_DAILY_LOSS_LIMIT_R` | `strategies.high_frequency_scalp.risk.daily_loss_limit_r` | `float` | no | no | — | `3.0` |
 | `HFS_HISTORIC_CONTEXT_TTL_SECONDS` | `strategies.high_frequency_scalp.context.historic_context_ttl_seconds` | `int` | no | no | — | `86400` |
+| `HFS_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_allowed_sessions` | `str` | no | no | — | `london` |
 | `HFS_IMPULSE_PULLBACK_ENABLED` | `strategies.high_frequency_scalp.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
 | `HFS_M1_LOOKBACK_BARS` | `strategies.high_frequency_scalp.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `HFS_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.high_frequency_scalp.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
