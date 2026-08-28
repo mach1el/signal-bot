@@ -1142,6 +1142,54 @@ def test_fx_root_card_uses_instrument_price_digits(monkeypatch):
   assert setup_card.card_min_price_move("GBPUSD") == pytest.approx(0.0001)
 
 
+def test_root_card_shows_target_prices_with_pip_offsets():
+  match = _strategy_match_for_card("setup-tp-levels")
+  text = setup_card.format_plan_published_root_card(
+    match,
+    stop_price=4045.0,
+    target_prices=(4070.5, 4090.5, 4110.5),
+  )
+  assert "Targets" in text
+  assert "TP1 4,070.50 (+20)" in text
+  assert "TP2 4,090.50 (+40)" in text
+  assert "TP3 4,110.50 (+60)" in text
+
+
+def test_root_card_falls_back_to_targets_pips_ladder():
+  match = _strategy_match_for_card("setup-tp-pips")
+  text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
+  assert "Targets" in text
+  assert "+20 / +40 / +60 pips" in text
+  assert "TP1" not in text
+
+
+def test_fx_root_card_shows_target_levels_with_instrument_digits(monkeypatch):
+  from dataclasses import replace
+
+  monkeypatch.setattr(setup_card, "digits_for", lambda symbol: {
+    "GBPUSD": 5, "EURUSD": 5, "XAU": 2,
+  }[str(symbol).upper()])
+
+  match = replace(
+    _strategy_match_for_card("fx-tp-levels"),
+    symbol="GBPUSD",
+    key_level=1.36447,
+    entry_low=1.36420,
+    entry_high=1.36480,
+    current_price=1.36447,
+    targets_pips=(20, 40, 60),
+  )
+  text = setup_card.format_plan_published_root_card(
+    match,
+    stop_price=1.36380,
+    target_prices=(1.36647, 1.36847, 1.37047),
+  )
+  assert "TP1 1.36647 (+20)" in text
+  assert "TP2 1.36847 (+40)" in text
+  assert "TP3 1.37047 (+60)" in text
+  assert "1.36 " not in text  # must not collapse FX to 2dp
+
+
 def test_detector_number_keeps_fx_precision():
   from app.analysis.detectors import _number
 
@@ -1186,6 +1234,8 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert "Entry zone" in text
   assert "Key level" in text
   assert "Stop" in text
+  assert "Targets" in text
+  assert "+20 / +40 / +60 pips" in text
   assert "Context" in text
   assert "Identity" not in text
   assert "Kind:" not in text
