@@ -451,7 +451,7 @@ def test_trend_pullback_prefers_best_scored_zone_over_nearest_zone():
   assert result is not None
   assert result.entry_zone.low == 103
   assert result.entry_zone.high == 105
-  assert result.confluence == 2
+  assert result.confluence == 1
   assert result.reasons[1:4] == ["fresh", "OB", "HTF zone"]
 
 
@@ -489,14 +489,59 @@ def test_live_spot_is_used_for_entry_validation():
   assert detectors.trend_pullback(live_wrong_side) is None
 
 
+@pytest.mark.no_database
 def test_star_score_remap_and_mitigated_cap():
   fresh_two = Zone(100, 101, "demand", score=9, touches=0)
   fresh_three = Zone(100, 101, "demand", score=13, touches=0)
   mitigated = Zone(100, 101, "demand", score=13, touches=1)
+  max_zone = Zone(100, 101, "demand", score=detectors._ZONE_SCORE_MAX, touches=0)
 
-  assert detectors._confluence_from_zone(fresh_two, []) == 2
-  assert detectors._confluence_from_zone(fresh_three, []) == 3
+  assert detectors._confluence_from_zone(fresh_two, []) == 1
+  assert detectors._confluence_from_zone(fresh_three, []) == 2
   assert detectors._confluence_from_zone(mitigated, []) == 2
+  assert detectors._confluence_from_zone(max_zone, []) == 3
+
+
+@pytest.mark.no_database
+def test_normalised_factor_threshold_matches_legacy_cut_points():
+  """PR-E regression: 12/20.5 and 8/20.5 factor scores still map to 3★/2★."""
+  three_star = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    touches=3,
+    wick_rejection=True,
+    displacement_grade=True,
+    structural_agreement=True,
+  )
+  two_star = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    wick_rejection=True,
+    displacement_grade=True,
+  )
+  assert detectors._raw_factor_score(three_star) >= 12.0
+  assert detectors._confluence_from_factors(three_star) == 3
+  assert 7.0 <= detectors._raw_factor_score(two_star) < 12.0
+  assert detectors._confluence_from_factors(two_star) == 2
+
+
+@pytest.mark.no_database
+def test_key_level_reaction_confluence_varies_with_htf_alignment_and_touches():
+  zone = Zone(100, 101, "demand", score=0.0)
+  minimal = detectors.ConfluenceFactors(
+    wick_rejection=True,
+    structural_agreement=True,
+    touches=2,
+  )
+  strong = detectors.ConfluenceFactors(
+    htf_aligned=True,
+    wick_rejection=True,
+    structural_agreement=True,
+    touches=3,
+  )
+  assert detectors._confluence_from_zone(zone, minimal) == 2
+  assert detectors._confluence_from_zone(zone, strong) == 3
+  assert detectors._confluence_from_zone(
+    zone, strong,
+  ) > detectors._confluence_from_zone(zone, minimal)
 
 
 def test_confluence_rubric_is_shared_across_detectors():
@@ -1148,3 +1193,128 @@ def test_build_context_htf_bias_computed_once_h1_has_enough_bars():
     htf_order=["H1", "M15"],
   )
   assert ctx.htf_bias != "unknown"
+
+
+def _technique_ctx(
+  instances,
+  *,
+  df=None,
+  bias="down",
+  zone_merge_overlap=0.5,
+):
+  from app.analysis.engine import AnalysisContext, TimeframeAnalysis
+
+  if df is None:
+    df = _buy_rejection_df()
+  tf = "M5"
+  zone = Zone(101, 106, "demand", source="supply_demand", score=10, touches=0)
+  structure = detectors.StructureSet(
+    swings=[],
+    bias=bias,
+    levels=[],
+    equal_levels=[],
+    fvg_zones=[],
+    order_blocks=[],
+    breaks=[],
+    zones=[zone],
+    liquidity_grabs=[],
+  )
+  ctx = detectors.DetectionContext(
+    symbol="XAU",
+    tf=tf,
+    frames={tf: df},
+    indicators={tf: _indicators(df, atr=3.0)},
+    structures={tf: structure},
+    htf_bias=bias,
+    settings=detectors.DetectorSettings(
+      confluence_floor=2,
+      zone_merge_overlap=zone_merge_overlap,
+    ),
+  )
+  analysis = AnalysisContext(
+    frames=ctx.frames,
+    per_tf={
+      tf: TimeframeAnalysis(
+        df=df,
+        atr=ctx.indicators[tf].atr,
+        swings=[],
+        structure="trend",
+        breaks=[],
+        key_levels=[],
+        legs=[],
+        supply_demand_zones=[],
+        order_blocks=[],
+        flip_zones=[],
+        fvg_zones=[],
+        zones=[zone],
+        liquidity_pools=[],
+        liquidity_grabs=[],
+        momentum="neutral",
+        technique_instances=instances,
+      ),
+    },
+    htf_bias=bias,
+  )
+  return replace(ctx, analysis=analysis)
+
+
+@pytest.mark.no_database
+def test_technique_reaction_prefers_best_confluence_not_first_instance():
+  from app.analysis.technique_geometry import TECHNIQUE_SD, TechniqueInstance
+  from app.analysis.technique_detectors import supply_demand_technique_reaction
+
+  df = _buy_rejection_df()
+  far = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 106.0, 107.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 4.0},
+    origin_index=1,
+  )
+  near = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 101.0, 106.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 10.0},
+    origin_index=2,
+  )
+  ctx = _technique_ctx([far, near], df=df)
+  result = supply_demand_technique_reaction(ctx)
+  assert result is not None
+  assert result.entry_zone.low == pytest.approx(101.0)
+  assert result.entry_zone.high == pytest.approx(106.0)
+
+
+@pytest.mark.no_database
+def test_technique_reaction_covers_instance_with_band_builder_overlap():
+  from unittest.mock import patch
+
+  from app.analysis.confluence_zone import ConfluenceBand
+  from app.analysis.technique_geometry import TECHNIQUE_SD, TechniqueInstance
+  from app.analysis.technique_detectors import supply_demand_technique_reaction
+
+  instance = TechniqueInstance(
+    TECHNIQUE_SD, "buy", 101.0, 106.0, None, ("supply_demand",),
+    measured={"touches": 0, "mitigated": False, "score": 10.0},
+    origin_index=1,
+  )
+  ctx = _technique_ctx([instance], zone_merge_overlap=0.3)
+  band = ConfluenceBand(
+    low=101.0,
+    high=106.0,
+    side="buy",
+    technique_tags=(TECHNIQUE_SD, "order_block"),
+    zone_id="test-band",
+    provenance=(instance.instance_id,),
+  )
+  seen: list[float] = []
+
+  def _capture(_band, _inst, *, min_overlap=0.5):
+    seen.append(min_overlap)
+    return False
+
+  with patch(
+    "app.analysis.technique_detectors._confluence_bands_for_ctx",
+    return_value=[band],
+  ), patch(
+    "app.analysis.technique_detectors.confluence_band_covers_instance",
+    side_effect=_capture,
+  ):
+    supply_demand_technique_reaction(ctx)
+  assert seen == [0.3]
