@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 from app.core.config import runtime_config
 from app.configuration.python_loader import load_python_canonical_settings
 from app.configuration.python_sources import load_python_runtime_source_bundle
@@ -2915,9 +2916,9 @@ async def test_regime_alerts_never_dm_owner(monkeypatch):
   delivery._regime_alert_last_check_monotonic = 0.0
   client = redis_state.get_client()
   await client.set(
-    "auto_trade:regime_alert_pending:GBPJPY",
+    "auto_trade:regime_alert_pending:XAU",
     json.dumps({
-      "symbol": "GBPJPY",
+      "symbol": "XAU",
       "chop_share": 1.0,
       "trend_share": 0.0,
       "breakout_share": 0.0,
@@ -2927,4 +2928,4 @@ async def test_regime_alerts_never_dm_owner(monkeypatch):
   await delivery._check_regime_alerts(client)
 
   send.assert_not_awaited()
-  assert await client.get("auto_trade:regime_alert_pending:GBPJPY") is None
+  assert await client.get("auto_trade:regime_alert_pending:XAU") is None
