@@ -397,7 +397,7 @@ def test_trend_pullback_keeps_counter_bias_local_structure_executable():
         105,
         "demand",
         source="order_block",
-        score=detectors.STAR_TWO_SCORE,
+        score=0.0,
       ),
     ],
   )
@@ -444,6 +444,8 @@ def test_trend_pullback_prefers_best_scored_zone_over_nearest_zone():
         score_reasons=["fresh", "OB", "HTF zone"],
       ),
     ],
+    # Floor 1 so the remapped 1★ score-9 zone remains observable.
+    settings=detectors.DetectorSettings(confluence_floor=1),
   )
 
   result = detectors.trend_pullback(ctx)
@@ -504,7 +506,18 @@ def test_star_score_remap_and_mitigated_cap():
 
 @pytest.mark.no_database
 def test_normalised_factor_threshold_matches_legacy_cut_points():
-  """PR-E regression: 12/20.5 and 8/20.5 factor scores still map to 3★/2★."""
+  """PR-E regression: 12/max and 8/max factor scores still map to 3★/2★."""
+  assert detectors._FACTOR_SCORE_MAX == (
+    detectors._FACTOR_HTF_ALIGN_WEIGHT
+    + detectors._FACTOR_TOUCH_CAP * detectors._FACTOR_TOUCH_UNIT_WEIGHT
+    + detectors._FACTOR_WICK_REJECTION_WEIGHT
+    + detectors._FACTOR_DISPLACEMENT_WEIGHT
+    + detectors._FACTOR_SESSION_CONTEXT_WEIGHT
+    + detectors._FACTOR_STRUCTURAL_AGREEMENT_WEIGHT
+    + detectors._FACTOR_FIB_TOUCH_WEIGHT
+  )
+  assert detectors._FACTOR_SCORE_MAX == 20.5
+  assert detectors._ZONE_SCORE_MAX == 24.5
   three_star = detectors.ConfluenceFactors(
     htf_aligned=True,
     touches=3,
@@ -694,7 +707,7 @@ def _scalp_range(
     lower_accepted,
     3,
     [f"micro ×{lower_touches}", f"wick ×{lower_touches}"],
-    9,
+    13,
   )
   upper = ScalpBarrier(
     "resistance",
@@ -706,7 +719,7 @@ def _scalp_range(
     upper_accepted,
     3,
     [f"micro ×{upper_touches}", f"wick ×{upper_touches}"],
-    9,
+    13,
   )
   return ScalpRange(lower, upper, 105, 5, 18)
 
@@ -830,7 +843,7 @@ def test_range_edge_scalp_requires_room_to_eq():
   assert detectors.range_edge_scalp(ctx) is None
 
 
-def test_counter_bias_below_minimum_confluence_rejects_and_records_metric():
+def test_counter_bias_publishes_and_records_observation():
   ctx = _ctx(
     _buy_rejection_df(),
     zones=[
@@ -839,7 +852,7 @@ def test_counter_bias_below_minimum_confluence_rejects_and_records_metric():
         105,
         "demand",
         source="order_block",
-        score=detectors.STAR_TWO_SCORE,
+        score=0.0,
       ),
     ],
   )
@@ -850,14 +863,14 @@ def test_counter_bias_below_minimum_confluence_rejects_and_records_metric():
       ctx.settings,
       allow_counter_trend=True,
       confluence_floor=2,
-      counter_bias_minimum_confluence=4,
     ),
   )
-  detectors.drain_discovery_rejections()
+  detectors.drain_discovery_observations()
   result = detectors.trend_pullback(ctx)
-  assert result is None
-  assert detectors.drain_discovery_rejections() == {
-    detectors.COUNTER_BIAS_BELOW_MINIMUM_CONFLUENCE: 1,
+  assert result is not None
+  assert result.bias_relationship == "counter_bias"
+  assert detectors.drain_discovery_observations() == {
+    "counter_bias_published": 1,
   }
 
 
