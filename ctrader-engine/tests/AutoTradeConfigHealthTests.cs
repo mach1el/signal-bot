@@ -71,7 +71,7 @@ public sealed class AutoTradeConfigHealthTests
   {
     var health = AutoTradeConfigHealth.Compare(
       Manifest(),
-      PythonManifest(contractMode: "v7_only")
+      PythonManifest(contractMode: "v8_only")
     );
 
     Assert.Equal("fatal", health.State);

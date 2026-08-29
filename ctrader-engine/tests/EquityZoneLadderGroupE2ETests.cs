@@ -6,7 +6,7 @@ namespace CTraderFeed.Tests;
 /// Exact fake-broker regression for equity-table zone-scale ladder group
 /// management (P0 acceptance): equity=1300 → 0.11 lots → L1=800/L2=300,
 /// partial then full fill, shared stop, TP1 pro-rata, BE, group SL, restart
-/// idempotency, and no V7 "cannot reconstruct" spam.
+/// idempotency, and no TradePlan "cannot reconstruct" spam.
 /// </summary>
 public sealed class EquityZoneLadderGroupE2ETests
 {
@@ -32,7 +32,7 @@ public sealed class EquityZoneLadderGroupE2ETests
     CandidateStream: "auto_trade:candidates",
     EventStream: "auto_trade:events",
     Label: "apexvoid-auto",
-    ContractMode: "v7_primary",
+    ContractMode: "v8_only",
     PipSize: 0.1m,
     PipValuePerLot: 10m,
     ContractSize: 100m,
@@ -247,7 +247,7 @@ public sealed class EquityZoneLadderGroupE2ETests
       item => item.Type == "position_closed" && item.Message.Contains("lot=", StringComparison.Ordinal)
     );
 
-    // 11: no cannot-reconstruct for V7
+    // 11: no cannot-reconstruct for TradePlan
     Assert.DoesNotContain(
       logs, line => line.Contains("cannot reconstruct", StringComparison.Ordinal)
     );

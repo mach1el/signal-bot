@@ -1,4 +1,4 @@
-"""Active exposure gates: opposing distance + V7 PascalCase Redis payloads."""
+"""Active exposure gates: opposing distance + TradePlan PascalCase Redis payloads."""
 
 from __future__ import annotations
 

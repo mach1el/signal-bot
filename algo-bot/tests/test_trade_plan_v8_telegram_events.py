@@ -1,9 +1,9 @@
-"""TradePlan V7 events must render, not crash Telegram delivery.
+"""TradePlan V8 events must render, not crash Telegram delivery.
 
-Found while wiring TradePlanRuntime.cs (Section M of the V7 cutover):
+Found while wiring TradePlanRuntime.cs (Section M of the TradePlan cutover):
 render_auto_trade_event's fallback branch does an unguarded
 labels[event_type] dict lookup with no .get() default - any event type
-without an entry raises KeyError. The C# runtime emits five new V7-only
+without an entry raises KeyError. The C# runtime emits five new TradePlan-only
 types (plan_armed, order_submitted, order_filled, tp_booked, sl_moved)
 that did not previously exist in that dict.
 """
@@ -32,10 +32,10 @@ def test_plan_armed_event_stays_silent_and_does_not_crash():
   assert text is None
 
 
-def test_v7_order_submitted_event_renders_without_crashing():
-  # "order_submitted" (no v7_ prefix) is already claimed by the V6
+def test_v8_order_submitted_event_renders_without_crashing():
+  # "order_submitted" (no trade-plan-specific prefix) is already claimed by the V6
   # lifecycle as an always-silent type (TELEGRAM_SILENT_LIFECYCLE_TYPES) -
-  # confirm it stays silent, and that the V7-distinct name is also silent
+  # confirm it stays silent, and that the TradePlan-distinct name is also silent
   # (owner does not want ORDERS SUBMITTED cards).
   silent = delivery.render_auto_trade_event({
     "type": "order_submitted",
@@ -50,10 +50,9 @@ def test_v7_order_submitted_event_renders_without_crashing():
 
   assert text is None
   assert "v8_order_submitted" in delivery.TELEGRAM_SILENT_LIFECYCLE_TYPES
-  assert "v7_order_submitted" in delivery.TELEGRAM_SILENT_LIFECYCLE_TYPES
 
 
-def test_event_setup_id_strips_v7_plan_prefix():
+def test_event_setup_id_strips_v8_plan_prefix():
   assert delivery._event_match_id({
     "match_id": "abc123",
     "candidate_id": "v8:abc123",

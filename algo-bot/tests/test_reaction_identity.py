@@ -1,7 +1,7 @@
 """Regression: structural_zone_id must not fragment on measured-width jitter.
 
 Mirrors the fix in test_confluence_zone.py -
-confluence_zone_id was found live to publish two separate TradePlan V7s for
+confluence_zone_id was found live to publish two separate TradePlan V8s for
 the same resistance level because the width component of its coordinate
 bucket happened to straddle a rounding boundary between two detections.
 reaction_identity.canonicalize_zone_bucket had the identical width-bucket

@@ -25,7 +25,7 @@ public sealed class TradePlanExecutionEngineTests
     int? maxSpreadTicks = 8,
     long maxVolume = 100_000
   ) => new(
-    Version: 7,
+    Version: 8,
     PlanId: "plan-1",
     ThesisId: "thesis-1",
     SetupId: "setup-1",
@@ -70,7 +70,7 @@ public sealed class TradePlanExecutionEngineTests
     Risk: new TradePlanRisk(1.0m, 1.0m, maxVolume, 2.0m),
     Management: new TradePlanManagement("TP1", 6, true),
     ExecutionPolicy: new TradePlanExecutionPolicy(true, false, true, true),
-    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+    Provenance: new TradePlanProvenance("v8", "map-1", "cfg-1"),
     Sizing: new TradePlanSizing(
       "equity_table", "owner_equity_v1", "single", Array.Empty<decimal>()
     )
@@ -398,7 +398,7 @@ public sealed class TradePlanExecutionEngineTests
       )
     );
 
-    Assert.Equal("legacy_v7_sizing_contract_missing", error.Message);
+    Assert.Equal("sizing_contract_missing", error.Message);
   }
 
   [Fact]
@@ -576,7 +576,7 @@ public sealed class TradePlanExecutionEngineTests
     decimal stopPrice = 4079.00m,
     long maxVolume = 100_000
   ) => new(
-    Version: 7,
+    Version: 8,
     PlanId: "plan-1",
     ThesisId: "thesis-1",
     SetupId: "setup-1",
@@ -606,7 +606,7 @@ public sealed class TradePlanExecutionEngineTests
     Risk: new TradePlanRisk(1.0m, 1.0m, maxVolume, 2.0m),
     Management: new TradePlanManagement(null, 6, true),
     ExecutionPolicy: new TradePlanExecutionPolicy(false, true, true, true),
-    Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+    Provenance: new TradePlanProvenance("v8", "map-1", "cfg-1"),
     Sizing: new TradePlanSizing(
       "equity_table",
       "owner_equity_v1",
@@ -619,7 +619,7 @@ public sealed class TradePlanExecutionEngineTests
   public void CalculateVolumeSlicesForMarketWithLimitScaleMatchEquity1300()
   {
     var plan = new TradePlan(
-      Version: 7,
+      Version: 8,
       PlanId: "plan-mwls",
       ThesisId: "thesis-1",
       SetupId: "setup-1",
@@ -653,7 +653,7 @@ public sealed class TradePlanExecutionEngineTests
       Risk: new TradePlanRisk(1.0m, 1.0m, 100_000, 2.0m),
       Management: new TradePlanManagement(null, 6, true),
       ExecutionPolicy: new TradePlanExecutionPolicy(true, true, true, true),
-      Provenance: new TradePlanProvenance("v7", "map-1", "cfg-1"),
+      Provenance: new TradePlanProvenance("v8", "map-1", "cfg-1"),
       Sizing: new TradePlanSizing(
         "equity_table",
         "owner_equity_v1",

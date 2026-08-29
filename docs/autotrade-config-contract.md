@@ -4,7 +4,7 @@ The Python publisher and C# executor share config manifest version 2 and
 candidate contract version 6. Cross-service values use these canonical
 environment variables:
 
-## TradePlan V7 migration mode
+## TradePlan contract mode
 
 `AUTO_TRADE_CONTRACT_MODE` selects which planning/execution path is active.
 Both services must resolve the same value; config-health treats
@@ -12,14 +12,12 @@ Both services must resolve the same value; config-health treats
 fields (see `compare_manifests` in `app/autotrade/config_health.py` and
 `AutoTradeConfigHealth.Compare` in `ctrader-engine/src/AutoTradeConfigHealth.cs`),
 so a mismatch fails closed rather than silently running two different paths.
-See `docs/adr-trade-plan-v7-boundary.md` for the full rationale.
+See `docs/adr-trade-plan-v8-cutover.md`.
 
 | Mode | Behavior |
 |---|---|
-| `legacy_v6` (default) | V6 `TradeCandidate` path only; V7 disabled. |
-| `shadow_v7` | Python also publishes V7 plans; C# parses and validates them but places no orders from V7. |
-| `v7_primary` | V7 places orders; V6 remains a controlled fallback. |
-| `v7_only` | V6 candidates are rejected outright. |
+| `v8_only` (live) | TradePlan V8 is the sole autonomous order path; new V6 autonomous candidates are rejected. |
+| `legacy_v6` | V6 `TradeCandidate` path only (mechanical tests / legacy manage). TradePlan autonomous publish disabled. |
 
 Do not flip this value without a corresponding, deliberate deployment step —
 it is not a per-request toggle.

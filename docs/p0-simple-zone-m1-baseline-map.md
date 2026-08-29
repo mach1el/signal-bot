@@ -152,23 +152,23 @@ split explicitly: *"the two are not always equal."* This is the exact "hidden
 execution-only zone pool" the spec requires eliminating — every zone capable of producing
 a plan must be visible in the one Market Map used for both.
 
-## 7. Structural identity vs. V7 thesis identity diverge on timestamps — TRUE
+## 7. Structural identity vs. TradePlan thesis identity diverge on timestamps — TRUE
 
 `structural_thesis_id` (`app/analysis/structural_reaction_support.py:130-150`) hashes
 `touch_bar_ts`/`confirmation_bar_ts` alongside `structural_id`. It feeds `match_id`
 (`scanner.py:420-429`), and `setup_id = match.match_id` (`scanner.py:598`) — so **setup
 identity is re-hashed on every new confirmation of the same structure.**
 
-`v7_thesis_id` (`structural_reaction_support.py:153-180`) deliberately excludes both
+`thesis_id` (`structural_reaction_support.py:153-180`) deliberately excludes both
 timestamps, with an existing in-code comment explaining exactly why:
 > *"Deliberately narrower than structural_thesis_id() above: this excludes
 > touch_bar_ts/confirmation_bar_ts on purpose. Those timestamps make
 > structural_thesis_id() (and match_id, which reuses it) change on every new confirmation
 > of the same structural reaction - correct for V6's per-event dedup, but exactly what a
-> V7 thesis must NOT do."*
+> TradePlan thesis must NOT do."*
 
 Reinforced at `trade_plan_builder.py:189-201`: *"match_id ... is re-hashed on every new
-confirmation timestamp, so using it as a V7 thesis_id would silently let repeated
+confirmation timestamp, so using it as a TradePlan thesis_id would silently let repeated
 confirmations of the same structure each look like a brand new thesis."*
 
 `confluence_setup_id` (`confluence_zone.py:110-114`) is also timestamp-free (hashes only
@@ -186,9 +186,9 @@ from raw bar data — the one M1-adjacent reference (`ScaleInTriggerPlanner.cs:2
 scale-in path) only consumes a pre-computed `RejectionConfirmed` bool that Python already
 decided (`AutoTradeEngine.cs:4767 ← candidate.RejectionConfirmed`).
 
-**Ready-made hook already exists**: `TradePlanEntry.Activation` (`TradePlanV7.cs:78`, a
+**Ready-made hook already exists**: `TradePlanEntry.Activation` (`TradePlan.cs:78`, a
 `string?`) is required by `ValidateEntryShape` for `market_watch`
-(`TradePlanV7.cs:316-318`, *"market_watch entry requires activation"*) but is **never read
+(`TradePlan.cs:316-318`, *"market_watch entry requires activation"*) but is **never read
 anywhere** — an example plan even shows `"activation":"quote_inside_zone"`
 (`TradePlanRuntime.cs:123`). This is exactly where `m1_touch`/`m1_rejection_close`/
 `m1_sweep_reclaim` dispatch plugs in additively.
@@ -226,7 +226,7 @@ are already durably written per symbol/timeframe (`RedisBarSink.cs`, `WriteClose
    mechanical execution-safety checks (dedup, risk cap, spread/slippage, restart recovery)
    unchanged.
 9. **M1 activation contract**: extend `TradePlanEntry`/`TradePlan` (Python + C#
-   `TradePlanV7.cs`) additively with `activation.type`/`activation.direction`/
+   `TradePlan.cs`) additively with `activation.type`/`activation.direction`/
    `activation.max_trigger_age_bars`; wire `Activation` dispatch into
    `TradePlanExecutionEngine`; add `LastEvaluatedM1BarTs` etc. to
    `TradePlanRuntimeState`.

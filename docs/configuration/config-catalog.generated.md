@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
-- Document fingerprint: `8f3ab6e030692cab757d6e9dfb9b8d9494d7a10035573e68fb2d53bf8e04d58a`
-- Items: `546`
+- Contract fingerprint: `324ea8a6af5fa10e3c772c6d3d51eae7f8df1a2943d1cbd210bca94d1ab22eaf`
+- Document fingerprint: `4c0d953b384f371569551b8c4c398a32893f34aeda51504d075ba0d63b515195`
+- Items: `545`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -103,7 +103,6 @@
 | `analysis.measurements.eq_band` | `EQ_BAND` | `float` | `fraction` | `configurable` | `0.1` |
 | `analysis.measurements.inducement_band_atr` | `INDUCEMENT_BAND_ATR` | `float` | `atr` | `configurable` | `0.3` |
 | `analysis.measurements.max_merged_zone_atr` | `MAX_MERGED_ZONE_ATR` | `float` | `atr` | `configurable` | `3.0` |
-| `analysis.measurements.regime_chop_alert_share` | `REGIME_CHOP_ALERT_SHARE` | `float` | `fraction` | `configurable` | `0.75` |
 | `analysis.measurements.scanner_conflict_overlap` | `SCANNER_CONFLICT_OVERLAP` | `float` | `fraction` | `configurable` | `0.5` |
 | `analysis.measurements.strict_pd_gate` | `STRICT_PD_GATE` | `bool` | `boolean` | `configurable` | `false` |
 | `analysis.measurements.tp_min_spacing_atr` | `TP_MIN_SPACING_ATR` | `float` | `atr` | `configurable` | `0.5` |

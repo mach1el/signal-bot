@@ -1,4 +1,4 @@
-"""Setup lifecycle state machine (Phase 2 of the TradePlan V7 migration).
+"""Setup lifecycle state machine (Phase 2 of the TradePlan V8 migration).
 
 Covers: idempotent discovery, the full valid transition path, repeated
 detector cycles not re-emitting a transition, illegal transitions being

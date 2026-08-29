@@ -6,7 +6,7 @@ namespace CTraderFeed.Tests;
 
 /// <summary>
 /// Executor half of the shared TradePlan V8 contract fixture. The same file
-/// drives `algo-bot/tests/test_trade_plan_v7_contract.py`, so the plan
+/// drives `algo-bot/tests/test_trade_plan_v8_contract.py`, so the plan
 /// Python builds and the plan C# parses/validates cannot drift apart
 /// unnoticed.
 /// </summary>

@@ -35,9 +35,9 @@ pytestmark = pytest.mark.no_database
 
 @pytest.fixture(autouse=True)
 def _no_news_by_default(monkeypatch):
-  # V7 now hard-gates news via ``event_in_window`` which needs a live DB. These
+  # TradePlan now hard-gates news via ``event_in_window`` which needs a live DB. These
   # tests target the RR/plan-build gates, so we short-circuit the news lookup
-  # to keep them database-free while still exercising the V7 publish path.
+  # to keep them database-free while still exercising the TradePlan publish path.
   monkeypatch.setattr(
     worker, "event_in_window", AsyncMock(return_value=None),
   )
@@ -554,7 +554,7 @@ async def test_final_reward_risk_gate_expires_setup_without_publishing_plan(
     client, "XAU", spot, match,
   ) is None
   assert (await load_setup(client, setup_id)).state == EXPIRED
-  assert await client.get(f"execution:trade_plan:v7:{setup_id}") is None
+  assert await client.get(f"execution:trade_plan:v8:{setup_id}") is None
   events = await client.xrange(leaf(runtime_config, "auto_trade_event_stream"))
   payloads = [json.loads(fields["payload"]) for _id, fields in events]
   assert payloads[-1]["type"] == EXPIRED
@@ -599,7 +599,7 @@ async def test_repeat_waiting_cycle_recovers_route_outcome_from_stale_handoff():
 
   worker.py's preflight pass writes route_outcome with
   reason_code="reaction_confirmation_handoff" every cycle a reaction stays
-  outside its zone (V7 persists WAITING_RETEST on out-of-zone presence),
+  outside its zone (TradePlan persists WAITING_RETEST on out-of-zone presence),
   intending _publish_trade_plan_v8's own confirmation-phase persist to
   immediately correct it back to the durable "waiting_retest_entry_zone"
   reason. Outside-zone setups now remain CONFIRMED while waiting (no

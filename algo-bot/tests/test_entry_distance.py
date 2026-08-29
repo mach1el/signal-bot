@@ -53,7 +53,7 @@ def test_stop_trail_be_plus_six_ticks_parity(case):
   offset = buffer_ticks * tick
   # Profit-side protection: BUY moves the stop above entry, SELL moves it
   # below entry - not an adverse-side spread cushion. See
-  # docs/adr-trade-plan-v7-boundary.md is unrelated; this mirrors
+  # docs/adr-trade-plan-v8-cutover.md is unrelated; this mirrors
   # ctrader-engine/src/StopTrailPlanner.cs ProtectedBreakevenStop.
   if case["direction"] == "BUY":
     desired = entry + offset

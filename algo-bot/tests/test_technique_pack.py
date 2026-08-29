@@ -141,7 +141,7 @@ def test_hfs_session_fallback_without_clock():
 
 
 def test_publish_choke_blocks_outside_killzone_with_frozen_hour():
-  """Worker V7 choke uses evaluate_killzone_gate(spot.ts); freeze UTC hour."""
+  """Worker TradePlan choke uses evaluate_killzone_gate(spot.ts); freeze UTC hour."""
   from app.autotrade.killzone import evaluate_killzone_gate
 
   cfg = _technique_cfg()

@@ -6,10 +6,10 @@ namespace CTraderFeed.Tests;
 
 /// <summary>
 /// Proves TradePlanRuntime is a genuinely wired broker-execution path, not
-/// just pure decision logic: a real TradePlan V7 JSON payload goes in via
+/// just pure decision logic: a real TradePlan JSON payload goes in via
 /// the execution:trade_plans stream, and a real market order comes out via
 /// ICTraderTradeClient, with fill/target/BE tracking and restart recovery -
-/// see docs/adr-trade-plan-v7-boundary.md Sections F/H/I/J/K.
+/// see docs/adr-trade-plan-v8-cutover.md Sections F/H/I/J/K.
 /// </summary>
 public sealed class TradePlanRuntimeTests
 {
@@ -18,7 +18,7 @@ public sealed class TradePlanRuntimeTests
     MinVolume: 100, StepVolume: 100, MaxVolume: 100_000, LotSize: 10_000
   );
 
-  private static AutoTradeOptions Options(string contractMode = "v7_primary") => new(
+  private static AutoTradeOptions Options(string contractMode = "v8_only") => new(
     Enabled: true,
     DryRun: false,
     ExpectedBroker: "Fusion",
@@ -154,9 +154,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ReceivesPlanAndSubmitsMarketOrderWhenQuoteEntersZone()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     // Quote outside the zone: plan should be received but not submit yet.
@@ -186,9 +186,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ManualBrokerCloseFinalizesPlanWithSignedPips()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       PositionCloseReasonToReturn = PositionCloseReason.ManualOrExternalOrder,
       PositionCloseExecutionPriceToReturn = 4094.50m,
@@ -222,7 +222,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task UnknownCloseWithoutDealPriceFinalizesWithLiveQuote()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       stopPrice: 4082.50m,
       managementJson: """
@@ -231,7 +231,7 @@ public sealed class TradePlanRuntimeTests
         }
         """
     ));
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       PositionCloseReasonToReturn = PositionCloseReason.Unknown,
     };
@@ -265,9 +265,9 @@ public sealed class TradePlanRuntimeTests
   {
     // Production 2026-08-28 Flip Zone: exit within a few pips of SL must
     // not read as manual when the deal window misses the fill.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(stopPrice: 4082.50m));
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       PositionCloseReasonToReturn = PositionCloseReason.Unknown,
     };
@@ -381,9 +381,9 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(planJson);
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       AccountEquity = 1_300m,
       AccountBalance = 1_300m,
@@ -459,7 +459,7 @@ public sealed class TradePlanRuntimeTests
         {"target_id": "TP2", "type": "absolute", "price": "4100.00", "close_ratio": "0.8"}
       ]
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       targetsJson: targets,
       managementJson: """
@@ -468,7 +468,7 @@ public sealed class TradePlanRuntimeTests
         }
         """
     ));
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       AccountBalance = 200m,
       AccountEquity = 200m,
@@ -525,9 +525,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task UnknownCloseWithRecoveredExitPriceDoesNotUseStopTautology()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(stopPrice: 4082.50m));
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       PositionCloseReasonToReturn = PositionCloseReason.Unknown,
       // Manual close well away from the protective stop.
@@ -562,7 +562,7 @@ public sealed class TradePlanRuntimeTests
   {
     // Live 2026-08-17 GBPJPY: two Key Level SELL plans 5s apart both filled
     // because pending runtime state was not a same-direction gate.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:kl-dac0",
       thesisId: "thesis-dac0",
@@ -570,7 +570,7 @@ public sealed class TradePlanRuntimeTests
       strategy: "Key Level Reaction",
       strategyFamily: "key_level"
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -604,13 +604,13 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task IncomingScalpMayStackOnPendingNonScalpPlan()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:kl-live",
       strategy: "Key Level Reaction",
       strategyFamily: "key_level"
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
@@ -635,7 +635,7 @@ public sealed class TradePlanRuntimeTests
   public async Task PendingSameDirectionOnOtherSymbolDoesNotBlockIncoming()
   {
     // Live 2026-08-17: open GBPJPY must not reject a later XAU same-dir plan.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:gbpjpy-buy",
       thesisId: "thesis-gbp",
@@ -647,7 +647,7 @@ public sealed class TradePlanRuntimeTests
       zoneHigh: 215.92m,
       stopPrice: 215.70m
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
@@ -673,14 +673,14 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task XauUsdAliasBlocksSecondXauSameDirectionBeforeTp2()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:xauusd-buy",
       strategy: "Key Level Reaction",
       strategyFamily: "key_level",
       symbol: "XAUUSD"
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
@@ -712,9 +712,9 @@ public sealed class TradePlanRuntimeTests
     // way to tell from production logs whether the entry never actually saw
     // the zone again, or saw it but got blocked by something else (spread).
     // The expiry log line must now say which one happened.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(expiresAt: 1_720_000_100));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var currentTime = 1_720_000_000L;
     var runtime = new TradePlanRuntime(
@@ -756,11 +756,11 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ExpiredPlanThatTouchedZoneSaysLeftWithoutFill()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       zoneLow: 4088.10m, zoneHigh: 4090.00m, expiresAt: 1_720_000_100
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var currentTime = 1_720_000_000L;
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime),
@@ -791,9 +791,9 @@ public sealed class TradePlanRuntimeTests
   {
     // Same missed-tick incident as recovery catch-up, but without a
     // restart: process stayed up, poll simply never sampled the overlap.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -823,9 +823,9 @@ public sealed class TradePlanRuntimeTests
     // ever reaching the market_watch branch at all - LastEntryWaitReason
     // stays null, and the log must say so plainly rather than a misleading
     // blank/default reason.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(expiresAt: 1_720_000_000));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_100),
@@ -850,9 +850,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task FirstPollSubmitsExecutablePlanWithoutArmedStage()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -873,7 +873,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ImmediateMarketChaseSubmitsOnFirstPollOutsideOldZone()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:hfs-market-chase",
       setupId: "hfs-market-chase",
@@ -907,7 +907,7 @@ public sealed class TradePlanRuntimeTests
         }
         """
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -931,7 +931,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ImmediateMarketChaseDoesNotSubmitWhenAlreadyThroughTp1()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:hfs-chase-through-tp",
       setupId: "hfs-chase-through-tp",
@@ -965,7 +965,7 @@ public sealed class TradePlanRuntimeTests
         }
         """
     ));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -990,7 +990,7 @@ public sealed class TradePlanRuntimeTests
   {
     // Reproduce the fake TP1: market fills through TP1, next poll must
     // skip the target instead of closing half as "TP COMPLETED".
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       planId: "v8:hfs-fake-tp",
       setupId: "hfs-fake-tp",
@@ -1025,7 +1025,7 @@ public sealed class TradePlanRuntimeTests
         """
     ));
     var logs = new List<string>();
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     // Force a fill already through TP1 (broker slippage).
     client.NextMarketFillPrice = 4667.17m;
     var runtime = new TradePlanRuntime(
@@ -1075,9 +1075,9 @@ public sealed class TradePlanRuntimeTests
     // roughly 1000x smaller than the broker expected, which cTrader
     // rejected outright with "Relative stop loss has invalid precision" -
     // crash-looping the whole auto_trade consumer, not just one order.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m, stopPrice: 4082.50m));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -1111,7 +1111,7 @@ public sealed class TradePlanRuntimeTests
         {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
       ]
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan($$"""
     {
       "version": 8,
@@ -1194,7 +1194,7 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -1219,7 +1219,7 @@ public sealed class TradePlanRuntimeTests
     // never be sized must never show PLAN ARMED only to flip to PLAN REJECTED
     // a moment later - and it must reject just this plan, not crash-loop the
     // whole consumer forever on every poll.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan("""
     {
       "version": 8,
@@ -1303,7 +1303,7 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, logs.Add
@@ -1418,9 +1418,9 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(planJson);
-    var client = new FakeV7TradingClient { AccountEquity = 1_300m, AccountBalance = 1_300m };
+    var client = new FakeTradePlanTradingClient { AccountEquity = 1_300m, AccountBalance = 1_300m };
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1530,9 +1530,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task OnePollCycleReusesOneAccountWideSnapshotAcrossReconcileAndManage()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1572,7 +1572,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task ANewSymbolPollCycleObservesBrokerMutationsAfterPriorSnapshot()
   {
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var firstCycle = new AccountReconcileSnapshotCycle(client);
     var before = await firstCycle.GetAsync(CancellationToken.None);
     Assert.Empty(before.Positions);
@@ -1596,9 +1596,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task IdleFxPollTargetsDoNotReconcileForAnActiveXauPlan()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1651,15 +1651,13 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Theory]
-  [InlineData("v7|v7:plan-1|thesis-1|L1", null, "v7:plan-1", "thesis-1", "L1")]
-  [InlineData("v7|v7:plan-1|thesis-1|L2", null, "v7:plan-1", "thesis-1", "L2")]
-  [InlineData("v7|v7:plan-1|thesis-1|0", null, "v7:plan-1", "thesis-1", "L1")]
-  [InlineData("v7|v7:plan-1|thesis-1|1", null, "v7:plan-1", "thesis-1", "L2")]
   [InlineData("v8|v8:plan-1|thesis-1|L1", null, "v8:plan-1", "thesis-1", "L1")]
   [InlineData("v8|v8:plan-1|thesis-1|L2", null, "v8:plan-1", "thesis-1", "L2")]
+  [InlineData("v8|v8:plan-1|thesis-1|0", null, "v8:plan-1", "thesis-1", "L1")]
+  [InlineData("v8|v8:plan-1|thesis-1|1", null, "v8:plan-1", "thesis-1", "L2")]
   [InlineData(null, "v8:plan-1:L1", "v8:plan-1", "", "L1")]
   [InlineData(null, "v8:plan-1:0", "v8:plan-1", "", "L1")]
-  public void TryParseV7OwnershipMapsL1L2AndLegacyIndex(
+  public void TryParseOwnershipMapsL1L2AndLegacyIndex(
     string? comment,
     string? clientOrderId,
     string planId,
@@ -1667,7 +1665,7 @@ public sealed class TradePlanRuntimeTests
     string legId
   )
   {
-    var ownership = TradePlanV7Ownership.TryParseV7Ownership(comment, clientOrderId);
+    var ownership = TradePlanOwnership.TryParseOwnership(comment, clientOrderId);
     Assert.NotNull(ownership);
     Assert.Equal(planId, ownership!.PlanId);
     Assert.Equal(thesisId, ownership.ThesisId);
@@ -1677,9 +1675,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task LadderL1MarketFillAndL2PendingIsPartiallyOpenThenFullyOpen()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1722,9 +1720,9 @@ public sealed class TradePlanRuntimeTests
     // TrackedStates never released it. Quote well above both leg prices so
     // neither fires as an immediate market order; both rest as pending
     // limit orders, matching the real incident's zone-scale ladder.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var currentTime = 1_720_000_000L;
     var runtime = new TradePlanRuntime(
@@ -1775,9 +1773,9 @@ public sealed class TradePlanRuntimeTests
     // partial fill (L1 real position) plus a cancelled L2 must still read
     // as a live, managed trade - not get swept into "plan cancelled" just
     // because one leg never filled.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var currentTime = 1_720_000_000L;
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(currentTime), _ => { }
@@ -1807,11 +1805,11 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task V7CommentPositionIsAdoptedWithoutCannotReconstructLog()
+  public async Task TradePlanCommentPositionIsAdoptedWithoutCannotReconstructLog()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, logs.Add
@@ -1827,7 +1825,7 @@ public sealed class TradePlanRuntimeTests
     var orphan = (await client.ReconcilePositionsAsync(CancellationToken.None))
       .Single(position => position.Comment.Contains("|L2", StringComparison.Ordinal));
     logs.Clear();
-    var adopted = await runtime.TryAdoptV7BrokerPositionAsync(
+    var adopted = await runtime.TryAdoptBrokerPositionAsync(
       client, Symbol, orphan, CancellationToken.None
     );
 
@@ -1849,7 +1847,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     logs.Clear();
-    var adoptedAgain = await runtime.TryAdoptV7BrokerPositionAsync(
+    var adoptedAgain = await runtime.TryAdoptBrokerPositionAsync(
       client, Symbol, orphan, CancellationToken.None
     );
     Assert.True(adoptedAgain);
@@ -1861,9 +1859,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task RestartAfterL1FillDoesNotResubmitL1()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var first = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1899,9 +1897,9 @@ public sealed class TradePlanRuntimeTests
   {
     // P0 production bug: every leg used to share one plan-wide
     // ClientOrderId, so cTrader rejected leg 2+ outright as a duplicate.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient { RejectDuplicateClientOrderIds = true };
+    var client = new FakeTradePlanTradingClient { RejectDuplicateClientOrderIds = true };
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1944,9 +1942,9 @@ public sealed class TradePlanRuntimeTests
     // other broker rejection) threw before Stage ever became Submitted, so
     // the plan stayed Received/Submitting and the NEXT poll resubmitted
     // leg 1 from scratch - even though the broker had already accepted it.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient { ThrowOnCallNumber = 2 };
+    var client = new FakeTradePlanTradingClient { ThrowOnCallNumber = 2 };
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -1982,9 +1980,9 @@ public sealed class TradePlanRuntimeTests
     // the live ask (or a SELL limit at/through the live bid) is not a valid
     // resting order - it must go in as a real market order instead of
     // sitting there unfillable/rejectable.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(LadderPlanJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -2012,13 +2010,16 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task ShadowModeNeverSubmitsRealOrders()
+  public async Task DryRunNeverSubmitsRealOrders()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
-      Options("shadow_v7"), store, () => DateTimeOffset.UtcNow, _ => { }
+      Options("v8_only") with { DryRun = true },
+      store,
+      () => DateTimeOffset.UtcNow,
+      _ => { }
     );
 
     await runtime.PollAsync(
@@ -2031,11 +2032,11 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public void LegacyV6ModeNeverReadsTheV7Stream()
+  public void LegacyV6ModeNeverReadsTheTradePlanStream()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(
       Options("legacy_v6"), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -2050,14 +2051,14 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task TargetHitClosesPartialVolumeAndAppliesBreakEven()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
     // Default $2,000 balance sizes to 300 units, and TP1's 50% share (150)
     // now falls under the two-step minimum meaningful close (200) - bump
     // balance so this test keeps proving a genuine partial-close + BE
     // interaction instead of degenerating into an all-deferred-to-TP2 case
     // (that behavior has its own dedicated coverage elsewhere).
-    var client = new FakeV7TradingClient { AccountBalance = 3000m };
+    var client = new FakeTradePlanTradingClient { AccountBalance = 3000m };
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4089.05m, 4089.10m, 1), CancellationToken.None
@@ -2091,9 +2092,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task BeStopOutAfterTp1FinalizesInsteadOfRecoveryRequired()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient
+    var client = new FakeTradePlanTradingClient
     {
       AccountBalance = 3000m,
       PositionCloseReasonToReturn = PositionCloseReason.Unknown,
@@ -2146,13 +2147,13 @@ public sealed class TradePlanRuntimeTests
         "trail_to_target_id": "TP1"
       }
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(
       stopPrice: 4086.00m,
       targetsJson: targets,
       managementJson: management
     ));
-    var client = new FakeV7TradingClient { AccountBalance = 3000m };
+    var client = new FakeTradePlanTradingClient { AccountBalance = 3000m };
     var runtime = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.UtcNow, _ => { }
     );
@@ -2203,7 +2204,7 @@ public sealed class TradePlanRuntimeTests
     // TP3/TP4 sat protected at nothing more than BE, so a full reversal
     // afterward gave back every pip TP2/TP3 had already banked. This proves
     // the V6-equivalent ratchet (trail to the target two levels behind the
-    // one that just closed) now runs in the V7 path too.
+    // one that just closed) now runs in the TradePlan path too.
     var fiveTargets = """
       [
         {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.2"},
@@ -2213,7 +2214,7 @@ public sealed class TradePlanRuntimeTests
         {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
       ]
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan($$"""
     {
       "version": 8,
@@ -2296,7 +2297,7 @@ public sealed class TradePlanRuntimeTests
       }
     }
     """);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -2381,7 +2382,7 @@ public sealed class TradePlanRuntimeTests
         {"target_id": "TP5", "type": "absolute", "price": "4100.00", "close_ratio": "0.2"}
       ]
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan($$"""
     {
       "version": 8,
@@ -2468,7 +2469,7 @@ public sealed class TradePlanRuntimeTests
     // two StepVolume(100) steps - small enough that a single 20% target
     // slice (40 units) rounds down below StepVolume.
     var logs = new List<string>();
-    var client = new FakeV7TradingClient { AccountEquity = 200m, AccountBalance = 200m };
+    var client = new FakeTradePlanTradingClient { AccountEquity = 200m, AccountBalance = 200m };
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, logs.Add);
 
     await runtime.PollAsync(
@@ -2575,7 +2576,7 @@ public sealed class TradePlanRuntimeTests
         {"target_id": "TP3", "type": "absolute", "price": "4096.00", "close_ratio": "0.50"}
       ]
       """;
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan($$"""
     {
       "version": 8,
@@ -2662,7 +2663,7 @@ public sealed class TradePlanRuntimeTests
     // here - only the ratio behavior this test targets matters). TP1's raw
     // 15% share clears one broker step but not the two-step (200 unit)
     // minimum - it must defer, not book a bare 0.01 lot.
-    var client = new FakeV7TradingClient { AccountEquity = 800m, AccountBalance = 800m };
+    var client = new FakeTradePlanTradingClient { AccountEquity = 800m, AccountBalance = 800m };
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -2700,9 +2701,9 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task RestartRecoversReceivedStateFromRedis()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson());
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var first = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
     await first.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 1), CancellationToken.None
@@ -2733,10 +2734,10 @@ public sealed class TradePlanRuntimeTests
     // and finished recovery, the plan's own declared Entry.ExpiresAt had
     // already lapsed during that dead time. It would have expired on the
     // very next poll having never once seen a live quote.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     var planExpiresAt = 1_720_000_100L;
     store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
 
     var first = new TradePlanRuntime(
@@ -2778,10 +2779,10 @@ public sealed class TradePlanRuntimeTests
     // reprieve - if price still isn't in the zone after recovery, it must
     // keep waiting exactly like any other live market_watch plan, and
     // still expire once the (now-extended) window genuinely runs out.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     var planExpiresAt = 1_720_000_100L;
     store.EnqueuePlan(PlanJson(expiresAt: planExpiresAt));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var logs = new List<string>();
 
     var first = new TradePlanRuntime(
@@ -2831,9 +2832,9 @@ public sealed class TradePlanRuntimeTests
     // was genuinely touched, combined with the CURRENT live quote still
     // being close, is now enough to submit - at the current quote, never
     // at the stale historical touch price.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
 
     var first = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -2876,9 +2877,9 @@ public sealed class TradePlanRuntimeTests
     // No bar overlaps the zone during the gap - the live quote being
     // merely close is never enough on its own; the whole point is
     // recovering a touch that genuinely happened, not loosening the zone.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
 
     var first = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -2910,9 +2911,9 @@ public sealed class TradePlanRuntimeTests
     // tolerance band - firing here would mean a fill at a price far from
     // the original thesis, exactly the slippage risk this stays bounded
     // against. Must keep waiting like a normal live-tick evaluation.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan(PlanJson(zoneLow: 4088.10m, zoneHigh: 4090.00m));
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
 
     var first = new TradePlanRuntime(
       Options(), store, () => DateTimeOffset.FromUnixTimeSeconds(1_720_000_000),
@@ -2942,11 +2943,11 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task DuplicatePlanIsClaimedOnceAndNeverDoubleSubmitted()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     var planJson = PlanJson();
     store.EnqueuePlan(planJson);
     store.EnqueuePlan(planJson); // same plan_id republished on the stream
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -2966,10 +2967,10 @@ public sealed class TradePlanRuntimeTests
     // covers, where the second entry is overwritten before it is ever
     // evaluated. Falling through to a fresh Received state here used to
     // resurrect an already-filled plan and submit a second broker order.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     var planJson = PlanJson();
     store.EnqueuePlan(planJson);
-    var client = new FakeV7TradingClient();
+    var client = new FakeTradePlanTradingClient();
     var runtime = new TradePlanRuntime(Options(), store, () => DateTimeOffset.UtcNow, _ => { });
 
     await runtime.PollAsync(
@@ -2994,7 +2995,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task MalformedPlanIsDurablyRejectedAndLaterValidPlanStillReceives()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan("""{"version": 8,"plan_id":"v8:broken","targets":[]}""");
     store.EnqueuePlan(PlanJson(planId: "v8:after-broken"));
     var logs = new List<string>();
@@ -3004,7 +3005,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     await runtime.PollAsync(
-      new FakeV7TradingClient(),
+      new FakeTradePlanTradingClient(),
       Symbol,
       new SpotPrice("XAU", 4080.0m, 4080.2m, 1),
       CancellationToken.None
@@ -3023,7 +3024,7 @@ public sealed class TradePlanRuntimeTests
   {
     // Source-gen / required-member failures can surface as NotSupportedException
     // rather than JsonException — must not abort the poll batch.
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan("""{"version": 8,"plan_id":"v8:unsupported-shape"}""");
     store.EnqueuePlan(PlanJson(planId: "v8:after-unsupported"));
     var logs = new List<string>();
@@ -3033,7 +3034,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     await runtime.PollAsync(
-      new FakeV7TradingClient(),
+      new FakeTradePlanTradingClient(),
       Symbol,
       new SpotPrice("XAU", 4080.0m, 4080.2m, 1),
       CancellationToken.None
@@ -3049,7 +3050,7 @@ public sealed class TradePlanRuntimeTests
   [Fact]
   public async Task TransientRejectionPersistenceFailureLeavesCursorForRetry()
   {
-    var store = new FakeV7Store();
+    var store = new FakeTradePlanStore();
     store.EnqueuePlan("""{"version": 8,"plan_id":"v8:broken","targets":[]}""");
     store.FailSetOnce("execution:plan_rejection:1-0");
     var logs = new List<string>();
@@ -3059,14 +3060,14 @@ public sealed class TradePlanRuntimeTests
     );
 
     await runtime.PollAsync(
-      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+      new FakeTradePlanTradingClient(), Symbol, null, CancellationToken.None
     );
 
     Assert.Equal("0-0", store.TradePlanCursor);
     Assert.Null(store.Value("execution:plan_rejection:1-0"));
 
     await runtime.PollAsync(
-      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+      new FakeTradePlanTradingClient(), Symbol, null, CancellationToken.None
     );
 
     Assert.Equal("1-0", store.TradePlanCursor);
@@ -3096,7 +3097,7 @@ public sealed class TradePlanRuntimeTests
     await using var mux = await ConnectionMultiplexer.ConnectAsync(options);
     var db = mux.GetDatabase();
     var prepublishedPlanId = Environment.GetEnvironmentVariable(
-      "REAL_REDIS_PREPUBLISHED_V7_PLAN_ID"
+      "REAL_REDIS_PREPUBLISHED_TRADE_PLAN_ID"
     );
     var stream = string.IsNullOrWhiteSpace(prepublishedPlanId)
       ? "execution:trade_plans:p0-real"
@@ -3133,7 +3134,7 @@ public sealed class TradePlanRuntimeTests
     );
 
     await runtime.PollAsync(
-      new FakeV7TradingClient(), Symbol, null, CancellationToken.None
+      new FakeTradePlanTradingClient(), Symbol, null, CancellationToken.None
     );
 
     Assert.Equal(
@@ -3161,7 +3162,7 @@ public sealed class TradePlanRuntimeTests
         directory.FullName,
         "contracts",
         "autotrade",
-        "trade-plan-v7.json"
+        "trade-plan-v8.json"
       );
       if (File.Exists(path))
       {
@@ -3177,10 +3178,10 @@ public sealed class TradePlanRuntimeTests
       }
       directory = directory.Parent;
     }
-    throw new FileNotFoundException("Python TradePlan V7 fixture not found");
+    throw new FileNotFoundException("Python TradePlan V8 fixture not found");
   }
 
-  private sealed class FakeV7TradingClient : ICTraderTradeClient
+  private sealed class FakeTradePlanTradingClient : ICTraderTradeClient
   {
     public List<MarketOrderRequest> MarketOrders { get; } = [];
     public List<LimitOrderRequest> LimitOrders { get; } = [];
@@ -3221,7 +3222,7 @@ public sealed class TradePlanRuntimeTests
       long positionId,
       TradeDirection direction,
       long volume,
-      string comment = "v7|seed",
+      string comment = "v8|seed",
       string clientOrderId = "",
       decimal entryPrice = 4089.0m,
       decimal? stopLoss = null
@@ -3403,7 +3404,7 @@ public sealed class TradePlanRuntimeTests
     }
   }
 
-  private sealed class FakeV7Store : IAutoTradeStore
+  private sealed class FakeTradePlanStore : IAutoTradeStore
   {
     private readonly Dictionary<string, string> _strings = new();
     private readonly List<TradeStreamEntry> _stream = [];

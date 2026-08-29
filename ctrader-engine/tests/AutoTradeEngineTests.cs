@@ -699,9 +699,9 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task V7OnlyModeRejectsNewAutonomousV6CandidatesButNotManualAlgo()
+  public async Task V8OnlyModeRejectsNewAutonomousV6CandidatesButNotManualAlgo()
   {
-    // Section L of the TradePlan V7 cutover: v7_only must reject new
+    // Section L of the TradePlan V8 cutover: v8_only must reject new
     // autonomous V6 candidates as defense-in-depth even if Python is also
     // supposed to have stopped publishing them - and must not touch manual
     // /algo candidates, which are the owner's direct decision.

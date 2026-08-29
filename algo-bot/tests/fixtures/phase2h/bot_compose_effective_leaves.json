@@ -250,10 +250,6 @@
       "repr": "3.0",
       "type": "builtins.float"
     },
-    "analysis.measurements.regime_chop_alert_share": {
-      "repr": "0.75",
-      "type": "builtins.float"
-    },
     "analysis.measurements.strict_pd_gate": {
       "repr": "False",
       "type": "builtins.bool"
@@ -539,7 +535,7 @@
       "type": "builtins.str"
     },
     "contract.mode": {
-      "repr": "'v7_only'",
+      "repr": "'v8_only'",
       "type": "builtins.str"
     },
     "contract.streams.candidate_maximum_length": {

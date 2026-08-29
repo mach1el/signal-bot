@@ -262,7 +262,7 @@ async def test_a_grade_reaction_publishes_directly_in_the_same_scan_cycle(
 ):
   """refactor/p0-direct-zone-signal-execution: an M5 reaction whose quote is
   already inside its confirmed entry zone at CONFIRMED time publishes
-  TradePlan V7 synchronously, in the scanner's own confirmation cycle - no
+  TradePlan V8 synchronously, in the scanner's own confirmation cycle - no
   auto_trade:strategy_match_ready round-trip, no separate worker tick, and
   no M1 bar required at all (M1 must not block an A-grade M5 reaction).
   """

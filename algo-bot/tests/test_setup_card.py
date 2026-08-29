@@ -378,7 +378,7 @@ async def test_apply_forming_card_stop_patches_trade_area_stop_line():
   await _confirmed_setup(client, "setup-stop")
   original = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     "• <b>Entry zone:</b> <b>4,072.99–4,076.89</b>",
     "• <b>Key level:</b> <b>4,074.94</b>",
     "• <b>Stop:</b> <b>SL</b>",
@@ -413,7 +413,7 @@ async def test_apply_forming_card_stop_still_patches_legacy_copy_draft_if_presen
   await _confirmed_setup(client, "setup-stop-legacy")
   original = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     "• <b>Entry zone:</b> <b>4,072.99–4,076.89</b>",
     "• <b>Key level:</b> <b>4,074.94</b>",
     "",
@@ -669,7 +669,7 @@ async def test_status_snapshot_wins_when_worker_finishes_before_card_post():
   await setup_card.save_forming_card_status(
     client,
     "setup-race",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
   )
   sent = []
 
@@ -950,7 +950,7 @@ async def test_load_forming_card_reads_legacy_scalar_format(monkeypatch):
 async def test_identical_status_edit_is_a_local_successful_noop():
   client = redis_state.get_client()
   await _confirmed_setup(client, "setup-identical")
-  status = "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor"
+  status = "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor"
   text = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
     status,
@@ -1009,7 +1009,7 @@ async def test_not_modified_status_edit_is_treated_as_success():
   assert await setup_card.edit_forming_card_status(
     client,
     "setup-not-modified",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     state="plan_published",
     edit_fn=edit_fn,
   )
@@ -1042,7 +1042,7 @@ async def test_card_status_is_monotonic_after_plan_publication():
     ("preflight", "🟡 <b>PREFLIGHT</b> · dynamic execution checks in progress"),
     (
       "plan_published",
-      "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+      "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     ),
     (
       "waiting_retest",
@@ -1092,7 +1092,7 @@ async def test_real_redis_concurrent_card_status_keeps_highest_priority():
       setup_card.save_forming_card_status(
         client,
         setup_id,
-        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
         state="plan_published",
       ),
       setup_card.save_forming_card_status(
