@@ -1359,8 +1359,8 @@ async def test_handle_event_manual_cancelled_hard_deletes_when_pending_delete(
   # /trade_delete flagged the intent — broker cancel must remove the row
   # and posts (🗑 deleted), not leave ❌ cancelled.
   _mock_send(monkeypatch)
-  truth = AsyncMock()
-  monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  ack = AsyncMock()
+  monkeypatch.setattr(manual_execution, "_send_owner_command_ack", ack)
   monkeypatch.setattr(broadcast, "delete_posts", AsyncMock())
   sid = await _algo_signal()
   await store.insert_signal_post(sid, -100987654321, 9900 + sid, "vip")
@@ -1376,9 +1376,9 @@ async def test_handle_event_manual_cancelled_hard_deletes_when_pending_delete(
   )
 
   assert await store.get_manual_signal(sid) is None
-  truth.assert_awaited_once()
-  assert "deleted" in truth.await_args.args[0]
-  assert "cancelled" not in truth.await_args.args[0]
+  ack.assert_awaited_once()
+  assert "deleted" in ack.await_args.args[0]
+  assert "cancelled" not in ack.await_args.args[0]
   assert await client.get(f"manual_trade:pending_delete:{intent}") is None
 
 
