@@ -47,3 +47,38 @@ Examples that motivated band bonus scoring and normalised thresholds:
 | 2 techniques, best member 13.0 | 3★ |
 
 Confluence Zone premise requires technique-count bonus in the band score.
+
+## PR-I: counter-bias discovery floor regression (2026-08-29)
+
+PR-H reused `actionability.counter_bias.minimum_confluence` (default 3) inside
+`detectors._finish` as a **global** discovery reject. That field’s only
+legitimate owner is `scanner.py`’s opt-in `suppress_in_range` path (default
+off / inert).
+
+### Interaction with Key Level Reaction’s 2★ ceiling
+
+`key_level_reaction` synthesised zones with a hardcoded `score=STAR_TWO_SCORE`.
+`_confluence_from_zone` then short-circuits the factor model, and any zone with
+`touches >= 1` is capped at 2★. A floor of 3 against a ceiling of 2 meant
+**every counter-bias Key Level Reaction was dropped at discovery**, including
+when all `ConfluenceFactors` were true (factor model alone would have been 3★).
+
+### Measured failure attribution (master `0eba691` vs base `6aa4a6d`)
+
+36 new failures after PR-A..H. Neutralising the discovery floor alone (forcing
+`counter_bias_minimum_confluence=1`) cleared **16** of them:
+
+| Suite | new failures | cleared by floor removal |
+|-------|--------------|--------------------------|
+| `test_structural_reactions.py` | +10 | 10 → 0 |
+| `test_zone_episode_identity.py` | +4 | 4 → 0 |
+| `test_detectors.py` | +8 | 2 of 8 |
+
+PR-I removes the discovery gate, keeps `counter_bias_published` observation
+telemetry, finishes PR-E normalisation / zone-score hardcodes, and repairs
+`build_context` stubs that masked the scanner suite.
+
+Also set `_pseudo_level_zone` score to `0.0` (same PR-E1 treatment as Key Level
+Reaction): after normalised zone thresholds, the old `STAR_TWO_SCORE` hardcode
+remapped to 1★ and failed `confluence_floor=2`, silencing session / trendline /
+break-retest paths that already populate `ConfluenceFactors`.

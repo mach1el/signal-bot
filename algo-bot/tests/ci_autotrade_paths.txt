@@ -36,3 +36,4 @@ tests/test_scalp_risk_reconcile.py
 tests/test_autotrade_units.py
 tests/test_fx_one_to_two.py
 tests/test_instrument_scale_parity.py
+tests/test_import_all_modules.py

@@ -185,7 +185,7 @@ async def test_scanner_dedups_same_setup_level_and_only_dms_owner(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   result = scanner.DetectionResult(
     setup="Trend Pullback",
@@ -273,7 +273,7 @@ async def test_match_build_failure_is_logged_not_just_an_overwritable_snapshot(
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   result = scanner.DetectionResult(
     setup="Zone Reaction",
@@ -329,7 +329,7 @@ async def test_scanner_uses_dedicated_default_notifier(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   result = scanner.DetectionResult(
     setup="Trend Pullback",
@@ -391,7 +391,7 @@ async def test_scanner_records_analysis_status_without_owner(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   result = scanner.DetectionResult(
     setup="Trend Pullback",
@@ -477,7 +477,7 @@ async def test_scanner_caches_analysis_context_for_market_map(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: SimpleNamespace(
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: SimpleNamespace(
       analysis=marker,
       spot_price=None,
       spot_ts=None,
@@ -527,7 +527,7 @@ async def test_scanner_increments_zone_reconciled_counter(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   reconciled_map = MarketMap(
     [
@@ -592,7 +592,7 @@ async def test_scanner_increments_zone_dropped_and_aborted_counters(monkeypatch)
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   empty_map = MarketMap([], 4113, None, None, None, "down", "M30")
   monkeypatch.setattr(scanner, "build_map", lambda analysis, price, settings=None: empty_map)
@@ -814,7 +814,7 @@ async def test_scanner_digest_suppresses_overlap_and_only_claims_sent(monkeypatc
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   results = [
     scanner.DetectionResult(
@@ -929,7 +929,7 @@ async def test_forming_card_cap_does_not_trim_execution_digest(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   monkeypatch.setattr(scanner, "cache_analysis", lambda *_args: None)
   monkeypatch.setattr(
@@ -1142,7 +1142,7 @@ async def test_structural_anchor_preference_is_telemetry_not_execution_filter(
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   round_only = scanner.DetectionResult(
     "Key Level Reaction",
@@ -1327,7 +1327,7 @@ async def test_scanner_zone_band_dedup_preserves_cross_setup_ideas(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
   result_a = scanner.DetectionResult(
     "Fade Scalp",
@@ -1611,7 +1611,7 @@ async def test_scanner_uses_fresh_spot_for_context_and_live_render(monkeypatch):
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: ctx,
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: ctx,
   )
 
   def detector(received_ctx):
@@ -1671,7 +1671,7 @@ async def test_scanner_rejects_implausible_spot_and_still_fires(monkeypatch, cap
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: SimpleNamespace(
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: SimpleNamespace(
       tf=tf,
       htf_bias="up",
       structures={"M30": SimpleNamespace(bias="up")},
@@ -1744,7 +1744,7 @@ async def test_scanner_rejects_bad_spot_values_without_crashing(
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: SimpleNamespace(
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: SimpleNamespace(
       tf=tf,
       htf_bias="up",
       structures={"M30": SimpleNamespace(bias="up")},
@@ -1783,7 +1783,7 @@ async def test_scanner_missing_spot_keeps_fallback_without_warning(monkeypatch, 
   monkeypatch.setattr(
     scanner,
     "build_context",
-    lambda symbol, tf, frames, settings, htf_order: SimpleNamespace(
+    lambda symbol, tf, frames, settings, htf_order, **_kwargs: SimpleNamespace(
       tf=tf,
       htf_bias="up",
       structures={"M30": SimpleNamespace(bias="up")},

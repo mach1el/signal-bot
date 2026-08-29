@@ -206,7 +206,7 @@ def test_f4_range_edge_scalp_rejects_stale_confirmation_outside_base_window():
   assert detectors.range_edge_scalp(ctx) is None
 
 
-def test_f5_momentum_ride_emits_structural_identity_and_min_touch_filter():
+def test_f5_momentum_ride_emits_structural_identity_without_min_touch_filter():
   df = _df([
     (100, 102, 98, 100, 100),
     (101, 104, 100, 103, 100),
@@ -233,6 +233,8 @@ def test_f5_momentum_ride_emits_structural_identity_and_min_touch_filter():
     "XAU", "M5", "BUY", broken_high,
   )
 
+  # Momentum's level fallback is a proximity anchor after impulse break —
+  # key_level_min_touches must not apply (fresh 1-touch levels remain valid).
   weak_level_ctx = replace(
     ctx,
     structures={
@@ -243,4 +245,6 @@ def test_f5_momentum_ride_emits_structural_identity_and_min_touch_filter():
       ),
     },
   )
-  assert detectors.momentum_ride(weak_level_ctx) is None
+  weak = detectors.momentum_ride(weak_level_ctx)
+  assert weak is not None
+  assert weak.key_level == 108.8
