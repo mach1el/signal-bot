@@ -5,7 +5,7 @@ every successfully-built StrategyMatch with a structural identity must reach
 analysis:setup:{setup_id} = CONFIRMED, and repeated/overlapping confirmations
 of the same canonical structure must share one thesis_id rather than each
 minting a new one (the exact 23 Jul-style overlap this state machine exists
-to prevent - see docs/adr-trade-plan-v7-boundary.md).
+to prevent - see docs/adr-trade-plan-v8-cutover.md).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.analysis.detectors import (
   IndicatorSet,
   StructureSet,
 )
-from app.analysis.structural_reaction_support import v7_thesis_id
+from app.analysis.structural_reaction_support import thesis_id
 from app.analysis.types import Zone
 from app.autotrade.setup_lifecycle import (
   CONFIRMED,
@@ -154,7 +154,7 @@ async def test_two_confirmations_of_same_structure_share_one_thesis_id():
     "same structural_id/family/direction must resolve to one thesis_id "
     "regardless of confirmation timestamp or a sub-pip zone edge difference"
   )
-  expected = v7_thesis_id(
+  expected = thesis_id(
     symbol="XAU",
     strategy_family=bar_a.family,
     direction="BUY",

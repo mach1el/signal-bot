@@ -154,7 +154,7 @@ def test_round_number_fallback_is_never_executable():
 
 def test_display_capped_zone_is_still_executable_from_actionable_pool(monkeypatch):
   # Reproduces the display/strategy zone bug from
-  # docs/adr-trade-plan-v7-boundary.md: the supply zone was ranked out of
+  # docs/adr-trade-plan-v8-cutover.md: the supply zone was ranked out of
   # the Telegram-capped `entries` list, but it is still in the uncapped
   # `actionable_entries` structural pool. Selection must use the pool, not
   # the display list, so a zone Telegram doesn't show can still be traded.

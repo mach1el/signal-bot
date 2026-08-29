@@ -1,9 +1,9 @@
-"""AUTO_TRADE_CONTRACT_MODE and the TradePlan V7 config-health handshake.
+"""AUTO_TRADE_CONTRACT_MODE and the TradePlan V8 config-health handshake.
 
 Python and C# must agree on contract mode, TradePlan version, and the
-execution stream name before either side trusts a V7 plan; a mismatch is a
+execution stream name before either side trusts a TradePlan plan; a mismatch is a
 fatal config-health finding, not a warning, per
-docs/adr-trade-plan-v7-boundary.md.
+docs/adr-trade-plan-v8-cutover.md.
 """
 
 from __future__ import annotations
@@ -95,10 +95,10 @@ def test_trade_plan_stream_mismatch_is_fatal():
   assert "trade_plan_stream" in health["fatal"]
 
 
-def test_matching_contract_fields_do_not_trigger_v7_fatal_reasons():
+def test_matching_contract_fields_do_not_trigger_v8_fatal_reasons():
   # required_strategy_key_missing entries are a pre-existing, unrelated
   # fatal reason in a bare test environment (no strategy-enable env vars
-  # set) - this test only asserts the *new* V7 fields stay quiet when both
+  # set) - this test only asserts the *new* TradePlan fields stay quiet when both
   # sides agree, not that the whole manifest comparison is clean.
   python = python_manifest()
   ctrader = dict(python)

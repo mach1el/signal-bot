@@ -1,9 +1,9 @@
 namespace CTraderFeed.Tests;
 
 /// <summary>
-/// Proves the V7 execution path (TradePlanExecutionEngine.cs, TradePlanV7.cs)
+/// Proves the TradePlan execution path (TradePlanExecutionEngine.cs, TradePlan.cs)
 /// never references the legacy dual-planning symbols named in
-/// docs/adr-trade-plan-v7-boundary.md - a source-text check rather than a
+/// docs/adr-trade-plan-v8-cutover.md - a source-text check rather than a
 /// runtime mock, so a future edit that adds a call site fails this test
 /// immediately regardless of which code path exercises it.
 /// </summary>
@@ -20,10 +20,10 @@ public sealed class TradePlanExecutionEngineDependencyTests
     "RecomputeStructureStopPlan",
   ];
 
-  private static readonly string[] V7SourceFiles =
+  private static readonly string[] TradePlanSourceFiles =
   [
     "TradePlanExecutionEngine.cs",
-    "TradePlanV7.cs",
+    "TradePlan.cs",
     "TradePlanRuntime.cs",
   ];
 
@@ -49,7 +49,7 @@ public sealed class TradePlanExecutionEngineDependencyTests
     get
     {
       var data = new TheoryData<string, string>();
-      foreach (var file in V7SourceFiles)
+      foreach (var file in TradePlanSourceFiles)
       {
         foreach (var symbol in ForbiddenSymbols)
         {
@@ -76,7 +76,7 @@ public sealed class TradePlanExecutionEngineDependencyTests
 
   [Theory]
   [MemberData(nameof(FileAndForbiddenSymbolPairs))]
-  public void V7SourceFileNeverReferencesForbiddenSymbol(string file, string symbol)
+  public void TradePlanSourceFileNeverReferencesForbiddenSymbol(string file, string symbol)
   {
     var path = Path.Combine(SourceDirectory(), file);
     var code = StripLineComments(File.ReadAllText(path));
@@ -85,9 +85,9 @@ public sealed class TradePlanExecutionEngineDependencyTests
   }
 
   [Fact]
-  public void EveryV7SourceFileExists()
+  public void EveryTradePlanSourceFileExists()
   {
-    foreach (var file in V7SourceFiles)
+    foreach (var file in TradePlanSourceFiles)
     {
       Assert.True(
         File.Exists(Path.Combine(SourceDirectory(), file)),
@@ -100,7 +100,7 @@ public sealed class TradePlanExecutionEngineDependencyTests
   public void GuardListCoversEveryDualPlanningSymbolNamedInTheAdr()
   {
     // A canary against silently trimming the forbidden list itself -
-    // matches the exact symbol list docs/adr-trade-plan-v7-boundary.md and
+    // matches the exact symbol list docs/adr-trade-plan-v8-cutover.md and
     // the original architecture report identified as dual-planning.
     Assert.Equal(7, ForbiddenSymbols.Length);
     Assert.Contains("ResolveExecutionRoute", ForbiddenSymbols);

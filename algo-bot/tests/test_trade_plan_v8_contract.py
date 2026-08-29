@@ -1,6 +1,6 @@
-"""Python half of the shared TradePlan V7 contract fixture.
+"""Python half of the shared TradePlan V8 contract fixture.
 
-The same file is read by `ctrader-engine/tests/TradePlanV7ContractTests.cs`, so
+The same file is read by `ctrader-engine/tests/TradePlanV8ContractTests.cs`, so
 the plan Python builds and the plan C# parses/validates are held to one table.
 """
 
@@ -86,7 +86,7 @@ def test_limit_ladder_entry_prices_are_the_leg_prices():
 
 
 def test_plan_has_no_planned_star_ambiguous_fields():
-  # The whole point of V7 is that there is exactly one stop and one route,
+  # The whole point of TradePlan is that there is exactly one stop and one route,
   # not a family of planned/base/final variants for something else to
   # recompute and compare against.
   plan = TradePlan.from_dict(_valid_plans()["market_watch_buy"])

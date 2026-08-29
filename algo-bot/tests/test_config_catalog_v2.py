@@ -44,15 +44,21 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 546,
-  "configurable": 479,
+  "entries": 545,
+  "configurable": 478,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 401, "shared": 96, "ctrader": 49},
-  "projection": 497,
-  "env": 479,
+  "owners": {"python": 400, "shared": 96, "ctrader": 49},
+  "projection": 496,
+  "env": 478,
   "deprecated_aliases": 64,
 }
+
+# Paths removed from the live catalog after the v1 parity snapshot was frozen.
+# Historical leaf_types still list them; skip rather than rewriting history.
+_INTENTIONAL_POST_V1_REMOVED_PATHS = frozenset({
+  "analysis.measurements.regime_chop_alert_share",
+})
 
 
 def _load(**env: str):
@@ -156,6 +162,8 @@ def test_all_resolved_values_unchanged():
     / "catalog-v1-parity-before-v2.historical.json"
   ).read_text())
   for path, expected_type in hist["leaf_types"].items():
+    if path in _INTENTIONAL_POST_V1_REMOVED_PATHS:
+      continue
     cur = _load().config
     for part in path.split("."):
       cur = getattr(cur, part)
@@ -170,6 +178,8 @@ def test_all_resolved_types_unchanged():
   ).read_text())
   result = _load()
   for path, expected in hist["leaf_types"].items():
+    if path in _INTENTIONAL_POST_V1_REMOVED_PATHS:
+      continue
     cur = result.config
     for part in path.split("."):
       cur = getattr(cur, part)

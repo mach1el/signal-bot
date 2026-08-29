@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `3a56ddf72bc10703e2ad5f619a2d4ad31038c685c462a0fce5aeaf27f0b89dc6`
-- Environment-bound fields: `479`
+- Contract fingerprint: `324ea8a6af5fa10e3c772c6d3d51eae7f8df1a2943d1cbd210bca94d1ab22eaf`
+- Environment-bound fields: `478`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -370,7 +370,6 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `RANGE_SCALP_MIN_WIDTH_ATR` | `strategies.range_reversion.range_edge.min_width_atr` | `float` | no | no | — | `1.0` |
 | `REACTION_MAX_ATR` | `analysis.reactions.max_atr` | `float` | no | no | — | `0.5` |
 | `REDIS_URL` | `bootstrap.redis.url` | `str` | no | yes | — | `redis://redis:6379/0` |
-| `REGIME_CHOP_ALERT_SHARE` | `analysis.measurements.regime_chop_alert_share` | `float` | no | no | — | `0.75` |
 | `ROUND_STEP` | `analysis.levels.round_step` | `float` | no | no | — | `5.0` |
 | `SCALPING_BREAKOUT_BOX_MAX_ATR` | `strategies.scalping.breakout.box_max_atr` | `float` | no | no | `HFS_BREAKOUT_BOX_MAX_ATR` | `1.5` |
 | `SCALPING_BREAKOUT_MAX_BOX_BARS` | `strategies.scalping.breakout.max_box_bars` | `int` | no | no | `HFS_BREAKOUT_MAX_BOX_BARS` | `20` |

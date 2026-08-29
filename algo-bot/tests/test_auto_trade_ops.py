@@ -686,7 +686,7 @@ async def test_opened_event_stores_message_id_with_ttl():
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_order_filled_replies_using_v7_plan_id_without_head_fill(monkeypatch):
+async def test_order_filled_replies_using_v8_plan_id_without_head_fill(monkeypatch):
   client = redis_state.get_client()
   setup_id = "ece2d0168a881f82d8a7fa673c36d40e"
   await client.set(
@@ -696,7 +696,7 @@ async def test_order_filled_replies_using_v7_plan_id_without_head_fill(monkeypat
       "message_id": 7001,
       "text": "\n".join([
         "🔎 <b>XAU M5 · SETUP FORMING</b>",
-        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+        "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
         "🟢 <b>BUY · Key Level Reaction</b>",
       ]),
     }),
@@ -812,7 +812,7 @@ async def test_tp_booked_does_not_overwrite_forming_card_head(monkeypatch):
   setup_id = "tp-head-setup"
   head = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     "🔴 <b>SELL · Key Level Reaction</b>",
   ])
   await client.set(
@@ -1019,7 +1019,7 @@ async def test_sl_moved_be_updates_manage_reply_not_head(monkeypatch):
   setup_id = "manage-be-setup"
   head = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     "🟢 <b>BUY · Key Level Reaction</b>",
     "📍 <b>Trade area</b>",
     "• <b>Stop:</b> <b>4,020.00</b>",
@@ -1085,7 +1085,7 @@ async def test_sl_moved_trail_updates_manage_reply_not_head(monkeypatch):
   setup_id = "manage-trail-setup"
   head = "\n".join([
     "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V7 sent to executor",
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
     "🟢 <b>BUY · Key Level Reaction</b>",
     "📍 <b>Trade area</b>",
     "• <b>Stop:</b> <b>4,034.99</b>",
@@ -2184,8 +2184,8 @@ async def test_execution_stream_is_persisted_at_fill_and_queryable_with_manual()
 
 
 @pytest.mark.asyncio
-async def test_v7_order_filled_and_position_closed_feed_trade_stats():
-  """V7 emits order_filled (not opened) and often omits stream=algo_auto."""
+async def test_v8_order_filled_and_position_closed_feed_trade_stats():
+  """TradePlan emits order_filled (not opened) and often omits stream=algo_auto."""
   await store.init_db()
   await store.record_auto_trade_event({
     "type": "order_filled",
@@ -2843,7 +2843,7 @@ async def test_status_includes_today_algo_scorecard(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_status_lists_open_v7_plan_book(monkeypatch):
+async def test_status_lists_open_v8_plan_book(monkeypatch):
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_enabled": True})
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_dry_run": False})
   client = redis_state.get_client()
@@ -2906,26 +2906,3 @@ async def test_status_open_book_caps_at_three_plans(monkeypatch):
   assert text.count("Open: <b>BUY</b>") == 3
   assert "+1 more" in text
   assert len(text) < 4000
-
-
-@pytest.mark.asyncio
-async def test_regime_alerts_never_dm_owner(monkeypatch):
-  """Chop-heavy regime DMs are retired — drain pending keys only."""
-  send = AsyncMock()
-  monkeypatch.setattr(delivery, "send_scanner_with_retry", send)
-  delivery._regime_alert_last_check_monotonic = 0.0
-  client = redis_state.get_client()
-  await client.set(
-    "auto_trade:regime_alert_pending:XAU",
-    json.dumps({
-      "symbol": "XAU",
-      "chop_share": 1.0,
-      "trend_share": 0.0,
-      "breakout_share": 0.0,
-    }),
-  )
-
-  await delivery._check_regime_alerts(client)
-
-  send.assert_not_awaited()
-  assert await client.get("auto_trade:regime_alert_pending:XAU") is None

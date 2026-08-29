@@ -1,45 +1,46 @@
-# ADR addendum: TradePlan V8 cutover
+# ADR: TradePlan V8 — sole autonomous contract
 
 ## Status
 
-Accepted. Supersedes **new publishes** of TradePlan V7. Historical V7
-docs (`adr-trade-plan-v7-boundary.md`, `trade-plan-v7-migration.md`) remain
-for architecture rationale and migration history.
+Accepted. Prior TradePlan versions are fully removed from production code,
+contracts, and tests. Historical rationale lives only under `docs/history/` and
+`CHANGELOG.md` past entries.
 
 ## Decision
 
-Bump the live autonomous TradePlan contract from V7 to V8 across
-`algo-bot` and `ctrader-engine`. This is a version/identity cutover, not a
-redesign of the Python-owns-plan / C#-executes boundary.
+TradePlan V8 is the only autonomous trade-planning contract across
+`algo-bot` and `ctrader-engine`. Python owns every planned value (entry,
+absolute stop, absolute targets); C# parses, validates shape, and executes
+without recomputing route or stop.
 
-## Identity map
+## Identity
 
-| Field | V7 | V8 |
-| --- | --- | --- |
-| `TRADE_PLAN_VERSION` / `TradePlanContract.Version` | `7` | `8` |
-| Plan id | `v7:{match_id}` | `v8:{match_id}` |
-| Broker ownership comment | `v7\|…` | `v8\|…` |
-| Exposure source | `v7_plan` | `v8_plan` |
-| `AUTO_TRADE_CONTRACT_MODE` | `v7_only` | `v8_only` |
-| Metrics / reason prefixes | `v7_*` | `v8_*` |
+| Field | Value |
+| --- | --- |
+| `TRADE_PLAN_VERSION` / `TradePlanContract.Version` | `8` |
+| `TRADE_PLAN_SUPPORTED_VERSIONS` / `SupportedVersions` | `{8}` only |
+| Plan id | `v8:{match_id}` |
+| Broker ownership comment | `v8\|…` |
+| Exposure source | `v8_plan` |
+| `AUTO_TRADE_CONTRACT_MODE` (live) | `v8_only` |
+| Notify dedup | `auto_trade:v8_notify:*` only |
+| Thesis identity salt | `"thesis"` (`thesis_id()`) |
 
-## Compatibility (deploy drain window)
+`legacy_v6` remains available on the C# record/default for mechanical V6
+manage tests and open-position recovery. It is not a live autonomous
+publish mode.
 
-- **Python publishes only** `version: 8` / `v8:` plan ids.
-- **C# accepts both** `version` `{7,8}` and plan-id / ownership prefixes
-  `v7` and `v8` so in-flight V7 plans can manage to TP/SL.
-- Python readers (Telegram, exposure, setup cards) dual-read `v7:` / `v8:`
-  until the live book is flat of `v7:` plans.
-- Operator logs, Telegram event types, and notify-dedup keys use the `v8`
-  prefix. Drain still dual-claims `auto_trade:v7_notify:*` so a mixed
-  deploy does not double-fire lifecycle events.
-- After drain: drop V7 accept paths and dual-read aliases.
-
-## Unchanged
+## Unchanged boundary
 
 - Entry / stop / target ownership (Python declares, C# executes).
-- V8 opposing-room geometry on the non-scalp publish path:
-  shared-boundary filter, **overlap filter** for stacked map vs candidate
-  bands, and zone-proximal room reference.
+- Opposing-room geometry on the non-scalp publish path: shared-boundary
+  filter, overlap filter for stacked map vs candidate bands, and
+  zone-proximal room reference.
 - Scalp opposing bypass via `match_bypasses_opposing_structure`.
 - V6 retained only for legacy open-position manage and manual `/algo`.
+
+## Shared fixture
+
+`contracts/autotrade/trade-plan-v8.json` is the single shared contract
+table for Python (`test_trade_plan_v8_contract.py`) and C#
+(`TradePlanV8ContractTests.cs`).

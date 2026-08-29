@@ -328,12 +328,12 @@ async def test_worker_routes_scanner_strategy_without_regime_confirmation(
 
   assert result.state == "waiting_for_box"
   trend_publish.assert_not_awaited()
-  # The scanner-routed autonomous path publishes only TradePlan V7 now (see
-  # docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal") - no V6
+  # The scanner-routed autonomous path publishes only TradePlan V8 now (see
+  # docs/adr-trade-plan-v8-cutover.md "Legacy autonomous removal") - no V6
   # candidate is ever written to the candidate stream, regime confirmation
   # or not. This match has no thesis_id/confirmed setup_lifecycle record
-  # (out of scope for this test), so V7 also does not publish here;
-  # test_publish_trade_plan_v8.py covers the V7-publishes-given-a-confirmed-
+  # (out of scope for this test), so TradePlan also does not publish here;
+  # test_publish_trade_plan_v8.py covers the TradePlan-publishes-given-a-confirmed-
   # setup case directly.
   entries = await client.xrange("auto_trade:test")
   assert len(entries) == 0, await client.get(
@@ -857,7 +857,7 @@ async def test_trend_candidate_carries_scale_context_for_scale_in_add_evaluation
   Calls _publish_trend_candidate directly rather than through
   worker._handle_event's autonomous wiring - the private trend detector has
   no autonomous publish call site anymore (see
-  docs/adr-trade-plan-v7-boundary.md "Legacy autonomous removal"), but the
+  docs/adr-trade-plan-v8-cutover.md "Legacy autonomous removal"), but the
   function itself is unchanged and still directly unit-tested, same as
   _publish_strategy_match/_publish_candidate elsewhere in this file.
   """

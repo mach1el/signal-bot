@@ -1402,7 +1402,7 @@
     {
       "name": "auto_trade_contract_mode",
       "type": "<class 'str'>",
-      "default": "v7_only",
+      "default": "v8_only",
       "validation_alias_order": [
         "AUTO_TRADE_CONTRACT_MODE"
       ],
@@ -2626,14 +2626,6 @@
       "profile_behavior": "profile invariant"
     },
     {
-      "name": "regime_chop_alert_share",
-      "type": "<class 'float'>",
-      "default": 0.75,
-      "validation_alias_order": [],
-      "required": false,
-      "profile_behavior": "profile invariant"
-    },
-    {
       "name": "auto_trade_trend_enabled",
       "type": "<class 'bool'>",
       "default": false,
@@ -2873,7 +2865,7 @@
       "auto_trade_stream": "auto_trade:candidates",
       "auto_trade_event_stream": "auto_trade:events",
       "auto_trade_stream_maxlen": 1000,
-      "auto_trade_contract_mode": "v7_only",
+      "auto_trade_contract_mode": "v8_only",
       "auto_trade_trade_plan_stream": "execution:trade_plans",
       "auto_trade_candidate_ttl": 86400,
       "auto_trade_candidate_max_age_seconds": 90,
@@ -3014,7 +3006,6 @@
       "trend_breakout_accept_bars": 2,
       "trend_breakout_min_room_pips": 35,
       "reaction_max_atr": 0.5,
-      "regime_chop_alert_share": 0.75,
       "auto_trade_trend_enabled": false,
       "manual_algo_enabled": false,
       "manual_algo_dry_run": true,
@@ -3191,7 +3182,7 @@
       "auto_trade_stream": "auto_trade:candidates",
       "auto_trade_event_stream": "auto_trade:events",
       "auto_trade_stream_maxlen": 1000,
-      "auto_trade_contract_mode": "v7_only",
+      "auto_trade_contract_mode": "v8_only",
       "auto_trade_trade_plan_stream": "execution:trade_plans",
       "auto_trade_candidate_ttl": 604800,
       "auto_trade_candidate_max_age_seconds": 420,
@@ -3332,7 +3323,6 @@
       "trend_breakout_accept_bars": 2,
       "trend_breakout_min_room_pips": 35,
       "reaction_max_atr": 0.5,
-      "regime_chop_alert_share": 0.75,
       "auto_trade_trend_enabled": true,
       "manual_algo_enabled": false,
       "manual_algo_dry_run": true,
@@ -3509,7 +3499,7 @@
       "auto_trade_stream": "auto_trade:candidates",
       "auto_trade_event_stream": "auto_trade:events",
       "auto_trade_stream_maxlen": 1000,
-      "auto_trade_contract_mode": "v7_only",
+      "auto_trade_contract_mode": "v8_only",
       "auto_trade_trade_plan_stream": "execution:trade_plans",
       "auto_trade_candidate_ttl": 604800,
       "auto_trade_candidate_max_age_seconds": 420,
@@ -3650,7 +3640,6 @@
       "trend_breakout_accept_bars": 2,
       "trend_breakout_min_room_pips": 35,
       "reaction_max_atr": 0.5,
-      "regime_chop_alert_share": 0.75,
       "auto_trade_trend_enabled": true,
       "manual_algo_enabled": false,
       "manual_algo_dry_run": true,
@@ -3827,7 +3816,7 @@
       "auto_trade_stream": "auto_trade:candidates",
       "auto_trade_event_stream": "auto_trade:events",
       "auto_trade_stream_maxlen": 1000,
-      "auto_trade_contract_mode": "v7_only",
+      "auto_trade_contract_mode": "v8_only",
       "auto_trade_trade_plan_stream": "execution:trade_plans",
       "auto_trade_candidate_ttl": 86400,
       "auto_trade_candidate_max_age_seconds": 90,
@@ -3968,7 +3957,6 @@
       "trend_breakout_accept_bars": 2,
       "trend_breakout_min_room_pips": 35,
       "reaction_max_atr": 0.5,
-      "regime_chop_alert_share": 0.75,
       "auto_trade_trend_enabled": false,
       "manual_algo_enabled": false,
       "manual_algo_dry_run": true,
@@ -4383,7 +4371,7 @@
       {
         "item_id": "python.settings.auto_trade_contract_mode",
         "canonical_env": "AUTO_TRADE_CONTRACT_MODE",
-        "default_ctrader": "v7_only",
+        "default_ctrader": "v8_only",
         "owner": "shared"
       },
       {
@@ -4937,7 +4925,7 @@
     "known_constructor_vs_environment_default": {
       "AUTO_TRADE_CONTRACT_MODE": {
         "constructor": "legacy_v6",
-        "from_environment": "v7_only"
+        "from_environment": "v8_only"
       }
     },
     "direct_hardcoded_streams": {

@@ -88,7 +88,7 @@ async def test_plan_build_incomplete_cancels_and_clears_orphan_card(
   )
 
   plan_id = worker._v8_plan_id(match)
-  assert await client.exists(f"execution:trade_plan:v7:{plan_id}") == 0
+  assert await client.exists(f"execution:trade_plan:v8:{plan_id}") == 0
 
   result = await worker._publish_trade_plan_v8(client, "XAU", None, match)
 

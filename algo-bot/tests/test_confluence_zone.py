@@ -174,7 +174,7 @@ def test_zone_id_survives_width_jitter_across_a_rounding_boundary():
   4035.63, map SELL 4033-4042) was re-detected twice with a slightly
   different measured entry zone - 4032.9-4038.35 then 4032.84-4038.41 -
   and each publish got its own zone_id, so the SAME structural level
-  published two separate TradePlan V7s (and two live PLAN PUBLISHED
+  published two separate TradePlan V8s (and two live PLAN PUBLISHED
   cards) a few minutes apart.
 
   Both bands share the exact same bucketed midpoint (4035.625 -> 4036.0

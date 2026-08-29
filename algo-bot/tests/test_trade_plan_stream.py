@@ -85,8 +85,8 @@ async def test_read_trade_plan_returns_none_for_unknown_id():
 
 @pytest.mark.asyncio
 async def test_publishing_never_touches_the_v6_candidate_stream():
-  # V7 publication must be fully isolated from the V6 auto_trade:candidates
-  # stream - a shared stream would let a V7 plan accidentally trigger the
+  # TradePlan publication must be fully isolated from the V6 auto_trade:candidates
+  # stream - a shared stream would let a TradePlan plan accidentally trigger the
   # legacy candidate consumer.
   client = redis_state.get_client()
   plan = _plan(plan_id="plan-stream-isolation")

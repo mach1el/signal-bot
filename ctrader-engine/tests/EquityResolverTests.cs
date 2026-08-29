@@ -75,11 +75,11 @@ public sealed class EquityResolverTests
     {
       new TradingPosition(
         1, 7, TradeDirection.Sell, 800, 4098m, null,
-        "apexvoid-auto", "v7|p|t|L1", NetProfit: -20m
+        "apexvoid-auto", "v8|p|t|L1", NetProfit: -20m
       ),
       new TradingPosition(
         2, 7, TradeDirection.Sell, 300, 4100m, null,
-        "apexvoid-auto", "v7|p|t|L2", NetProfit: 5m
+        "apexvoid-auto", "v8|p|t|L2", NetProfit: 5m
       ),
     };
 

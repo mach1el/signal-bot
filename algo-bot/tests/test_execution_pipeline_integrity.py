@@ -111,7 +111,7 @@ def test_arbiter_orders_only_the_winning_direction():
 
 @pytest.mark.asyncio
 async def test_failed_tier_a_admission_cannot_suppress_executable_tier_b():
-  """V7-cutover: a terminal top intent must not suppress the lower-ranked
+  """TradePlan-cutover: a terminal top intent must not suppress the lower-ranked
   intent's own attempt. The cross-engine flow is:
 
   1. _handle_event only enqueues admitted intents in ``arbitrable``.
@@ -495,12 +495,12 @@ def test_execution_policy_prefers_wide_zone_and_rejects_unknown_strategies():
 async def test_zone_split_capability_gate_rejects_via_execution_policy(
   monkeypatch,
 ):
-  """The V7-owned zone-split hard gate now runs inside
+  """The TradePlan-owned zone-split hard gate now runs inside
   ``_publish_trade_plan_v8`` on top of ``evaluate_execution_policy``. When the
   policy demands zone-split but ``auto_trade_zone_fill_enabled`` is False, the
   gate short-circuits the publish before ``build_trade_plan_from_strategy_match``
   is even called. Exercising it via ``evaluate_execution_policy`` keeps the
-  contract locked without spinning up the full V7 setup.
+  contract locked without spinning up the full TradePlan setup.
   """
   subject = _policy_match(
     strategy="Trend Pullback",
@@ -522,9 +522,9 @@ async def test_zone_split_capability_gate_rejects_via_execution_policy(
 
   assert evaluation.allowed
   assert evaluation.measured.get("entry_distribution") == "zone_split"
-  # ``zone_fill_enabled`` toggles the guard V7 wraps around
+  # ``zone_fill_enabled`` toggles the guard TradePlan wraps around
   # ``evaluate_execution_policy`` (see the ``zone_split_capability_unavailable``
-  # gate inside ``_publish_trade_plan_v8``). Behaviour is verified via the V7
+  # gate inside ``_publish_trade_plan_v8``). Behaviour is verified via the TradePlan
   # publish path in ``test_publish_trade_plan_v8.py``.
   assert not leaf(runtime_config, "auto_trade_zone_fill_enabled")
 
@@ -569,10 +569,10 @@ async def test_active_opposite_initial_group_helper_detects_sell_book():
 async def test_required_limit_side_gate_uses_execution_policy(
   monkeypatch,
 ):
-  """The V7-owned ``required_limit_side_unavailable`` gate cross-checks
+  """The TradePlan-owned ``required_limit_side_unavailable`` gate cross-checks
   ``evaluate_execution_policy.order_type_preference`` against the current
   broker quote. This test locks the underlying evaluation the gate reads
-  (behaviour is verified end-to-end via the V7 publish path).
+  (behaviour is verified end-to-end via the TradePlan publish path).
   """
   subject = _policy_match(
     strategy="Trend Pullback",
@@ -646,18 +646,18 @@ async def test_one_cycle_owner_allows_only_one_distinct_candidate():
 
 
 @pytest.mark.asyncio
-async def test_ranked_v7_publication_persists_full_cycle_owner_record():
+async def test_ranked_v8_publication_persists_full_cycle_owner_record():
   client = redis_state.get_client()
   intent = replace(
-    _intent("strategy:setup-v7-owner", direction="SELL"),
-    match_id="setup-v7-owner",
+    _intent("strategy:setup-v8-owner", direction="SELL"),
+    match_id="setup-v8-owner",
   )
   calls = 0
 
   async def publisher(_intent):
     nonlocal calls
     calls += 1
-    return CandidatePublicationResult.published("v8:setup-v7-owner")
+    return CandidatePublicationResult.published("v8:setup-v8-owner")
 
   first = await publish_ranked_cycle(
     client,
@@ -684,7 +684,7 @@ async def test_ranked_v7_publication_persists_full_cycle_owner_record():
   assert owner["cycle_id"] == "m1-owner-cycle"
   assert owner["intent_id"] == intent.intent_id
   assert owner["setup_id"] == intent.match_id
-  assert owner["plan_id"] == "v8:setup-v7-owner"
+  assert owner["plan_id"] == "v8:setup-v8-owner"
   assert owner["published_at"] > 0
 
 
@@ -979,7 +979,7 @@ def test_all_selected_publication_failures_keep_exact_publisher_evidence():
   opposite = _intent(
     "sell-b", direction="SELL", confluence=2, tier="B",
   )
-  # V7-cutover: arbitration works directly on admitted intents; the old
+  # TradePlan-cutover: arbitration works directly on admitted intents; the old
   # ``ExecutionPreflightDecision`` wrapper is gone.
   arbitration = arbitrate_execution_intents([selected_a, selected_b, opposite])
   ordered_ids = {item.intent_id for item in arbitration.ordered}
@@ -1084,9 +1084,9 @@ async def test_route_funnel_is_unique_and_history_tracks_material_change():
 
 @pytest.mark.asyncio
 async def test_route_keeps_arbitration_and_publication_evidence():
-  """V7-cutover: preflight is gone; the surviving evidence trail is
+  """TradePlan-cutover: preflight is gone; the surviving evidence trail is
   arbitration + publication. The ``preflight_reason_code`` field is now
-  optional (never written by V7's own hard gates) so tests only lock the
+  optional (never written by TradePlan's own hard gates) so tests only lock the
   arbitration and publication fields the ranked publisher continues to
   emit.
   """

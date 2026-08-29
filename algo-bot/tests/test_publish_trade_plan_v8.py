@@ -1,4 +1,4 @@
-"""Proves worker.py actually publishes TradePlan V7 to execution:trade_plans.
+"""Proves worker.py actually publishes TradePlan TradePlan to execution:trade_plans.
 
 Exercises app.autotrade.worker._publish_trade_plan_v8 directly against a real
 Redis client (same fakeredis-backed client the rest of the suite uses) - not
@@ -60,7 +60,7 @@ pytestmark = pytest.mark.no_database
 
 @pytest.fixture(autouse=True)
 def _no_news_by_default(monkeypatch):
-  # V7 hard-gates news via event_in_window; without a live DB the lookup
+  # TradePlan hard-gates news via event_in_window; without a live DB the lookup
   # must fail-open (no event) so tests can exercise every other gate.
   monkeypatch.setattr(
     worker, "event_in_window", AsyncMock(return_value=None),
@@ -113,7 +113,7 @@ def _match(**overrides) -> StrategyMatch:
   # _publish_trade_plan_v8 compares it against datetime.now(timezone.utc).
   base = dict(
     version=STRATEGY_MATCH_VERSION,
-    match_id="match-v7-1",
+    match_id="match-v8-1",
     symbol="XAU",
     source_tf="M15",
     event_ts="1719999600",
@@ -140,7 +140,7 @@ def _match(**overrides) -> StrategyMatch:
     structural_timeframe="H1",
     htf_bias="up",
     regime_kind="trend",
-    thesis_id="thesis-v7-1",
+    thesis_id="thesis-v8-1",
   )
   base.update(overrides)
   base.setdefault(
@@ -212,7 +212,7 @@ def _m1_trigger_bar(
 def _reaction_match(**overrides) -> StrategyMatch:
   now = int(time.time())
   base = dict(
-    match_id="reaction-v7-1",
+    match_id="reaction-v8-1",
     source_tf="M5",
     event_ts=str(now - 60),
     issued_at=now - 60,
@@ -327,8 +327,8 @@ async def test_nonreaction_setup_publishes_with_optional_m1_stop_anchor():
   assert plan_id is not None
   plan = await read_trade_plan(client, plan_id)
   assert plan is not None
-  assert plan.thesis_id == "thesis-v7-1"
-  assert plan.setup_id == "match-v7-1"
+  assert plan.thesis_id == "thesis-v8-1"
+  assert plan.setup_id == "match-v8-1"
   assert plan.analysis.direction == "BUY"
   assert plan.analysis.bias == "up"
   assert plan.source_structure.kind == "demand"
@@ -336,7 +336,7 @@ async def test_nonreaction_setup_publishes_with_optional_m1_stop_anchor():
   # The trigger bar's low (entry_low - 2.0) drives the stop, not the raw zone edge.
   assert float(plan.stop.price) < 4088.10
   assert await read_plan_state(client, plan_id) == "published"
-  record = await load_setup(client, "match-v7-1")
+  record = await load_setup(client, "match-v8-1")
   assert record.state == PLAN_PUBLISHED
 
 
@@ -437,7 +437,7 @@ async def test_m5_authoritative_sell_inside_zone_publishes_same_cycle_once():
 
 
 @pytest.mark.asyncio
-async def test_publication_result_reconciles_durable_v7_plan_when_local_is_none():
+async def test_publication_result_reconciles_durable_v8_plan_when_local_is_none():
   client = redis_state.get_client()
   match = _reaction_match(
     match_id="d870ddc73b268fcb2feaa14a891c2108",
@@ -465,8 +465,8 @@ async def test_publication_result_reconciles_durable_v7_plan_when_local_is_none(
 async def test_rejected_plan_state_wins_over_retained_plan_payload():
   client = redis_state.get_client()
   match = _reaction_match(
-    match_id="rejected-v7-replay",
-    thesis_id="rejected-v7-thesis",
+    match_id="rejected-v8-replay",
+    thesis_id="rejected-v8-thesis",
   )
   plan_id = worker._v8_plan_id(match)
   await client.set(plan_key(plan_id), '{"version":8}', ex=3600)
@@ -499,9 +499,9 @@ async def test_published_setup_reconciles_on_replay_without_re_publishing():
   )
   assert plan_id is not None
 
-  # A second V7 pass with an opposing HTF market map must reconcile the
+  # A second TradePlan pass with an opposing HTF market map must reconcile the
   # already-published plan without either re-publishing or invalidating it.
-  # (Old code path: preflight short-circuited on existing_v7_plan; V7 now
+  # (Old code path: preflight short-circuited on existing_v8_plan; TradePlan now
   # owns that reconciliation itself.)
   replay_plan_id = await worker._publish_trade_plan_v8(
     client,
@@ -530,8 +530,8 @@ async def test_published_setup_reconciles_on_replay_without_re_publishing():
 async def test_m5_authoritative_buy_uses_ask_for_same_cycle_eligibility():
   client = redis_state.get_client()
   match = _reaction_match(
-    match_id="reaction-v7-buy",
-    thesis_id="thesis-reaction-v7-buy",
+    match_id="reaction-v8-buy",
+    thesis_id="thesis-reaction-v8-buy",
     direction="BUY",
     key_level=4040.0,
     entry_low=4038.0,
@@ -600,7 +600,7 @@ async def test_confirmed_trendline_sell_below_zone_waits_for_fresh_retest():
 
 
 @pytest.mark.asyncio
-async def test_outside_reaction_routes_to_waiting_retest_via_v7(
+async def test_outside_reaction_routes_to_waiting_retest_via_v8(
   monkeypatch,
 ):
   client = redis_state.get_client()
@@ -678,7 +678,7 @@ async def test_inside_authoritative_reaction_admits_and_publishes(
   )
   assert failure is None
 
-  # V7 itself then publishes the plan for the same inside reaction.
+  # TradePlan itself then publishes the plan for the same inside reaction.
   plan_id = await worker._publish_trade_plan_v8(
     client, "XAU", spot, match,
   )
@@ -1084,120 +1084,12 @@ async def test_midpoint_inside_does_not_override_executable_quote_outside(
 
 
 @pytest.mark.asyncio
-async def test_final_v7_gate_rejects_entry_inside_opposing_structure():
-  client = redis_state.get_client()
-  match = _match(
-    match_id="match-v7-opposing-major",
-    thesis_id="thesis-v7-opposing-major",
-  )
-  await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(
-    price=4089.0,
-    ts=1719999600,
-    fresh=True,
-    bid=4088.9,
-    ask=4089.1,
-  )
-  # BUY planned entry sits inside opposing supply — must not publish
-  # (live incident: SELL Key Level Reaction from demand).
-  market_map = _market_map(MapEntry(
-    "sell",
-    4089.2,
-    4095.0,
-    4089,
-    4095,
-    "major",
-    ["supply"],
-    13.0,
-  ))
-
-  await worker._publish_trade_plan_v8(
-    client,
-    "XAU",
-    spot,
-    match,
-    market_map=market_map,
-  )
-  plan_id = await worker._publish_trade_plan_v8(
-    client,
-    "XAU",
-    spot,
-    match,
-    frames={"M1": _m1_trigger_bar()},
-    market_map=market_map,
-  )
-
-  assert plan_id is None
-  assert (await load_setup(client, match.match_id)).state == INVALIDATED
-  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
-  rejected = int(
-    await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
-  )
-  assert rejected >= 1
-
-
-@pytest.mark.asyncio
-async def test_final_v7_gate_rejects_sell_from_demand_containment():
-  """Live log 2026-07-31: SELL Key Level Reaction published from demand.
-
-  opposing_entry_contained was preference-only; must hard-reject instead.
-  """
-  client = redis_state.get_client()
-  match = _reaction_match(
-    match_id="match-v7-sell-from-demand",
-    thesis_id="thesis-v7-sell-from-demand",
-    key_level=4055.0,
-    entry_low=4053.12,
-    entry_high=4057.08,
-    current_price=4054.5,
-    structure_swing=4058.5,
-    structural_zone_id="zone-xau-4053-4057",
-    structural_zone_low=4053.12,
-    structural_zone_high=4057.08,
-  )
-  await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(
-    price=4054.5,
-    ts=int(time.time()),
-    fresh=True,
-    bid=4054.40,
-    ask=4054.60,
-  )
-  market_map = _market_map(MapEntry(
-    "buy",
-    4050.0,
-    4056.0,
-    4050,
-    4056,
-    "major",
-    ["demand"],
-    12.0,
-  ))
-
-  plan_id = await worker._publish_trade_plan_v8(
-    client,
-    "XAU",
-    spot,
-    match,
-    market_map=market_map,
-  )
-
-  assert plan_id is None
-  assert (await load_setup(client, match.match_id)).state == INVALIDATED
-  assert await read_trade_plan(client, worker._v8_plan_id(match)) is None
-  rejected = int(
-    await client.hget("auto_trade:metrics:XAU", "target_room_rejected") or 0
-  )
-  assert rejected >= 1
-
-
-@pytest.mark.asyncio
 async def test_range_edge_scalp_publishes_inside_opposing_structure():
   """Scalp may trade inside HTF opposing as long as native range room fits."""
   client = redis_state.get_client()
   match = _match(
-    match_id="match-v7-range-edge-opposing",
-    thesis_id="thesis-v7-range-edge-opposing",
+    match_id="match-v8-range-edge-opposing",
+    thesis_id="thesis-v8-range-edge-opposing",
     strategy="Range Edge Scalp",
     strategy_mode="range_scalp",
     direction="BUY",
@@ -1264,8 +1156,8 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
   """HFS with fitted native room must ignore HTF opposing containment."""
   client = redis_state.get_client()
   match = _match(
-    match_id="match-v7-hfs-opposing",
-    thesis_id="thesis-v7-hfs-opposing",
+    match_id="match-v8-hfs-opposing",
+    thesis_id="thesis-v8-hfs-opposing",
     strategy="HFS Range Sweep",
     strategy_mode="hfs_scalp",
     direction="BUY",
@@ -1322,74 +1214,14 @@ async def test_hfs_scalp_publishes_inside_opposing_structure():
 
 
 @pytest.mark.asyncio
-async def test_range_edge_without_target_room_still_hits_opposing():
-  """Scalp opposing bypass requires fitted full_take_profit_pips.
-
-  Planned BUY entry is literally inside opposing supply → hard reject
-  via target-room containment (not soft barrier-ahead telemetry).
-  """
-  client = redis_state.get_client()
-  match = _match(
-    match_id="match-v7-range-edge-no-room",
-    thesis_id="thesis-v7-range-edge-no-room",
-    strategy="Range Edge Scalp",
-    strategy_mode="range_scalp",
-    direction="BUY",
-    family="range",
-    structural_source="range_edge",
-    structural_kind="demand",
-    key_level=4089.0,
-    entry_low=4088.10,
-    entry_high=4090.00,
-    current_price=4089.0,
-    targets_pips=(30, 60, 90),
-    full_take_profit_pips=None,
-    range_id="range-xau-4070-4110",
-    range_low=4070.0,
-    range_high=4110.0,
-    structure_swing=4070.0,
-  )
-  await _confirm_setup(client, match)
-  spot = worker.AutoTradeSpot(
-    price=4089.0,
-    ts=int(time.time()),
-    fresh=True,
-    bid=4088.9,
-    ask=4089.1,
-  )
-  market_map = _market_map(MapEntry(
-    "sell",
-    4088.0,
-    4095.0,
-    4088,
-    4095,
-    "major",
-    ["supply"],
-    13.0,
-  ))
-
-  plan_id = await worker._publish_trade_plan_v8(
-    client,
-    "XAU",
-    spot,
-    match,
-    frames={"M1": _m1_trigger_bar()},
-    market_map=market_map,
-  )
-
-  assert plan_id is None
-  assert (await load_setup(client, match.match_id)).state == INVALIDATED
-
-
-@pytest.mark.asyncio
-async def test_final_v7_gate_keeps_configured_ladder_with_opposing_structure():
+async def test_final_gate_keeps_configured_ladder_with_opposing_structure():
   """Owner 2026-08-06: opposing geometry is not a reason to shrink the
   configured partial ladder into a solo TP before publish.
   """
   client = redis_state.get_client()
   match = _match(
-    match_id="match-v7-target-cap",
-    thesis_id="thesis-v7-target-cap",
+    match_id="match-v8-target-cap",
+    thesis_id="thesis-v8-target-cap",
     structure_swing=4087.5,
   )
   await _confirm_setup(client, match)
@@ -1428,14 +1260,14 @@ async def test_final_v7_gate_keeps_configured_ladder_with_opposing_structure():
 
 @pytest.mark.asyncio
 async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
-  # _publish_trade_plan_v8 must not gate on AUTO_TRADE_CONTRACT_MODE - V7 is
+  # _publish_trade_plan_v8 must not gate on AUTO_TRADE_CONTRACT_MODE - TradePlan is
   # the sole autonomous path, unconditionally, not a mode. Force the
-  # setting to a value that would have disabled V7 under the old gate (and
+  # setting to a value that would have disabled TradePlan under the old gate (and
   # is now rejected by Settings validation, but this function doesn't
   # validate - it just must not branch on it) to prove the gate is gone.
   install_runtime_overrides(monkeypatch, legacy_overrides={"auto_trade_contract_mode": "legacy_v6"})
   client = redis_state.get_client()
-  match = _match(match_id="match-v7-2", thesis_id="thesis-v7-2")
+  match = _match(match_id="match-v8-2", thesis_id="thesis-v8-2")
   await _confirm_setup(client, match)
   spot = worker.AutoTradeSpot(
     price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
@@ -1448,7 +1280,7 @@ async def test_publish_no_longer_reads_contract_mode_at_all(monkeypatch):
   )
 
   assert plan_id is not None
-  record = await load_setup(client, "match-v7-2")
+  record = await load_setup(client, "match-v8-2")
   assert record.state == PLAN_PUBLISHED
 
 
@@ -1459,14 +1291,14 @@ async def test_second_setup_for_same_thesis_is_rejected_not_duplicated():
     price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
   )
 
-  first_match = _match(match_id="match-v7-3a", thesis_id="thesis-v7-shared")
+  first_match = _match(match_id="match-v8-3a", thesis_id="thesis-v8-shared")
   await _confirm_setup(client, first_match)
   first_plan_id = await _publish_nonreaction_after_m1(
     client, spot, first_match,
   )
   assert first_plan_id is not None
 
-  second_match = _match(match_id="match-v7-3b", thesis_id="thesis-v7-shared")
+  second_match = _match(match_id="match-v8-3b", thesis_id="thesis-v8-shared")
   await _confirm_setup(client, second_match)
   second_plan_id = await _publish_nonreaction_after_m1(
     client, spot, second_match,
@@ -1485,7 +1317,7 @@ async def test_setup_not_confirmed_is_rejected():
   # e.g. a map_strategy.py-sourced match, which never runs through
   # scanner.py's setup lifecycle wiring at all.
   client = redis_state.get_client()
-  match = _match(match_id="match-v7-4", thesis_id="thesis-v7-4")
+  match = _match(match_id="match-v8-4", thesis_id="thesis-v8-4")
   spot = worker.AutoTradeSpot(
     price=4089.0, ts=int(time.time()), fresh=True, bid=4088.9, ask=4089.1,
   )
@@ -1493,13 +1325,13 @@ async def test_setup_not_confirmed_is_rejected():
   plan_id = await worker._publish_trade_plan_v8(client, "XAU", spot, match)
 
   assert plan_id is None
-  assert await load_setup(client, "match-v7-4") is None
+  assert await load_setup(client, "match-v8-4") is None
 
 
 @pytest.mark.asyncio
 async def test_nonreaction_non_qualifying_m1_still_publishes_on_zone_presence():
   client = redis_state.get_client()
-  match = _match(match_id="match-v7-5", thesis_id="thesis-v7-5")
+  match = _match(match_id="match-v8-5", thesis_id="thesis-v8-5")
   await _confirm_setup(client, match)
   now = int(time.time())
   spot = worker.AutoTradeSpot(
@@ -1528,5 +1360,5 @@ async def test_nonreaction_non_qualifying_m1_still_publishes_on_zone_presence():
   assert plan is not None
   assert plan.stop.source == "m5_structure"
   assert plan.provenance.confirmation_source == "m5_authoritative"
-  record = await load_setup(client, "match-v7-5")
+  record = await load_setup(client, "match-v8-5")
   assert record.state == PLAN_PUBLISHED

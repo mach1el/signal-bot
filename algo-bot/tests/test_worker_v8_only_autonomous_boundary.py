@@ -1,7 +1,7 @@
 """Proves the autonomous cycle never re-acquires a V6 publish call site.
 
-Per docs/adr-trade-plan-v7-boundary.md Section (Legacy autonomous removal),
-TradePlan V7 is the sole autonomous order-creation path: worker.py's
+Per docs/adr-trade-plan-v8-cutover.md Section (Legacy autonomous removal),
+TradePlan V8 is the sole autonomous order-creation path: worker.py's
 autonomous per-bar entry point (_handle_event, which drives the
 scanner-routed, private M1 range, and trend intents) must never call
 _publish_strategy_match, _publish_candidate, or _publish_trend_candidate -
