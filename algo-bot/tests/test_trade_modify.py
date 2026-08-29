@@ -8,6 +8,7 @@ import pytest
 from app.persistence import redis_state, store
 from app.signals import manual_execution, trade_ops
 from app.signals.parsing import _parse_modify_body, _seq_token
+from tests.configuration.canonical_fixtures import install_runtime_overrides
 
 
 def test_seq_token_accepts_trailing_modify_body():
@@ -259,10 +260,10 @@ async def test_manual_cancelled_pending_modify_rearms_and_replaces(monkeypatch):
 
   publish = AsyncMock()
   replace = AsyncMock(return_value=[])
-  truth = AsyncMock()
+  ack = AsyncMock()
   monkeypatch.setattr("app.signals.manual_intent.publish_intent", publish)
   monkeypatch.setattr(trade_ops, "replace_entry_posts", replace)
-  monkeypatch.setattr(manual_execution, "_send_executor_truth", truth)
+  monkeypatch.setattr(manual_execution, "_send_owner_command_ack", ack)
 
   await manual_execution._handle_event(
     redis_state.get_client(),
@@ -279,8 +280,26 @@ async def test_manual_cancelled_pending_modify_rearms_and_replaces(monkeypatch):
   assert fresh["execution_status"] == "requested"
   publish.assert_awaited_once()
   replace.assert_awaited_once()
-  truth.assert_awaited_once()
-  assert "modified" in truth.await_args.args[0]
+  ack.assert_awaited_once()
+  assert "modified" in ack.await_args.args[0]
   assert await redis_state.get_client().get(
     f"manual_trade:pending_modify:{intent}",
   ) is None
+
+
+@pytest.mark.asyncio
+async def test_owner_command_ack_uses_apexvoid_bot_not_scanner(monkeypatch):
+  """Final /trade_delete|/trade_modify confirm must not DM Auto Algo."""
+  install_runtime_overrides(
+    monkeypatch, legacy_overrides={"telegram_owner_id": 424242},
+  )
+  owner = AsyncMock()
+  scanner = AsyncMock()
+  monkeypatch.setattr(manual_execution, "send_with_retry", owner)
+  monkeypatch.setattr(manual_execution, "send_scanner_with_retry", scanner)
+
+  await manual_execution._send_owner_command_ack("🗑 #9 deleted")
+
+  owner.assert_awaited_once()
+  assert owner.await_args.kwargs["chat_id"] == 424242
+  scanner.assert_not_awaited()
