@@ -236,9 +236,7 @@ def test_production_yaml_fx_live_executable_units():
   assert cfg.instruments.root["GBPJPY"].reaction_session == "tokyo_london"
   assert cfg.instruments.root["USDJPY"].reaction_session == "tokyo_london_ny"
   assert cfg.instruments.root["EURUSD"].overrides == {}
-  assert cfg.instruments.root["XAU"].overrides == {
-    "strategies.reaction.key_level.min_sell_zone_score": 10.0,
-  }
+  assert cfg.instruments.root["XAU"].overrides == {}
   # GBPJPY/USDJPY each keep exactly one escape-hatch override for a leaf no
   # pack composes: GBPJPY's event-cluster news guard, USDJPY's defended-
   # level guard. Neither duplicates anything the packs already expand.

@@ -15,3 +15,4 @@ Active docs: [../README.md](../README.md).
 | `algo-strategy-match-routing.md` | Superseded by ZoneWatch cutover docs |
 | `execution-pipeline-integrity.md` | Merged conceptually into autotrade integrity |
 | `auto-trade-logic-gaps-evidence.md` | PD asymmetry, causal breaks, confluence inversion (PR-B–H) |
+| `manual-formula-replay-key-level-floor-withdrawal.md` | Why XAU `min_sell_zone_score: 10` from PR #449 was withdrawn (PR-J) |
