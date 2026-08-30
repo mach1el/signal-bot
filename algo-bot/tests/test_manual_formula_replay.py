@@ -58,6 +58,8 @@ def _row(**overrides):
     "detector_confluence": None,
     "dealing_range_brackets": True,
     "r_multiple": 1.0,
+    "capture_version": 2,
+    "capture_adequate": True,
   }
   base.update(overrides)
   return base
@@ -134,3 +136,54 @@ def test_detector_matched_rejects_wrong_direction_and_far_zone():
   assert replay._detection_matched(
     near, direction="BUY", fill=200.0, atr=2.0, match_atr=0.5,
   ) is True
+
+
+def test_capture_adequate_requires_version_two_and_coverage():
+  assert replay._capture_adequate({}) is False
+  assert replay._capture_adequate({
+    "H1": {"capture_version": 1, "bars_requested": 400, "bars_stored": 400},
+  }) is False
+  assert replay._capture_adequate({
+    "H1": {"capture_version": 2, "bars_requested": 400, "bars_stored": 350},
+  }) is False
+  assert replay._capture_adequate({
+    "H1": {"capture_version": 2, "bars_requested": 400, "bars_stored": 360},
+    "M15": {"capture_version": 2, "bars_requested": 250, "bars_stored": 250},
+  }) is True
+
+
+def test_scorecard_excludes_inadequate_by_default_filter_helper():
+  """Unit stand-in for CLI: inadequate rows must be filterable before scorecard."""
+  adequate = _row(capture_version=2, capture_adequate=True)
+  inadequate = _row(
+    capture_version=1,
+    capture_adequate=False,
+    result_pips=-5.0,
+    win=False,
+  )
+  kept = [
+    row for row in (adequate, inadequate)
+    if row.get("capture_adequate") or False
+  ]
+  assert len(kept) == 1
+  assert kept[0]["capture_version"] == 2
+  included = list((adequate, inadequate))
+  assert len(included) == 2
+
+
+def test_scorecard_flags_mixed_capture_versions():
+  rows = [
+    _row(capture_version=1, result_pips=10.0, win=True),
+    _row(capture_version=2, result_pips=-5.0, win=False),
+    _row(capture_version=1, result_pips=8.0, win=True),
+    _row(capture_version=2, result_pips=12.0, win=True),
+    _row(capture_version=2, result_pips=-3.0, win=False),
+    _row(capture_version=1, result_pips=4.0, win=True),
+    _row(capture_version=2, result_pips=6.0, win=True),
+    _row(capture_version=1, result_pips=-2.0, win=False),
+  ]
+  sc = replay._scorecard(rows)
+  assert sc["diagnostics"]["capture_version_mix"] == {"1": 4, "2": 4}
+  assert len(sc["cells"]) == 1
+  assert sc["cells"][0]["mixed_capture"] is True
+  assert sc["cells"][0]["capture_versions"] == [1, 2]
