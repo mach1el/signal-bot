@@ -464,13 +464,13 @@ def test_key_level_require_explicit_role_skips_ambiguous():
   assert result is None
 
 
-def test_key_level_require_htf_alignment_skips_counter_bias():
+def test_key_level_require_htf_alignment_buy_only_preserves_sell_counter_bias():
   settings = detectors.DetectorSettings(
     confluence_floor=2,
     key_level_require_htf_alignment=True,
   )
   support = Level(105, "support", touches=3, strength=3)
-  # Support reacts BUY; HTF down is counter-bias → skip.
+  # Support reacts BUY; HTF down is counter-bias → skip BUY only.
   result = detectors.key_level_reaction(replace(
     _ctx(_buy_rejection_df(), bias="down", levels=[support]),
     settings=settings,
@@ -482,6 +482,39 @@ def test_key_level_require_htf_alignment_skips_counter_bias():
   ))
   assert aligned is not None
   assert aligned.direction == "BUY"
+
+  # Resistance SELL against HTF up must still publish (counter-bias stays).
+  resistance = Level(107, "resistance", touches=3, strength=3)
+  sell = detectors.key_level_reaction(replace(
+    _ctx(_sell_rejection_df(), bias="up", levels=[resistance]),
+    settings=settings,
+  ))
+  assert sell is not None
+  assert sell.direction == "SELL"
+  assert sell.bias_relationship == "counter_bias"
+
+
+def test_key_level_min_sell_zone_score_filters_weak_supply():
+  resistance = Level(107, "resistance", touches=3, strength=3)
+  weak = Zone(105, 109, "supply", source="supply_demand", score=5.0, touches=1)
+  strong = Zone(105, 109, "supply", source="supply_demand", score=12.0, touches=2)
+  settings = detectors.DetectorSettings(
+    confluence_floor=2,
+    key_level_min_sell_zone_score=10.0,
+  )
+  # Counter-bias SELL (HTF up) with weak nearest supply → skip.
+  assert detectors.key_level_reaction(replace(
+    _ctx(_sell_rejection_df(), bias="up", levels=[resistance], zones=[weak]),
+    settings=settings,
+  )) is None
+  # Same counter-bias path with strong supply → keep.
+  kept = detectors.key_level_reaction(replace(
+    _ctx(_sell_rejection_df(), bias="up", levels=[resistance], zones=[strong]),
+    settings=settings,
+  ))
+  assert kept is not None
+  assert kept.direction == "SELL"
+  assert kept.bias_relationship == "counter_bias"
 
 
 def test_accepted_resistance_break_is_not_key_level_reaction():

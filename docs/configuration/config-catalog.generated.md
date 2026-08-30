@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `324ea8a6af5fa10e3c772c6d3d51eae7f8df1a2943d1cbd210bca94d1ab22eaf`
-- Document fingerprint: `4c0d953b384f371569551b8c4c398a32893f34aeda51504d075ba0d63b515195`
-- Items: `545`
+- Contract fingerprint: `f3743d4cc3eb6b4937431197fcc3cd49485688aa9a83491c14cdf85123e71e5e`
+- Document fingerprint: `43a8e1c08567e91dd1d1872d00a0b6395e0a9d48a1984aafc4af8efcb400a806`
+- Items: `546`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -525,6 +525,7 @@
 | `strategies.reaction.enabled` | `AUTO_TRADE_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.key_level.enabled` | `AUTO_TRADE_KEY_LEVEL_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.key_level.min_grade` | `AUTO_TRADE_KEY_LEVEL_MIN_GRADE` | `str` | `enum` | `configurable` | `"B"` |
+| `strategies.reaction.key_level.min_sell_zone_score` | `AUTO_TRADE_KEY_LEVEL_MIN_SELL_ZONE_SCORE` | `float` | `score` | `configurable` | `0.0` |
 | `strategies.reaction.key_level.require_explicit_role` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_EXPLICIT_ROLE` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.reaction.key_level.require_htf_alignment` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_HTF_ALIGNMENT` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.reaction.key_level.require_killzone` | `AUTO_TRADE_KEY_LEVEL_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `false` |

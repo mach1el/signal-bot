@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `324ea8a6af5fa10e3c772c6d3d51eae7f8df1a2943d1cbd210bca94d1ab22eaf`
-- Environment-bound fields: `478`
+- Contract fingerprint: `f3743d4cc3eb6b4937431197fcc3cd49485688aa9a83491c14cdf85123e71e5e`
+- Environment-bound fields: `479`
 - Deprecated aliases: `64`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -74,6 +74,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_HTF_VETO_ENABLED` | `actionability.gates.htf_veto_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_INSIDE_ZONE_MARKET_ENTRY_ENABLED` | `execution.entry.inside_zone_market_entry_enabled` | `bool` | no | yes | — | `True` |
 | `AUTO_TRADE_KEY_LEVEL_MIN_GRADE` | `strategies.reaction.key_level.min_grade` | `str` | no | no | — | `B` |
+| `AUTO_TRADE_KEY_LEVEL_MIN_SELL_ZONE_SCORE` | `strategies.reaction.key_level.min_sell_zone_score` | `float` | no | no | — | `0.0` |
 | `AUTO_TRADE_KEY_LEVEL_REACTION_ENABLED` | `strategies.reaction.key_level.enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_KEY_LEVEL_REQUIRE_EXPLICIT_ROLE` | `strategies.reaction.key_level.require_explicit_role` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_KEY_LEVEL_REQUIRE_HTF_ALIGNMENT` | `strategies.reaction.key_level.require_htf_alignment` | `bool` | no | no | — | `False` |
