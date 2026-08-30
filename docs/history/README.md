@@ -16,3 +16,4 @@ Active docs: [../README.md](../README.md).
 | `execution-pipeline-integrity.md` | Merged conceptually into autotrade integrity |
 | `auto-trade-logic-gaps-evidence.md` | PD asymmetry, causal breaks, confluence inversion (PR-B–H) |
 | `manual-formula-replay-key-level-floor-withdrawal.md` | Why XAU `min_sell_zone_score: 10` from PR #449 was withdrawn (PR-J) |
+| `manual-algo-chart-capture-window.md` | Undersized chart lookbacks vs live scanner (PR-K) |
