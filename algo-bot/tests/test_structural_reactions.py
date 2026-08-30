@@ -464,26 +464,20 @@ def test_key_level_require_explicit_role_skips_ambiguous():
   assert result is None
 
 
-def test_key_level_require_htf_alignment_does_not_block_counter_bias():
-  """require_htf_alignment is a no-op — counter-bias BUY/SELL still publish."""
-  settings = detectors.DetectorSettings(
-    confluence_floor=2,
-    key_level_require_htf_alignment=True,
-  )
+def test_key_level_counter_bias_buy_and_sell_still_publish():
+  """Counter-bias stays live on both sides (no HTF veto on Key Level)."""
   support = Level(105, "support", touches=3, strength=3)
-  buy = detectors.key_level_reaction(replace(
+  buy = detectors.key_level_reaction(
     _ctx(_buy_rejection_df(), bias="down", levels=[support]),
-    settings=settings,
-  ))
+  )
   assert buy is not None
   assert buy.direction == "BUY"
   assert buy.bias_relationship == "counter_bias"
 
   resistance = Level(107, "resistance", touches=3, strength=3)
-  sell = detectors.key_level_reaction(replace(
+  sell = detectors.key_level_reaction(
     _ctx(_sell_rejection_df(), bias="up", levels=[resistance]),
-    settings=settings,
-  ))
+  )
   assert sell is not None
   assert sell.direction == "SELL"
   assert sell.bias_relationship == "counter_bias"
