@@ -237,7 +237,6 @@ def test_production_yaml_fx_live_executable_units():
   assert cfg.instruments.root["USDJPY"].reaction_session == "tokyo_london_ny"
   assert cfg.instruments.root["EURUSD"].overrides == {}
   assert cfg.instruments.root["XAU"].overrides == {
-    "strategies.reaction.key_level.require_htf_alignment": True,
     "strategies.reaction.key_level.min_sell_zone_score": 10.0,
   }
   # GBPJPY/USDJPY each keep exactly one escape-hatch override for a leaf no
@@ -248,7 +247,6 @@ def test_production_yaml_fx_live_executable_units():
     "analysis.levels.minimum_key_touches": 3,
     "strategies.reaction.key_level.require_explicit_role": True,
     "strategies.reaction.key_level.require_killzone": True,
-    "strategies.reaction.key_level.require_htf_alignment": True,
     "strategies.reaction.key_level.min_grade": "A",
   }
   assert set(cfg.instruments.root["USDJPY"].overrides) == {

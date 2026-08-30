@@ -4,7 +4,7 @@
 
 - Catalog version: `2`
 - Contract fingerprint: `f3743d4cc3eb6b4937431197fcc3cd49485688aa9a83491c14cdf85123e71e5e`
-- Document fingerprint: `43a8e1c08567e91dd1d1872d00a0b6395e0a9d48a1984aafc4af8efcb400a806`
+- Document fingerprint: `9a8b537f8d946adbfbe290c12e7b69216439fd84c2ff983593baed5f166c170b`
 - Items: `546`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
