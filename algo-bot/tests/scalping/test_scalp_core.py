@@ -1098,15 +1098,15 @@ def test_aggregate_report_expectancy():
   assert report["expectancy_r"] == pytest.approx(0.1)
 
 
-def test_hfs_stop_clamps_into_envelope_instead_of_dropping():
+def test_stop_pips_rejects_above_maximum_widens_below_minimum():
+  """Maximum is a reject; minimum is a widening floor — never a silent clamp."""
   from app.scalping.strategies import _stop_pips
 
   cfg = _cfg()
-  # Deep wick used to return None → silent discovered=0.
-  assert _stop_pips(structural=42.0, cfg=cfg) == 30.0
-  assert _stop_pips(structural=8.0, cfg=cfg) == 12.0
-  assert _stop_pips(structural=18.0, cfg=cfg) == 18.0
-  assert _stop_pips(structural=0.0, cfg=cfg) is None
+  assert _stop_pips(structural=42.0, cfg=cfg) == (None, "stop_exceeds_maximum")
+  assert _stop_pips(structural=8.0, cfg=cfg) == (12.0, None)
+  assert _stop_pips(structural=18.0, cfg=cfg) == (18.0, None)
+  assert _stop_pips(structural=0.0, cfg=cfg) == (None, "stop_not_positive")
 
 
 def test_scalp_target_prefers_1to2_falls_back_to_1to1():
@@ -1179,6 +1179,7 @@ def test_impulse_pullback_episode_id_survives_an_m5_context_rollover(monkeypatch
     "bar_ts": 1_780_003_600,
     "origin": 4270.0,
     "extreme": 4230.0,
+    "pullback_extreme": 4251.5,
     "retracement": 0.5,
     "preferred": True,
     "close": 4250.0,
@@ -1287,6 +1288,7 @@ def test_impulse_pullback_allows_sell_against_fresh_reclaim(monkeypatch):
     "bar_ts": 1_780_003_600,
     "origin": 4270.0,
     "extreme": 4230.0,
+    "pullback_extreme": 4251.5,
     "retracement": 0.5,
     "preferred": True,
     "close": 4250.0,
@@ -1341,6 +1343,7 @@ def test_impulse_pullback_discovers_sell_when_htf_bias_up(monkeypatch):
     "bar_ts": 1_780_003_600,
     "origin": 4270.0,
     "extreme": 4230.0,
+    "pullback_extreme": 4251.5,
     "retracement": 0.5,
     "preferred": True,
     "close": 4250.0,
@@ -1452,11 +1455,13 @@ def test_activation_allows_counter_bias_and_stamps_htf_bias():
 
 
 def test_range_sweep_allows_macro_displacement_against_direction(monkeypatch):
+  # Keep structural stop inside [12, 30] — this test is about macro-displacement
+  # not being a discovery veto, not about the stop envelope.
   sell_ev = {
     "pattern": "sweep_reclaim",
     "bar_ts": 1_780_003_600,
     "close": 4098.0,
-    "extreme": 4102.0,
+    "extreme": 4100.0,
   }
   monkeypatch.setattr(
     "app.scalping.strategies.detect_sweep_reclaim",
@@ -1509,6 +1514,7 @@ def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
     "bar_ts": 1_780_003_600,
     "origin": 4590.0,
     "extreme": 4600.0,
+    "pullback_extreme": 4593.5,
     "retracement": 0.5,
     "preferred": True,
     "close": 4595.0,
@@ -1594,3 +1600,521 @@ def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
 
   assert is_impulse_pullback_session_allowed("london", _cfg())
   assert not is_impulse_pullback_session_allowed("asia", _cfg())
+
+
+def _assert_scalp_stop_invariant(opp: ScalpOpportunity, *, pip_size: float = 0.1) -> None:
+  """Never delete: trigger/invalidation distance must equal expected_stop_pips."""
+  derived = abs(float(opp.trigger_price) - float(opp.invalidation_price)) / pip_size
+  assert derived == pytest.approx(float(opp.expected_stop_pips), abs=1e-6)
+  assert float(opp.expected_reward_risk) == pytest.approx(
+    float(opp.expected_target_pips) / float(opp.expected_stop_pips),
+    abs=1e-6,
+  )
+
+
+def test_detect_impulse_pullback_returns_pullback_extreme():
+  # Wide impulse leg (~80 pts), then a deeper local pullback (~40% retrace)
+  # so detection accepts and exposes pullback_extreme.
+  idx = pd.date_range("2026-07-01 10:00", periods=30, freq="1min", tz="UTC")
+  rows = []
+  price = 4000.0
+  for _ in range(18):
+    o, c = price, price + 4.0
+    rows.append({"open": o, "high": c + 0.3, "low": o - 0.2, "close": c, "volume": 1})
+    price = c
+  # Impulse extreme ~4072. Pull back toward 4040, then bullish continuation.
+  pullback_lows = [4065.0, 4055.0, 4045.0, 4040.0, 4042.0, 4048.0]
+  for i, low in enumerate(pullback_lows):
+    o = 4050.0 - i * 1.5
+    c = o - 2.0 if i < 4 else o + 3.0
+    rows.append({
+      "open": o,
+      "high": max(o, c) + 0.5,
+      "low": low,
+      "close": c,
+      "volume": 1,
+    })
+  # Final bullish continuation bar.
+  rows.append({
+    "open": 4046.0, "high": 4052.0, "low": 4045.0, "close": 4051.0, "volume": 1,
+  })
+  df = pd.DataFrame(rows, index=idx[: len(rows)])
+  result = detect_impulse_pullback(df, direction="BUY", min_retracement=0.25)
+  assert result is not None
+  assert not result.get("rejected"), result
+  assert "pullback_extreme" in result
+  origin = float(result["origin"])
+  extreme = float(result["extreme"])
+  pullback = float(result["pullback_extreme"])
+  assert origin <= pullback <= extreme
+  assert pullback > origin or pullback == origin
+  # Local pullback low is above the impulse origin on this fixture.
+  assert pullback >= 4040.0
+  assert "origin" in result  # origin kept for identity / telemetry
+
+
+def test_impulse_pullback_stop_uses_pullback_extreme_not_origin(monkeypatch):
+  from app.scalping.strategies import discover_impulse_pullback
+
+  # Origin is ~80 pips away; pullback extreme is local (~15 pips).
+  match = {
+    "pattern": "impulse_pullback",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "origin": 3980.0,
+    "extreme": 4060.0,
+    "pullback_extreme": 4048.5,
+    "retracement": 0.45,
+    "preferred": True,
+    "close": 4050.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: match if direction == "BUY" else None,
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-pb-extreme",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=3980.0,
+    dealing_range_high=4060.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=2.0,
+  )
+  flat = _drift_bars(direction="BUY", step=0.0, start=4050.0)
+  found = discover_impulse_pullback(
+    ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  opp = found[0]
+  _assert_scalp_stop_invariant(opp)
+  origin_stop_pips = (opp.trigger_price - (match["origin"] - 0.2)) / 0.1
+  assert opp.expected_stop_pips < origin_stop_pips * 0.5
+  assert abs(opp.invalidation_price - match["pullback_extreme"]) < 1.0
+
+
+def test_scalp_stop_invariant_holds_for_all_archetypes(monkeypatch):
+  from app.scalping.strategies import (
+    discover_breakout_retest,
+    discover_impulse_pullback,
+    discover_range_sweep,
+  )
+
+  pip = 0.1
+  idle: list[str] = []
+
+  # --- range_sweep BUY with structural ~18 pips (inside envelope) ---
+  buy_ev = {
+    "pattern": "sweep_reclaim",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "extreme": 3999.0,
+    "close": 4001.0,
+    "edge": 4000.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars=1: (
+      buy_ev if direction == "BUY" else None
+    ),
+  )
+  range_ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-inv-range",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=3990.0,
+    dealing_range_high=4100.0,
+    dealing_range_position=0.2,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=2.0,
+  )
+  flat = _drift_bars(direction="BUY", step=0.0, start=4000.0)
+  range_found = discover_range_sweep(
+    range_ctx, None, flat, _cfg(), pip_size=pip, now=1_780_003_600, idle_reasons=idle,
+  )
+  assert range_found
+  for opp in range_found:
+    _assert_scalp_stop_invariant(opp, pip_size=pip)
+
+  # --- impulse_pullback ---
+  pb = {
+    "pattern": "impulse_pullback",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "origin": 3980.0,
+    "extreme": 4020.0,
+    "pullback_extreme": 3998.5,
+    "retracement": 0.5,
+    "preferred": True,
+    "close": 4000.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: pb if direction == "BUY" else None,
+  )
+  pb_ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-inv-pb",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=3980.0,
+    dealing_range_high=4020.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=2.0,
+  )
+  pb_found = discover_impulse_pullback(
+    pb_ctx, None, flat, _cfg(), pip_size=pip, now=1_780_003_600, idle_reasons=idle,
+  )
+  assert pb_found
+  for opp in pb_found:
+    _assert_scalp_stop_invariant(opp, pip_size=pip)
+
+  # --- breakout_retest ---
+  monkeypatch.setattr(
+    "app.scalping.strategies.find_compression_box",
+    lambda *a, **k: {
+      "box_low": 3990.0,
+      "box_high": 4000.0,
+      "box_bars": 12,
+      "compression_atr": 0.5,
+      "touch_count": 4,
+    },
+  )
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_breakout_retest",
+    lambda df, *, direction, **kwargs: (
+      {
+        "pattern": "breakout_retest",
+        "direction": "BUY",
+        "bar_ts": 1_780_003_600,
+        "close": 4002.0,
+        "level": 4000.0,
+        "state": "armed",
+        "accepted_break": True,
+        "correct_key_level_role": True,
+        "retest_of_broken_level": True,
+        "retest_rejection": True,
+        "directionally_valid_close": True,
+        "break_displacement": 2.0,
+      }
+      if direction == "BUY"
+      else None
+    ),
+  )
+  # Last bar low near level so structural stop stays inside [12, 30].
+  m1 = flat.copy()
+  m1.iloc[-1, m1.columns.get_loc("low")] = 3999.5
+  m1.iloc[-1, m1.columns.get_loc("high")] = 4002.5
+  m1.iloc[-1, m1.columns.get_loc("close")] = 4002.0
+  bo_ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-inv-bo",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=3980.0,
+    dealing_range_high=4050.0,
+    dealing_range_position=0.5,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_BREAKOUT_RETEST,),
+    atr=2.0,
+  )
+  bo_found = discover_breakout_retest(
+    bo_ctx, None, m1, _cfg(), pip_size=pip, now=1_780_003_600, idle_reasons=idle,
+  )
+  assert bo_found
+  for opp in bo_found:
+    _assert_scalp_stop_invariant(opp, pip_size=pip)
+
+
+def test_structural_stop_above_maximum_rejects_with_idle_reason(monkeypatch):
+  from app.scalping.strategies import discover_range_sweep
+
+  buy_ev = {
+    "pattern": "sweep_reclaim",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "extreme": 3960.0,  # ~40+ pips below entry after buffer
+    "close": 4001.0,
+    "edge": 4000.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars=1: (
+      buy_ev if direction == "BUY" else None
+    ),
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-stop-max",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=3950.0,
+    dealing_range_high=4100.0,
+    dealing_range_position=0.2,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=2.0,
+  )
+  idle: list[str] = []
+  flat = _drift_bars(direction="BUY", step=0.0, start=4000.0)
+  found = discover_range_sweep(
+    ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600, idle_reasons=idle,
+  )
+  assert found == []
+  assert "range_sweep:stop_exceeds_maximum" in idle
+
+
+def test_structural_stop_below_minimum_widens_invalidation_outward(monkeypatch):
+  from app.scalping.strategies import discover_range_sweep
+
+  # BUY: extreme almost at entry → structural << minimum → floor to 12.
+  buy_ev = {
+    "pattern": "sweep_reclaim",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "extreme": 4000.5,
+    "close": 4001.0,
+    "edge": 4000.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars=1: (
+      buy_ev if direction == "BUY" else None
+    ),
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-stop-min-buy",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=3990.0,
+    dealing_range_high=4100.0,
+    dealing_range_position=0.2,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=2.0,
+  )
+  flat = _drift_bars(direction="BUY", step=0.0, start=4000.0)
+  found = discover_range_sweep(
+    ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  opp = found[0]
+  assert opp.expected_stop_pips == pytest.approx(12.0)
+  _assert_scalp_stop_invariant(opp)
+  buffer = max(0.2, ctx.atr * 0.05)
+  raw_stop_price = float(buy_ev["extreme"]) - buffer
+  # Widened invalidation is further below entry than the raw structural price.
+  assert opp.invalidation_price < raw_stop_price
+  assert opp.invalidation_price < opp.trigger_price
+
+  # SELL: same floor — invalidation moves further above entry.
+  sell_ev = {
+    "pattern": "sweep_reclaim",
+    "direction": "SELL",
+    "bar_ts": 1_780_003_600,
+    "extreme": 4099.5,
+    "close": 4099.0,
+    "edge": 4100.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars=1: (
+      sell_ev if direction == "SELL" else None
+    ),
+  )
+  sell_ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-stop-min-sell",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=4000.0,
+    dealing_range_high=4110.0,
+    dealing_range_position=0.9,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=2.0,
+  )
+  sell_found = discover_range_sweep(
+    sell_ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(sell_found) == 1
+  sell_opp = sell_found[0]
+  assert sell_opp.expected_stop_pips == pytest.approx(12.0)
+  _assert_scalp_stop_invariant(sell_opp)
+  sell_buffer = max(0.2, sell_ctx.atr * 0.05)
+  raw_sell_stop = float(sell_ev["extreme"]) + sell_buffer
+  assert sell_opp.invalidation_price > raw_sell_stop
+  assert sell_opp.invalidation_price > sell_opp.trigger_price
+
+
+def test_structural_stop_inside_envelope_leaves_fields_untouched(monkeypatch):
+  from app.scalping.strategies import discover_range_sweep
+
+  # atr=2 → buffer=0.1; extreme 3999 → stop_price=3998.9; structural=21.
+  buy_ev = {
+    "pattern": "sweep_reclaim",
+    "direction": "BUY",
+    "bar_ts": 1_780_003_600,
+    "extreme": 3999.0,
+    "close": 4001.0,
+    "edge": 4000.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars=1: (
+      buy_ev if direction == "BUY" else None
+    ),
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-stop-inside",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=3990.0,
+    dealing_range_high=4100.0,
+    dealing_range_position=0.2,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=2.0,
+  )
+  flat = _drift_bars(direction="BUY", step=0.0, start=4000.0)
+  found = discover_range_sweep(
+    ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  opp = found[0]
+  buffer = max(0.2, ctx.atr * 0.05)
+  raw_stop_price = float(buy_ev["extreme"]) - buffer
+  raw_pips = (float(buy_ev["close"]) - raw_stop_price) / 0.1
+  assert 12.0 < raw_pips < 30.0
+  assert opp.expected_stop_pips == pytest.approx(raw_pips)
+  assert opp.invalidation_price == pytest.approx(raw_stop_price)
+  _assert_scalp_stop_invariant(opp)
