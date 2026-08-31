@@ -1404,6 +1404,120 @@ async def test_ensure_plan_published_root_card_threads_tp_sl_close_replies(monke
   assert "🛰️" not in card["text"] and "🔐" not in card["text"]
 
 
+def test_apply_forming_card_targets_inserts_after_stop_on_scanner_body():
+  """Scanner SETUP FORMING omits Targets — publish must insert after Stop."""
+  original = "\n".join([
+    "🔎 <b>EURUSD M5 · SETUP FORMING</b>",
+    "🔴 <b>SELL · Trend Pullback</b> · ⭐⭐",
+    "",
+    "📍 <b>Trade area</b>",
+    "• <b>Price now:</b> <b>1.15978</b> <i>(live)</i>",
+    "• <b>Entry zone:</b> <b>1.15992–1.16001</b>",
+    "• <b>Key level:</b> <b>1.15992</b>",
+    "• <b>Stop:</b> <b>1.16092</b>",
+    "",
+    "🧭 <b>Context</b>",
+    "• <b>HTF bias:</b> up (M5)",
+  ])
+  targets = "• <b>Targets:</b> <b>TP1 1.15892 (+10)</b>"
+  text = setup_card.apply_forming_card_targets(original, targets)
+  lines = text.splitlines()
+  stop_i = next(i for i, line in enumerate(lines) if "Stop:" in line)
+  assert lines[stop_i + 1] == targets
+  assert text.count("Targets:") == 1
+
+
+def test_apply_forming_card_targets_replaces_existing_line():
+  original = "\n".join([
+    "📍 <b>Trade area</b>",
+    "• <b>Stop:</b> <b>1.16092</b>",
+    "• <b>Targets:</b> <b>+20 / +40 pips</b>",
+    "",
+    "🧭 <b>Context</b>",
+  ])
+  text = setup_card.apply_forming_card_targets(
+    original, "• <b>Targets:</b> <b>TP1 1.15892 (+10)</b>",
+  )
+  assert "TP1 1.15892 (+10)" in text
+  assert "+20 / +40 pips" not in text
+  assert text.count("Targets:") == 1
+
+
+@pytest.mark.asyncio
+async def test_ensure_plan_published_patches_targets_onto_scanner_card(monkeypatch):
+  """Existing scanner body matching strategy must gain Targets on publish."""
+  client = redis_state.get_client()
+  setup_id = "setup-fx-missing-targets"
+  await _confirmed_setup(client, setup_id)
+  from dataclasses import replace
+
+  match = replace(
+    _strategy_match_for_card(setup_id),
+    symbol="EURUSD",
+    strategy="Trend Pullback",
+    direction="SELL",
+    key_level=1.15992,
+    entry_low=1.15992,
+    entry_high=1.16001,
+    current_price=1.15978,
+    structure_swing=1.16092,
+    targets_pips=(10,),
+    structural_source="supply_demand",
+  )
+  original = "\n".join([
+    "🔎 <b>EURUSD M5 · SETUP FORMING</b>",
+    "​",
+    "🔴 <b>SELL · Trend Pullback</b> · ⭐⭐",
+    "🧱 <b>Structural source:</b> supply_demand",
+    "",
+    "📍 <b>Trade area</b>",
+    "• <b>Price now:</b> <b>1.15978</b> <i>(live)</i>",
+    "• <b>Entry zone:</b> <b>1.15992–1.16001</b>",
+    "• <b>Key level:</b> <b>1.15992</b>",
+    "• <b>Stop:</b> <b>1.16092</b>",
+    "",
+    "🧭 <b>Context</b>",
+  ])
+  await setup_card.save_forming_card(
+    client, setup_id, chat_id=123, message_id=555, text=original,
+  )
+  edited = []
+
+  async def send_fn(text, **kwargs):
+    raise AssertionError("should edit existing card")
+
+  async def edit_fn(chat_id, message_id, text):
+    edited.append(text)
+    await setup_card.save_forming_card(
+      client, setup_id, chat_id=chat_id, message_id=message_id, text=text,
+    )
+
+  async def fake_stop(_client, _match_id):
+    return 1.16092
+
+  async def fake_targets(_client, _match_id):
+    return (1.15892,)
+
+  monkeypatch.setattr(setup_card, "published_plan_stop_price", fake_stop)
+  monkeypatch.setattr(setup_card, "published_plan_target_prices", fake_targets)
+  monkeypatch.setattr(setup_card, "digits_for", lambda symbol: 5)
+  monkeypatch.setattr(setup_card, "pip_for", lambda symbol: 0.0001)
+
+  message_id = await setup_card.ensure_plan_published_root_card(
+    client,
+    match,
+    chat_id=123,
+    send_fn=send_fn,
+    edit_fn=edit_fn,
+  )
+  assert message_id == 555
+  card = await setup_card.load_forming_card(client, setup_id)
+  assert card is not None
+  assert "Targets" in card["text"]
+  assert "1.15892" in card["text"]
+  assert any("Targets" in text for text in edited)
+
+
 @pytest.mark.asyncio
 async def test_ensure_plan_published_root_card_edits_existing_status_only():
   client = redis_state.get_client()
@@ -1448,6 +1562,10 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
     "QUEUED" in text for _, _, text in edited
   )
   assert "PLAN PUBLISHED" not in card["text"]
+  # Match has targets_pips — publish must still surface a Targets line.
+  assert "Targets" in card["text"] or any(
+    "Targets" in text for _, _, text in edited
+  )
 
 
 @pytest.mark.asyncio
