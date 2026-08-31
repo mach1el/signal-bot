@@ -37,7 +37,7 @@ def _opp() -> ScalpOpportunity:
     trigger_type="sweep_reclaim",
     trigger_bar_ts=90,
     trigger_price=4002.0,
-    invalidation_price=3990.0,
+    invalidation_price=4000.5,
     expected_target_price=4025.0,
     expected_target_pips=25.0,
     expected_stop_pips=15.0,
@@ -90,12 +90,37 @@ def test_build_scalp_strategy_match_is_valid():
   assert match.direction == "BUY"
   assert match.full_take_profit_pips == 25
   assert match.targets_pips == (15, 25)
-  # Clamped to expected_stop_pips=15 from trigger 4002 (not raw invalidation 3990).
+  # invalidation_price is the source of truth for structure_swing.
   assert match.structure_swing == pytest.approx(4000.5)
+  assert match.structure_swing == pytest.approx(_opp().invalidation_price)
   assert match.family == "scalp"
   assert match.strategy_mode == "scalp_m1"
   assert _identity_ok(match)
   assert _valid_match(match)
+
+
+def test_build_scalp_strategy_match_sell_uses_invalidation_exactly():
+  from dataclasses import replace
+
+  opp = replace(
+    _opp(),
+    direction="SELL",
+    trigger_price=4050.0,
+    invalidation_price=4051.5,
+    expected_stop_pips=15.0,
+    expected_target_pips=30.0,
+    expected_target_price=4047.0,
+    expected_reward_risk=2.0,
+    zone_low=4048.0,
+    zone_high=4052.0,
+    key_level=4050.0,
+  )
+  match = build_scalp_strategy_match(
+    opp, _ctx(), bar_ts=120, quote_bid=4049.0, quote_ask=4050.0,
+  )
+  assert match.direction == "SELL"
+  assert match.structure_swing == pytest.approx(opp.invalidation_price)
+  assert match.structure_swing == pytest.approx(4051.5)
 
 
 def test_build_scalp_1to2_publishes_half_at_one_r():
@@ -135,7 +160,7 @@ def test_build_scalp_fx_publishes_single_two_r_target():
     zone_high=1.1605,
     key_level=1.1602,
     trigger_price=1.1602,
-    invalidation_price=1.1585,
+    invalidation_price=1.1587,
   )
   ctx = replace(_ctx(), symbol="EURUSD")
   match = build_scalp_strategy_match(
