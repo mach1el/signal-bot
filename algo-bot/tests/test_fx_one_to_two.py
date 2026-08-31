@@ -244,7 +244,7 @@ def test_hfs_fixed_rr_prefers_two_r_then_falls_back_to_one_r():
   # Room fits 1R (15) but not preferred 2R (30): FX takes exactly 1R.
   gold = _select_target(
     direction="BUY",
-    entry=1.16,
+    worst_fill=1.16,
     room_pips=18,
     stop_pips=15,
     min_net=10,
@@ -254,7 +254,7 @@ def test_hfs_fixed_rr_prefers_two_r_then_falls_back_to_one_r():
   )
   fx = _select_target(
     direction="BUY",
-    entry=1.16,
+    worst_fill=1.16,
     room_pips=18,
     stop_pips=15,
     min_net=10,
@@ -272,7 +272,7 @@ def test_hfs_fixed_rr_takes_two_r_when_room_fits():
   cfg = _load_production_example().config
   target = _select_target(
     direction="SELL",
-    entry=216.0,
+    worst_fill=216.0,
     room_pips=40,
     stop_pips=15,
     min_net=10,
