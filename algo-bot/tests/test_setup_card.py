@@ -214,6 +214,27 @@ def test_waiting_fill_header_stays_intact_on_terminal_status():
   assert "WAITING FILL" in text.splitlines()[0]
 
 
+def test_waiting_fill_gets_plan_expired_status_line():
+  """Unfilled expire paints PLAN EXPIRED under the WAITING FILL header."""
+  waiting = "\n".join([
+    "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
+    "⏳ <b>IN ZONE</b> · waiting market fill",
+    "🔴 <b>SELL · Impulse Pullback Scalp</b>",
+    "• <b>Price now:</b> <b>4,334.10</b> <i>(live)</i>",
+  ])
+  text = setup_card.apply_forming_card_status(
+    waiting, "⌛ <b>PLAN EXPIRED</b>",
+  )
+  lines = text.splitlines()
+  assert lines[0] == "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>"
+  assert lines[1] == "⌛ <b>PLAN EXPIRED</b>"
+  assert setup_card.should_stop_forming_price_track(text) is True
+  assert setup_card._infer_status_state("⌛ <b>PLAN EXPIRED</b>") == "plan_expired"
+  assert setup_card.CARD_STATUS_PRIORITY["plan_expired"] > (
+    setup_card.CARD_STATUS_PRIORITY["plan_published"]
+  )
+
+
 def test_activated_header_stays_intact_on_terminal_status():
   """Close must not paint TERMINAL on the autotrade root card."""
   activated = "\n".join([

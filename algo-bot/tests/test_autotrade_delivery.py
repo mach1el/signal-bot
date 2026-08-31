@@ -313,17 +313,27 @@ async def test_order_filled_rewrites_waiting_fill_root(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
-async def test_plan_expired_leaves_waiting_fill_root_intact(monkeypatch):
+async def test_plan_expired_marks_waiting_fill_root(monkeypatch):
+  """Unfilled expire must leave PLAN EXPIRED on the root — not WAITING FILL forever."""
   client = redis_state.get_client()
   match_id = "11c1d02cexpired"
   await _confirmed_setup(client, match_id)
   await setup_card.save_forming_card(
     client, match_id, chat_id=123, message_id=4583, text=_waiting_fill_card_text(),
   )
+  # Published plans store a durable PLAN PUBLISHED status; expire must outrank it.
+  await setup_card.save_forming_card_status(
+    client,
+    match_id,
+    "🟢 <b>PLAN PUBLISHED</b> · TradePlan V8 sent to executor",
+    state="plan_published",
+  )
   await client.sadd(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
   sent = []
+  edited = []
 
   async def fake_edit(chat_id, message_id, text):
+    edited.append(text)
     return None
 
   async def fake_delete(chat_id, message_id):
@@ -354,9 +364,10 @@ async def test_plan_expired_leaves_waiting_fill_root_intact(monkeypatch):
   assert sent == []
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
-  assert "WAITING FILL" in card["text"]
+  assert "PLAN EXPIRED" in card["text"]
   assert "TERMINAL" not in card["text"]
   assert "(live)" not in card["text"]
+  assert any("PLAN EXPIRED" in text for text in edited)
   assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
 
 
