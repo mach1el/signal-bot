@@ -242,3 +242,144 @@ async def test_startup_backfill_recovers_retained_algo_results(monkeypatch):
   )
   recovered = await store.get_pips_records(0, 1_000)
   assert [row["pips"] for row in recovered] == [90, 60]
+
+
+@pytest.mark.asyncio
+async def test_close_before_fill_still_records_trade_stats():
+  """Live race: position_closed can beat order_filled in the stream."""
+  await store.init_db()
+  gid = "v8:close-before-fill"
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 20,
+    "position_id": 99101,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "symbol": "XAU",
+    "setup": "Key Level Reaction",
+    "stream": "algo_auto",
+    "price": 4045.0,
+    "entry_price": 4050.0,
+    "stop_loss": 4045.0,
+    "message": "PLAN CLOSED · no TP archived · losing -50 pips · @ 4045.00",
+    "group_realized_pips": -50,
+  })
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 10,
+    "position_id": 99101,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4050.0,
+    "stop_loss": 4045.0,
+    "volume": 800,
+  })
+  rows = await store.get_pips_records(0, 10**12)
+  hit = [row for row in rows if row["trade_key"] == f"algo:{gid}"]
+  assert len(hit) == 1
+  assert hit[0]["sign"] == "-"
+  assert hit[0]["pips"] == 50
+
+
+@pytest.mark.asyncio
+async def test_plan_runtime_reconcile_recovers_unknown_leg_close_orphan():
+  await store.init_db()
+  gid = "v8:runtime-orphan"
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 100,
+    "position_id": 99102,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "HFS Range Sweep",
+    "symbol": "XAU",
+    "price": 4642.018,
+    "stop_loss": 4640.67,
+    "volume": 1500,
+  })
+  assert not any(
+    row["trade_key"] == f"algo:{gid}"
+    for row in await store.get_pips_records(0, 10**12)
+  )
+  runtime = {
+    "PlanId": gid,
+    "Symbol": "XAU",
+    "Direction": "BUY",
+    "Stage": "Closed",
+    "GroupStage": "closed",
+    "PositionId": 99102,
+    "EntryFillPrice": 4642.018,
+    "GroupWeightedFillPrice": 4642.018,
+    "RemainingVolume": 0,
+    "CurrentStop": 4640.67,
+    "HighestBookedTargetIndex": -1,
+    "TerminalReason": "unknown_leg_close",
+    "Legs": [
+      {"LegId": "L1", "BrokerPositionId": 99102, "Stage": "closed", "RemainingVolume": 0},
+    ],
+  }
+  wrote = await store.reconcile_orphan_auto_trade_result(gid, runtime, closed_at=200)
+  assert wrote is True
+  rows = await store.get_pips_records(0, 10**12)
+  hit = [row for row in rows if row["trade_key"] == f"algo:{gid}"]
+  assert len(hit) == 1
+  assert hit[0]["sign"] == "-"
+  assert hit[0]["pips"] == 13
+
+
+@pytest.mark.asyncio
+async def test_backfill_dumper_two_pass_and_bytes_payload(monkeypatch):
+  await store.init_db()
+  from app.scripts import backfill_auto_trade_stats as dumper
+
+  stream = "auto_trade:test_dumper_stats"
+  install_runtime_overrides(
+    monkeypatch, legacy_overrides={"auto_trade_event_stream": stream},
+  )
+  client = redis_state.get_client()
+  await client.delete(stream)
+  fill = {
+    "type": "order_filled",
+    "timestamp": 10,
+    "position_id": 99103,
+    "group_id": "v8:dumper-two-pass",
+    "candidate_id": "v8:dumper-two-pass",
+    "stream": "algo_auto",
+    "symbol": "XAU",
+    "setup": "Key Level Reaction",
+    "direction": "SELL",
+    "price": 4050.0,
+    "stop_loss": 4055.0,
+    "volume": 800,
+  }
+  closed = {
+    "type": "position_closed",
+    "timestamp": 20,
+    "position_id": 99103,
+    "group_id": "v8:dumper-two-pass",
+    "candidate_id": "v8:dumper-two-pass",
+    "stream": "algo_auto",
+    "symbol": "XAU",
+    "direction": "SELL",
+    "price": 4045.0,
+    "target_pips": 50,
+    "message": "PLAN CLOSED · highest TP archived TP1",
+  }
+  # Close inserted before fill in Redis; dumper must still fill-then-close.
+  await client.xadd(stream, {b"payload": json.dumps(closed).encode()})
+  await client.xadd(stream, {b"payload": json.dumps(fill).encode()})
+
+  stats = await dumper.backfill(
+    count=None, stream=stream, runtime_reconcile=False,
+  )
+  assert stats["fill_events"] == 1
+  assert stats["result_events"] == 1
+  rows = await store.get_pips_records(0, 1_000)
+  hit = [row for row in rows if row["trade_key"] == "algo:v8:dumper-two-pass"]
+  assert len(hit) == 1
+  assert hit[0]["pips"] == 50
