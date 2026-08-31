@@ -124,27 +124,43 @@ def test_configured_m1_body_close_is_authoritative_confirmation():
   assert non_reaction.reason_code == "momentum_continuation"
 
 
-def test_hfs_confirmation_allows_same_cycle_publish():
-  hfs = confirmation_policy_for(
+def test_m1_scalp_confirmation_allows_same_cycle_publish():
+  policy = confirmation_policy_for(
+    replace(
+      _match(),
+      strategy="Impulse Pullback Scalp",
+      family="scalp",
+      strategy_mode="scalp_m1",
+      structural_source="scalp",
+      structural_zone_id="scalp-ep-1",
+      reaction_type="impulse_pullback",
+      touch_bar_ts="1785942720",
+      confirmation_bar_ts="1785942720",
+    ),
+  )
+  assert policy.reaction_family is False
+  assert policy.metadata_valid is True
+  assert policy.allow_same_cycle_publish is True
+  assert policy.require_quote_inside_zone is True
+  assert policy.reason_code == "m1_scalp_authoritative"
+
+  legacy = confirmation_policy_for(
     replace(
       _match(),
       strategy="HFS Impulse Pullback",
       family="hfs",
       strategy_mode="hfs_scalp",
       structural_source="scalp",
-      structural_zone_id="hfs-ep-1",
+      structural_zone_id="legacy-ep-1",
       reaction_type="impulse_pullback",
       touch_bar_ts="1785942720",
       confirmation_bar_ts="1785942720",
     ),
   )
-  assert hfs.reaction_family is False
-  assert hfs.metadata_valid is True
-  assert hfs.allow_same_cycle_publish is True
-  assert hfs.require_quote_inside_zone is True
-  assert hfs.reason_code == "hfs_authoritative"
+  assert legacy.allow_same_cycle_publish is True
+  assert legacy.reason_code == "m1_scalp_authoritative"
 
-  # Without HFS policy, family=hfs used to fall through to
+  # Without M1 scalp policy, family=scalp used to fall through to
   # non_reaction_m1_required and never publish same-cycle.
   legacyish = confirmation_policy_for(
     replace(

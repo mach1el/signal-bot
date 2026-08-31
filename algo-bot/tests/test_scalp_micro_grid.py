@@ -46,7 +46,7 @@ def test_hfs_route_is_single_leg_market_not_micro_grid():
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
+    strategy="Range Sweep Scalp",
     strategy_family="hfs",
   )
   assert plan.valid is True
@@ -84,7 +84,7 @@ def test_xau_hfs_auto_route_is_single_leg_market(
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
+    strategy="Range Sweep Scalp",
     strategy_family="hfs",
     entry_clips=xau.targeting.entry_clips,
   )
@@ -106,7 +106,7 @@ def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():
     zone_high=4567.86625,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
+    strategy="Range Sweep Scalp",
     strategy_family="hfs",
   )
   assert plan.valid is True
@@ -128,7 +128,7 @@ def test_hfs_chase_buy_books_full_market_not_micro_grid():
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Impulse Pullback",
+    strategy="Impulse Pullback Scalp",
     strategy_family="hfs",
   )
   assert plan.route == ROUTE_MARKET

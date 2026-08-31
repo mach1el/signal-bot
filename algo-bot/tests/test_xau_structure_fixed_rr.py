@@ -11,7 +11,7 @@ from app.core.instrument_geometry import (
 )
 from app.scalping.context import is_scalping_symbol
 from app.scalping.models import OPPORTUNITY_VERSION, ScalpOpportunity
-from app.scalping.publish import _hfs_target_ladder
+from app.scalping.publish import _scalp_target_ladder
 from tests.test_config_effective_instrument_context import _load_production_example
 from tests.test_execution_pipeline_integrity import _policy_match
 
@@ -119,6 +119,6 @@ def test_xau_scalp_publish_ladder_stays_one_r_two_r():
     reasons=("test",),
     expires_at=100,
   )
-  final_pips, ladder = _hfs_target_ladder(opp, _load_production_example().config)
+  final_pips, ladder = _scalp_target_ladder(opp, _load_production_example().config)
   assert final_pips == 40
   assert ladder == (20, 40)

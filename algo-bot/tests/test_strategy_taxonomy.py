@@ -104,15 +104,15 @@ def test_range_strategies_bypass_opposing_structure_gates():
   )
 
 
-def test_hfs_strategies_bypass_opposing_when_room_fits():
+def test_m1_scalp_strategies_bypass_opposing_when_room_fits():
   from app.autotrade.strategy_taxonomy import (
     CANONICAL_FAMILY_SCALP,
-    HFS_STRATEGIES,
+    M1_SCALP_STRATEGIES,
     is_m1_scalp_strategy,
     match_bypasses_opposing_structure,
   )
 
-  for name in HFS_STRATEGIES:
+  for name in M1_SCALP_STRATEGIES:
     assert is_m1_scalp_strategy(name)
     # M1 scalp always bypasses — map opposing must not silence the scalp loop.
     assert bypasses_opposing_structure_gates(name)
