@@ -383,3 +383,75 @@ async def test_backfill_dumper_two_pass_and_bytes_payload(monkeypatch):
   hit = [row for row in rows if row["trade_key"] == "algo:v8:dumper-two-pass"]
   assert len(hit) == 1
   assert hit[0]["pips"] == 50
+
+
+@pytest.mark.asyncio
+async def test_algo_manual_group_result_does_not_dilute_peak(sql):
+  """group_result blend must not overwrite legs_achieved peak in /trade_stats."""
+  await store.init_db()
+  signal = await store.store_manual_signal(
+    ts=1,
+    action="SELL",
+    entry=4436.0,
+    entry_end=4440.0,
+    sl=4445.0,
+    tps=[4431.0, 4426.0],
+    setup_type="breakout-retest",
+    execution_mode="algo",
+  )
+  sid = int(signal["id"])
+  gid = f"manual:{sid}"
+  await sql.exec(
+    "UPDATE manual_signals SET trade_stream='algo_manual', "
+    "execution_intent_id=$2, legs=$3, result_pips=50, status='closed' "
+    "WHERE id=$1",
+    sid,
+    f"manual:{sid}:0",
+    json.dumps([
+      {"frac": 0.25, "pips": 47, "ts": 10},
+      {"frac": 1.0, "pips": 50, "ts": 20},
+    ]),
+  )
+  await store.record_auto_trade_event({
+    "type": "manual_opened",
+    "timestamp": 5,
+    "position_id": 88001,
+    "group_id": gid,
+    "candidate_id": f"manual:{sid}:0",
+    "stream": "algo_manual",
+    "symbol": "XAU",
+    "setup": "breakout-retest",
+    "direction": "SELL",
+    "price": 4436.02,
+    "stop_loss": 4445.0,
+    "volume": 800,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 15,
+    "position_id": 88001,
+    "group_id": gid,
+    "stream": "algo_manual",
+    "symbol": "XAU",
+    "direction": "SELL",
+    "price": 4431.0,
+    "group_realized_pips": 50,
+    "message": "position closed · winning 50.0 pips",
+  })
+  await store.record_auto_trade_event({
+    "type": "group_result",
+    "timestamp": 20,
+    "group_id": gid,
+    "stream": "algo_manual",
+    "group_realized_pips": 0.6,
+    "message": f"group {gid} realised 0.6 pips",
+  })
+  rows = await store.get_pips_records(0, 10**12)
+  algo = [row for row in rows if row["stream"] == "algo_manual" and row["trade_key"] == gid]
+  assert len(algo) == 1
+  assert algo[0]["pips"] == 50
+  assert algo[0]["sign"] == "+"
+  stored = await sql.val(
+    "SELECT result_pips FROM auto_trade_results WHERE group_id=$1", gid,
+  )
+  assert float(stored) == 50.0
