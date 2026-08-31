@@ -7,7 +7,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.autotrade.entry_activation import evaluate_entry_activation
-from app.autotrade.execution_confirmation import scalp_zone_access
+from app.autotrade.execution_confirmation import (
+  ZONE_ACCESS_MOMENTUM_CHASE,
+  ZONE_ACCESS_RETEST_ONLY,
+  scalp_zone_access,
+)
 from app.analysis.entry_location import EntryLocationDecision
 from app.autotrade.zone_execution_cutover import _scalp_access
 from app.autotrade.zone_watch import ZoneWatch
@@ -31,6 +35,72 @@ def test_sell_scalp_chase_within_budget_past_zone_low():
   assert access.status == "chase"
   assert access.executable is True
   assert access.chase_pips == pytest.approx(10.0)
+
+
+def test_breakout_retest_sell_below_zone_waits_not_chases():
+  """Live 2026-08-31 XAU: SELL retest must not market below the retest band."""
+  access = scalp_zone_access(
+    "SELL",
+    bid=4429.62,
+    ask=4429.72,
+    zone_low=4430.76,
+    zone_high=4433.36,
+    tolerance=0.0,
+    pip_size=0.1,
+    maximum_chase_pips=40.0,
+    zone_access_mode=ZONE_ACCESS_RETEST_ONLY,
+  )
+  assert access.status == "approach_wait"
+  assert access.executable is False
+  assert access.chase_pips == pytest.approx(11.4, abs=0.05)
+
+
+def test_breakout_retest_sell_inside_zone_executable():
+  access = scalp_zone_access(
+    "SELL",
+    bid=4431.0,
+    ask=4431.1,
+    zone_low=4430.76,
+    zone_high=4433.36,
+    tolerance=0.0,
+    pip_size=0.1,
+    maximum_chase_pips=40.0,
+    zone_access_mode=ZONE_ACCESS_RETEST_ONLY,
+  )
+  assert access.status == "inside"
+  assert access.executable is True
+
+
+def test_breakout_retest_buy_above_zone_waits_not_chases():
+  access = scalp_zone_access(
+    "BUY",
+    bid=4103.0,
+    ask=4103.1,
+    zone_low=4100.0,
+    zone_high=4102.0,
+    tolerance=0.0,
+    pip_size=0.1,
+    maximum_chase_pips=100.0,
+    zone_access_mode=ZONE_ACCESS_RETEST_ONLY,
+  )
+  assert access.status == "approach_wait"
+  assert access.executable is False
+
+
+def test_momentum_chase_mode_unchanged_for_range_sweep():
+  access = scalp_zone_access(
+    "SELL",
+    bid=4099.0,
+    ask=4099.1,
+    zone_low=4100.0,
+    zone_high=4102.0,
+    tolerance=0.0,
+    pip_size=0.1,
+    maximum_chase_pips=100.0,
+    zone_access_mode=ZONE_ACCESS_MOMENTUM_CHASE,
+  )
+  assert access.status == "chase"
+  assert access.executable is True
 
 
 def test_sell_scalp_approach_above_zone_still_waits():

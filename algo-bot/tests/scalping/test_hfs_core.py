@@ -25,6 +25,7 @@ from app.scalping.microstructure import (
   macro_momentum_direction,
 )
 from app.scalping.models import (
+  ARCHETYPE_BREAKOUT_RETEST,
   ARCHETYPE_IMPULSE_PULLBACK,
   ARCHETYPE_RANGE_SWEEP,
   ARMED,
@@ -898,6 +899,86 @@ def test_activation_chases_momentum_within_chase_budget():
   )
   assert missed.allowed is False
   assert missed.reason_code == "scalp_missed_chase"
+
+
+def test_activation_breakout_retest_waits_below_sell_zone():
+  """Breakout retest SELL must not chase when quote is below the retest band."""
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="c",
+    symbol="XAU",
+    created_at=100,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=100,
+    htf_bias="range",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=4400.0,
+    dealing_range_high=4450.0,
+    dealing_range_position=0.5,
+    active_range_low=4410.0,
+    active_range_high=4440.0,
+    active_range_eq=4425.0,
+    nearest_support_low=4410.0,
+    nearest_support_high=4412.0,
+    nearest_resistance_low=4438.0,
+    nearest_resistance_high=4440.0,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_BREAKOUT_RETEST,),
+    atr=4.0,
+  )
+  opp = ScalpOpportunity(
+    version=OPPORTUNITY_VERSION,
+    opportunity_id="br-o",
+    context_id="c",
+    symbol="XAU",
+    archetype=ARCHETYPE_BREAKOUT_RETEST,
+    direction="SELL",
+    discovered_at=100,
+    source_bar_ts=100,
+    zone_low=4430.76,
+    zone_high=4433.36,
+    key_level=4432.06,
+    trigger_type="breakout_retest",
+    trigger_bar_ts=90,
+    trigger_price=4431.0,
+    invalidation_price=4434.0,
+    expected_target_price=4425.96,
+    expected_target_pips=74,
+    expected_stop_pips=8,
+    expected_reward_risk=9.25,
+    location_position=0.5,
+    score=1.0,
+    reasons=("micro_breakout_retest",),
+    expires_at=200,
+    measured={
+      "breakout_evidence": {
+        "accepted_break": True,
+        "correct_key_level_role": True,
+        "retest_of_broken_level": True,
+        "retest_rejection": True,
+        "directionally_valid_close": True,
+        "target_room_beyond_breakout": True,
+      },
+    },
+  )
+  decision = evaluate_scalp_activation(
+    opp,
+    ctx,
+    quote_bid=4429.62,
+    quote_ask=4429.72,
+    quote_ts=100,
+    now=100,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert decision.allowed is False
+  assert decision.hard_block is False
+  assert decision.reason_code == "quote_outside_zone"
+  assert decision.measured.get("zone_access_mode") == "retest_only"
 
 
 def test_activation_allows_one_to_one_room_when_min_net_fits():
