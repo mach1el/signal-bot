@@ -1,4 +1,4 @@
-"""Tests for HFS live StrategyMatch + publish bridge."""
+"""Tests for M1 scalp live StrategyMatch + publish bridge."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.scalping.models import (
   ScalpContextSnapshot,
   ScalpOpportunity,
 )
-from app.scalping.publish import build_hfs_strategy_match, publish_hfs_live
+from app.scalping.publish import build_scalp_strategy_match, publish_scalp_live
 from app.autotrade.strategy_match import _identity_ok, _valid_match
 
 
@@ -80,12 +80,12 @@ def _ctx() -> ScalpContextSnapshot:
   )
 
 
-def test_build_hfs_strategy_match_is_valid():
-  match = build_hfs_strategy_match(
+def test_build_scalp_strategy_match_is_valid():
+  match = build_scalp_strategy_match(
     _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   assert match.strategy == "Range Sweep Scalp"
-  assert match.structural_source == "hfs"
+  assert match.structural_source == "scalp"
   assert match.structural_kind == "demand"
   assert match.direction == "BUY"
   assert match.full_take_profit_pips == 25
@@ -98,7 +98,7 @@ def test_build_hfs_strategy_match_is_valid():
   assert _valid_match(match)
 
 
-def test_build_hfs_1to2_publishes_half_at_one_r():
+def test_build_scalp_1to2_publishes_half_at_one_r():
   # Owner 2026-08-11: 1:2 books half at 1R and half at 2R; final TP stays 2R.
   opp = _opp()
   # Rebuild with exact 1:2 geometry (stop 15 → target 30).
@@ -110,7 +110,7 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
     expected_stop_pips=15.0,
     expected_reward_risk=2.0,
   )
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   assert match.targets_pips == (15, 30)
@@ -118,7 +118,7 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
   assert _valid_match(match)
 
 
-def test_build_hfs_fx_publishes_single_two_r_target():
+def test_build_scalp_fx_publishes_single_two_r_target():
   from dataclasses import replace
   from tests.test_config_effective_instrument_context import (
     _load_production_example,
@@ -138,7 +138,7 @@ def test_build_hfs_fx_publishes_single_two_r_target():
     invalidation_price=1.1585,
   )
   ctx = replace(_ctx(), symbol="EURUSD")
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     opp,
     ctx,
     bar_ts=120,
@@ -146,12 +146,12 @@ def test_build_hfs_fx_publishes_single_two_r_target():
     quote_ask=1.1602,
     cfg=_load_production_example().config,
   )
-  assert match.targets_pips == (30,)
+  assert match.targets_pips == (15, 30)
   assert match.full_take_profit_pips == 30
   assert _valid_match(match)
 
 
-def test_build_hfs_1to1_stays_single_full_exit():
+def test_build_scalp_1to1_stays_single_full_exit():
   from dataclasses import replace
   opp = replace(
     _opp(),
@@ -160,7 +160,7 @@ def test_build_hfs_1to1_stays_single_full_exit():
     expected_stop_pips=15.0,
     expected_reward_risk=1.0,
   )
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   # Discovery stop=15 / target=15 → single 1R exit; plan books 100% there.
@@ -169,7 +169,7 @@ def test_build_hfs_1to1_stays_single_full_exit():
   assert _valid_match(match)
 
 
-def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
+def test_build_scalp_1to2_trade_plan_moves_sl_to_be_after_tp1():
   """1:2 scalp: half at 1R, then BE protects the 2R runner."""
   from dataclasses import replace
   from decimal import Decimal
@@ -183,7 +183,7 @@ def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
     expected_stop_pips=15.0,
     expected_reward_risk=2.0,
   )
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   assert match.targets_pips == (15, 30)
@@ -205,7 +205,7 @@ def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
   assert plan.management.be_after_target_id == "TP1"
 
 
-def test_build_hfs_1to1_trade_plan_books_full_volume():
+def test_build_scalp_1to1_trade_plan_books_full_volume():
   """1:1 scalp must not leave a runner — close_ratio on the sole TP is 1.0."""
   from dataclasses import replace
   from decimal import Decimal
@@ -222,7 +222,7 @@ def test_build_hfs_1to1_trade_plan_books_full_volume():
     expected_stop_pips=15.0,
     expected_reward_risk=1.0,
   )
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   assert match.targets_pips == (15,)
@@ -246,15 +246,15 @@ def test_build_hfs_1to1_trade_plan_books_full_volume():
   assert plan.management.be_after_target_id is None
 
 
-def test_build_hfs_strategy_match_carries_execution_eligibility():
-  # Regression: strategy_mode="hfs_scalp" routes through the generic
+def test_build_scalp_strategy_match_carries_execution_eligibility():
+  # Regression: strategy_mode="scalp_m1" routes through the generic
   # source="scanner_strategy_match" intent branch in worker.py (only
   # "mapped_zone_reaction" is exempt), and that branch hard-rejects any
   # match whose execution_eligibility is None as static_eligibility_missing.
   # HFS never runs the classic scanner.py detection path that normally
   # populates it, so every HFS opportunity died here unconditionally --
   # 34 of 55 live HFS publishes in production on 2026-08-06.
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   assert match.execution_eligibility is not None
@@ -270,7 +270,7 @@ def _patch_common(monkeypatch, pub, *, status, thesis_id="thesis-1"):
     AsyncMock(return_value=("setup-1", thesis_id)),
   )
   persist = AsyncMock(side_effect=lambda _client, stamped: stamped)
-  monkeypatch.setattr(pub, "_persist_hfs_match", persist)
+  monkeypatch.setattr(pub, "_persist_scalp_match", persist)
   publish = AsyncMock(return_value=worker.PublishResult(
     status=status,
     plan_id="v8:setup-1",
@@ -292,17 +292,17 @@ def _patch_common(monkeypatch, pub, *, status, thesis_id="thesis-1"):
 
 
 @pytest.mark.asyncio
-async def test_publish_hfs_live_calls_worker(monkeypatch):
+async def test_publish_scalp_live_calls_worker(monkeypatch):
   from app.scalping import publish as pub
 
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   persist, publish = _patch_common(
     monkeypatch, pub, status=worker.PUBLISH_STATUS_PUBLISHED,
   )
 
-  result = await publish_hfs_live(
+  result = await publish_scalp_live(
     object(), match, symbol="XAU", bar_ts=120,
   )
   assert result is not None
@@ -314,10 +314,10 @@ async def test_publish_hfs_live_calls_worker(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_persist_hfs_match_writes_worker_keys():
-  from app.scalping.publish import _persist_hfs_match
+async def test_persist_scalp_match_writes_worker_keys():
+  from app.scalping.publish import _persist_scalp_match
 
-  match = build_hfs_strategy_match(
+  match = build_scalp_strategy_match(
     _opp(), _ctx(), bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
   )
   stored: dict[str, str] = {}
@@ -329,7 +329,7 @@ async def test_persist_hfs_match_writes_worker_keys():
     async def set(self, key, value, ex=None):
       stored[key] = value
 
-  out = await _persist_hfs_match(FakeRedis(), match)
+  out = await _persist_scalp_match(FakeRedis(), match)
   assert out.match_id == match.match_id
   assert "auto_trade:strategy_match:XAU" in stored or any(
     "strategy_match" in k for k in stored

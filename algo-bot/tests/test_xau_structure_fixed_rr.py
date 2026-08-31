@@ -11,7 +11,7 @@ from app.core.instrument_geometry import (
 )
 from app.scalping.context import is_scalping_symbol
 from app.scalping.models import OPPORTUNITY_VERSION, ScalpOpportunity
-from app.scalping.publish import _hfs_target_ladder
+from app.scalping.publish import _scalp_target_ladder
 from tests.test_config_effective_instrument_context import _load_production_example
 from tests.test_execution_pipeline_integrity import _policy_match
 
@@ -25,10 +25,10 @@ def test_technique_fixed_rr_targeting_skips_m1_scalp():
   key = technique_fixed_rr_targeting("XAU", "Key Level Reaction", cfg)
   assert key is not None
   assert float(key.reward_risk) == 2.0
-  assert technique_fixed_rr_targeting("XAU", "HFS Impulse Pullback", cfg) is None
+  assert technique_fixed_rr_targeting("XAU", "Impulse Pullback Scalp", cfg) is None
   assert technique_fixed_rr_targeting("XAU", "Impulse Pullback Scalp", cfg) is None
   assert technique_fixed_rr_targeting("EURUSD", "Key Level Reaction", cfg) is not None
-  assert technique_fixed_rr_targeting("EURUSD", "HFS Range Sweep", cfg) is None
+  assert technique_fixed_rr_targeting("EURUSD", "Range Sweep Scalp", cfg) is None
 
 
 def test_xau_still_hosts_m1_scalping_with_technique_fixed_rr():
@@ -73,7 +73,7 @@ def test_xau_key_level_expands_fixed_rr_targets_from_stop():
 def test_xau_scalp_match_does_not_expand_technique_fixed_rr_ladder():
   cfg = _load_production_example().config
   match = _policy_match(
-    strategy="HFS Impulse Pullback",
+    strategy="Impulse Pullback Scalp",
     family="scalp",
     strategy_mode="scalp_m1",
     symbol="XAU",
@@ -119,6 +119,6 @@ def test_xau_scalp_publish_ladder_stays_one_r_two_r():
     reasons=("test",),
     expires_at=100,
   )
-  final_pips, ladder = _hfs_target_ladder(opp, _load_production_example().config)
+  final_pips, ladder = _scalp_target_ladder(opp, _load_production_example().config)
   assert final_pips == 40
   assert ladder == (20, 40)

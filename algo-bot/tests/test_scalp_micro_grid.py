@@ -46,8 +46,8 @@ def test_hfs_route_is_single_leg_market_not_micro_grid():
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
-    strategy_family="hfs",
+    strategy="Range Sweep Scalp",
+    strategy_family="scalp",
   )
   assert plan.valid is True
   assert plan.route == ROUTE_MARKET
@@ -84,8 +84,8 @@ def test_xau_hfs_auto_route_is_single_leg_market(
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
-    strategy_family="hfs",
+    strategy="Range Sweep Scalp",
+    strategy_family="scalp",
     entry_clips=xau.targeting.entry_clips,
   )
 
@@ -106,8 +106,8 @@ def test_hfs_chase_sell_books_full_market_not_five_legs_into_abandoned_zone():
     zone_high=4567.86625,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Range Sweep",
-    strategy_family="hfs",
+    strategy="Range Sweep Scalp",
+    strategy_family="scalp",
   )
   assert plan.valid is True
   assert plan.route == ROUTE_MARKET
@@ -128,8 +128,8 @@ def test_hfs_chase_buy_books_full_market_not_micro_grid():
     zone_high=4005.0,
     atr=4.0,
     zone_fill_enabled=True,
-    strategy="HFS Impulse Pullback",
-    strategy_family="hfs",
+    strategy="Impulse Pullback Scalp",
+    strategy_family="scalp",
   )
   assert plan.route == ROUTE_MARKET
   assert plan.entry_geometry == "above"
@@ -172,3 +172,23 @@ def test_key_level_reaction_is_not_forced_onto_scalp_grid():
   )
   assert plan.route == "market"
   assert plan.planned_leg_entry_prices == ()
+
+
+def test_breakout_retest_outside_zone_uses_market_watch_not_immediate():
+  plan = resolve_execution_route_plan(
+    direction="SELL",
+    order_type_preference="market",
+    entry_distribution="single",
+    executable_quote=4429.62,
+    zone_low=4430.76,
+    zone_high=4433.36,
+    atr=4.0,
+    zone_fill_enabled=True,
+    strategy="Breakout Retest Scalp",
+    strategy_family="scalp",
+  )
+  assert plan.valid is True
+  assert plan.route == ROUTE_MARKET
+  assert plan.entry_geometry == "below"
+  assert plan.immediate_market is False
+  assert "market_watch" in plan.routing_reason

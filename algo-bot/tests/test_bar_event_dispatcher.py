@@ -149,7 +149,7 @@ async def test_dispatch_runs_isolated_handlers(monkeypatch):
     source=source,
   )
 
-  assert ran == ["zone_watch", "hfs", "scanner", "worker"]
+  assert ran == ["zone_watch", "scalp", "scanner", "worker"]
   scanner.assert_awaited_once()
   worker.assert_awaited_once()
   zone.assert_awaited_once()
@@ -186,7 +186,7 @@ async def test_dispatch_keeps_later_handlers_if_scanner_raises(monkeypatch):
     source=SimpleNamespace(),
   )
 
-  assert ran == ["zone_watch", "hfs", "worker"]
+  assert ran == ["zone_watch", "scalp", "worker"]
   worker.assert_awaited_once()
   hfs.assert_awaited_once()
   zone.assert_awaited_once()
@@ -214,7 +214,7 @@ async def test_m5_bar_skips_zone_watch(monkeypatch):
     source=SimpleNamespace(),
   )
 
-  assert ran == ["hfs", "scanner", "worker"]
+  assert ran == ["scalp", "scanner", "worker"]
   zone.assert_not_awaited()
 
 
@@ -228,7 +228,7 @@ async def test_dispatch_m1_skips_htf_prefetch_and_clears_cache(monkeypatch):
     order.append("zone_watch")
 
   async def hfs(*args, **kwargs):
-    order.append("hfs")
+    order.append("scalp")
 
   source = SimpleNamespace(
     begin_closed_bar_cache=lambda: order.append("begin"),
@@ -251,7 +251,7 @@ async def test_dispatch_m1_skips_htf_prefetch_and_clears_cache(monkeypatch):
   )
 
   prefetch.assert_not_awaited()
-  assert order[:3] == ["begin", "zone_watch", "hfs"]
+  assert order[:3] == ["begin", "zone_watch", "scalp"]
   assert order[-1] == "end"
 
 
@@ -265,7 +265,7 @@ async def test_dispatch_m5_prefetches_before_hfs(monkeypatch):
     assert kwargs.get("closed_tf") == "M5"
 
   async def hfs(*args, **kwargs):
-    order.append("hfs")
+    order.append("scalp")
 
   source = SimpleNamespace(
     begin_closed_bar_cache=lambda: order.append("begin"),
@@ -287,5 +287,5 @@ async def test_dispatch_m5_prefetches_before_hfs(monkeypatch):
     source=source,
   )
 
-  assert order[:3] == ["begin", "prefetch", "hfs"]
+  assert order[:3] == ["begin", "prefetch", "scalp"]
   assert order[-1] == "end"

@@ -5,11 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from app.scalping.models import (
-  ARCHETYPE_RANGE_SWEEP,
-  STRATEGY_DISPLAY,
-  canonical_scalp_strategy_name,
-)
+from app.scalping.models import ARCHETYPE_RANGE_SWEEP, STRATEGY_DISPLAY
 from app.scalping.unified_context import (
   _m5_atr,
   build_scalp_context_and_micro,
@@ -19,9 +15,7 @@ from app.scalping.unified_context import (
 pytestmark = pytest.mark.no_database
 
 
-def test_canonical_scalp_strategy_name_maps_legacy_hfs():
-  assert canonical_scalp_strategy_name("HFS Range Sweep") == "Range Sweep Scalp"
-  assert canonical_scalp_strategy_name("Range Sweep Scalp") == "Range Sweep Scalp"
+def test_strategy_display_maps_range_sweep_archetype():
   assert STRATEGY_DISPLAY[ARCHETYPE_RANGE_SWEEP] == "Range Sweep Scalp"
 
 

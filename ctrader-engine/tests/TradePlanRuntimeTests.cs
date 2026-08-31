@@ -307,8 +307,8 @@ public sealed class TradePlanRuntimeTests
       "created_at": 1719999600,
       "expires_at": 2000000000,
       "analysis": {
-        "strategy": "HFS Range Sweep",
-        "strategy_family": "hfs",
+        "strategy": "Range Sweep Scalp",
+        "strategy_family": "scalp",
         "direction": "BUY",
         "context_timeframes": ["M1"],
         "formation_timeframe": "M1",
@@ -620,8 +620,8 @@ public sealed class TradePlanRuntimeTests
       planId: "v8:hfs-stack",
       thesisId: "thesis-hfs",
       setupId: "setup-hfs",
-      strategy: "HFS Range Sweep",
-      strategyFamily: "hfs"
+      strategy: "Range Sweep Scalp",
+      strategyFamily: "scalp"
     ));
     await runtime.PollAsync(
       client, Symbol, new SpotPrice("XAU", 4080.0m, 4080.2m, 2), CancellationToken.None
@@ -881,8 +881,8 @@ public sealed class TradePlanRuntimeTests
       zoneLow: 4629.134892857143m,
       zoneHigh: 4630.110214285714m,
       stopPrice: 4628.89m,
-      strategy: "HFS Range Sweep",
-      strategyFamily: "hfs",
+      strategy: "Range Sweep Scalp",
+      strategyFamily: "scalp",
       targetsJson: """
         [
           {"target_id":"TP1","type":"absolute","price":"4632.89","close_ratio":"0.5"},
@@ -939,8 +939,8 @@ public sealed class TradePlanRuntimeTests
       zoneLow: 4669.177214285714m,
       zoneHigh: 4670.411392857143m,
       stopPrice: 4671.29m,
-      strategy: "HFS Range Sweep",
-      strategyFamily: "hfs",
+      strategy: "Range Sweep Scalp",
+      strategyFamily: "scalp",
       targetsJson: """
         [
           {"target_id":"TP1","type":"absolute","price":"4667.29","close_ratio":"0.5"},
@@ -998,8 +998,8 @@ public sealed class TradePlanRuntimeTests
       zoneLow: 4669.18m,
       zoneHigh: 4670.41m,
       stopPrice: 4671.29m,
-      strategy: "HFS Range Sweep",
-      strategyFamily: "hfs",
+      strategy: "Range Sweep Scalp",
+      strategyFamily: "scalp",
       targetsJson: """
         [
           {"target_id":"TP1","type":"absolute","price":"4667.29","close_ratio":"0.5"},

@@ -26,7 +26,7 @@ from app.scalping.models import (
 
 pytestmark = pytest.mark.no_database
 
-_HFS_ALL = (
+_SCALP_ALL = (
   ARCHETYPE_RANGE_SWEEP,
   ARCHETYPE_IMPULSE_PULLBACK,
   ARCHETYPE_BREAKOUT_RETEST,
@@ -129,15 +129,15 @@ def test_hfs_permitted_archetypes_are_structure_not_clock():
     ("new_york", 17),
     ("rollover", 21),
   ):
-    assert permitted_archetypes_for_session(session, hour=hour, cfg=cfg) == _HFS_ALL
+    assert permitted_archetypes_for_session(session, hour=hour, cfg=cfg) == _SCALP_ALL
 
 
 def test_hfs_session_fallback_without_clock():
   cfg = _technique_cfg()
-  assert permitted_archetypes_for_session("asia", cfg=cfg) == _HFS_ALL
-  assert permitted_archetypes_for_session("london", cfg=cfg) == _HFS_ALL
-  assert permitted_archetypes_for_session("new_york", cfg=cfg) == _HFS_ALL
-  assert permitted_archetypes_for_session("rollover", cfg=cfg) == _HFS_ALL
+  assert permitted_archetypes_for_session("asia", cfg=cfg) == _SCALP_ALL
+  assert permitted_archetypes_for_session("london", cfg=cfg) == _SCALP_ALL
+  assert permitted_archetypes_for_session("new_york", cfg=cfg) == _SCALP_ALL
+  assert permitted_archetypes_for_session("rollover", cfg=cfg) == _SCALP_ALL
 
 
 def test_publish_choke_blocks_outside_killzone_with_frozen_hour():

@@ -262,7 +262,7 @@ def _waiting_fill_card_text() -> str:
   return "\n".join([
     "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
     "⏳ <b>IN ZONE</b> · waiting market fill",
-    "🔴 <b>SELL · HFS Impulse Pullback</b> · ⭐⭐",
+    "🔴 <b>SELL · Impulse Pullback Scalp</b> · ⭐⭐",
     "• <b>Price now:</b> <b>4,334.10</b> <i>(live)</i>",
   ])
 
