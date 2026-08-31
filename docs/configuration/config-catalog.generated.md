@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `c5f051078d32de03e63581cf4e71a80bb81c89f07032cc997c9d6d0aeb06bf4f`
-- Document fingerprint: `b15fbbe23174f022519c9da1c9f251724c6ca041d0c56e8b18aaf33c92ddbb4e`
-- Items: `546`
+- Contract fingerprint: `052e43e73ad9756b8b6a95db493ec846e0d6856dc218662f89e796c09a3159e7`
+- Document fingerprint: `1fd4d55e7f520ceed8108ed46e0617497a18faad36d41f6c26ff24d7a58c134d`
+- Items: `547`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -540,6 +540,7 @@
 | `strategies.scalp.scalp_post_impulse_range_enabled` | `SCALP_POST_IMPULSE_RANGE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalp.scalp_range_provisional_enabled` | `SCALP_RANGE_PROVISIONAL_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalping.activation.maximum_chase_pips` | `SCALPING_MAXIMUM_CHASE_PIPS` | `float` | `pips` | `configurable` | `40.0` |
+| `strategies.scalping.activation.maximum_chase_stop_fraction` | `SCALPING_MAXIMUM_CHASE_STOP_FRACTION` | `float` | `fraction` | `configurable` | `0.15` |
 | `strategies.scalping.activation.rearm_distance_atr` | `SCALPING_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.scalping.activation.trigger_maximum_age_bars` | `SCALPING_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.scalping.archetypes.breakout_retest_enabled` | `SCALPING_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |

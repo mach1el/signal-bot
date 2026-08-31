@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `c5f051078d32de03e63581cf4e71a80bb81c89f07032cc997c9d6d0aeb06bf4f`
-- Environment-bound fields: `479`
+- Contract fingerprint: `052e43e73ad9756b8b6a95db493ec846e0d6856dc218662f89e796c09a3159e7`
+- Environment-bound fields: `480`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -390,6 +390,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_M1_LOOKBACK_BARS` | `strategies.scalping.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `SCALPING_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.scalping.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
 | `SCALPING_MAXIMUM_CHASE_PIPS` | `strategies.scalping.activation.maximum_chase_pips` | `float` | no | no | — | `40.0` |
+| `SCALPING_MAXIMUM_CHASE_STOP_FRACTION` | `strategies.scalping.activation.maximum_chase_stop_fraction` | `float` | no | no | — | `0.15` |
 | `SCALPING_MAXIMUM_CONCURRENT_POSITIONS` | `strategies.scalping.risk.maximum_concurrent_positions` | `int` | no | no | — | `1` |
 | `SCALPING_MAXIMUM_CONSECUTIVE_LOSSES` | `strategies.scalping.risk.maximum_consecutive_losses` | `int` | no | no | — | `3` |
 | `SCALPING_MAXIMUM_DAILY_TRADES` | `strategies.scalping.risk.maximum_daily_trades` | `int` | no | no | — | `30` |

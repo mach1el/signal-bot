@@ -82,6 +82,7 @@ def _cfg(**overrides):
     activation=SimpleNamespace(
       trigger_maximum_age_bars=2,
       maximum_chase_pips=5.0,
+      maximum_chase_stop_fraction=0.15,
       rearm_distance_atr=0.25,
     ),
     target=SimpleNamespace(
@@ -923,6 +924,7 @@ def test_activation_chases_momentum_within_chase_budget():
   )
   cfg = _cfg()
   cfg.strategies.scalping.activation.maximum_chase_pips = 100.0
+  cfg.strategies.scalping.activation.maximum_chase_stop_fraction = 1.0
   # 10 pips above zone high — used to soft-wait forever; must chase.
   decision = evaluate_scalp_activation(
     opp,
@@ -949,7 +951,7 @@ def test_activation_chases_momentum_within_chase_budget():
     cfg=cfg,
   )
   assert missed.allowed is False
-  assert missed.reason_code == "scalp_missed_chase"
+  assert missed.reason_code == "entry_cancelled_chase"
 
 
 def test_activation_breakout_retest_waits_below_sell_zone():
@@ -1167,14 +1169,14 @@ def test_scalp_target_prefers_1to2_falls_back_to_1to1():
 
   # Room comfortably fits 2x stop -> 1:2 wins.
   buy_price, buy_pips = _select_target(
-    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=18.0,
+    direction="BUY", worst_fill=4000.0, room_pips=40.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   )
   assert buy_pips == pytest.approx(36.0)
   assert buy_price == pytest.approx(4003.6)
 
   sell_price, sell_pips = _select_target(
-    direction="SELL", entry=4000.0, room_pips=40.0, stop_pips=18.0,
+    direction="SELL", worst_fill=4000.0, room_pips=40.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   )
   assert sell_pips == pytest.approx(36.0)
@@ -1182,7 +1184,7 @@ def test_scalp_target_prefers_1to2_falls_back_to_1to1():
 
   # Room fits 1x stop but not 2x -> falls back to 1:1, not a trimmed 1:2.
   price, pips = _select_target(
-    direction="BUY", entry=4000.0, room_pips=20.0, stop_pips=18.0,
+    direction="BUY", worst_fill=4000.0, room_pips=20.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   )
   assert pips == pytest.approx(18.0)
@@ -1191,7 +1193,7 @@ def test_scalp_target_prefers_1to2_falls_back_to_1to1():
   # Stop below the minimum net target at 1:1 but 1:2 clears it -> 1:2 wins,
   # not the old "no opportunity" outcome from when only 1:1 existed.
   price, pips = _select_target(
-    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=10.0,
+    direction="BUY", worst_fill=4000.0, room_pips=40.0, stop_pips=10.0,
     min_net=15.0, pip_size=0.1,
   )
   assert pips == pytest.approx(20.0)
@@ -1199,12 +1201,12 @@ def test_scalp_target_prefers_1to2_falls_back_to_1to1():
   # Neither ratio fits the available room -> no opportunity, not a trimmed
   # target outside the {1:1, 1:2} pair.
   assert _select_target(
-    direction="BUY", entry=4000.0, room_pips=15.0, stop_pips=18.0,
+    direction="BUY", worst_fill=4000.0, room_pips=15.0, stop_pips=18.0,
     min_net=15.0, pip_size=0.1,
   ) is None
 
   assert _select_target(
-    direction="BUY", entry=4000.0, room_pips=40.0, stop_pips=None,
+    direction="BUY", worst_fill=4000.0, room_pips=40.0, stop_pips=None,
     min_net=15.0, pip_size=0.1,
   ) is None
 
@@ -1267,7 +1269,7 @@ def test_impulse_pullback_episode_id_survives_an_m5_context_rollover(monkeypatch
       sell_corridor_room_pips=200.0,
       session="london",
       permitted_archetypes=("impulse_pullback",),
-      atr=8.0,
+      atr=2.0,
     )
 
   # Same real-world opportunity, discovered on two different M5 bars (an
@@ -1374,7 +1376,7 @@ def test_impulse_pullback_allows_sell_against_fresh_reclaim(monkeypatch):
     sell_corridor_room_pips=200.0,
     session="london",
     permitted_archetypes=("impulse_pullback",),
-    atr=8.0,
+    atr=2.0,
   )
 
   reclaiming = _drift_bars(direction="BUY")
@@ -1428,7 +1430,7 @@ def test_impulse_pullback_discovers_sell_when_htf_bias_up(monkeypatch):
     sell_corridor_room_pips=200.0,
     session="london",
     permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
-    atr=8.0,
+    atr=2.0,
   )
   m1 = _drift_bars(direction="BUY", step=0.0)
   found = discover_impulse_pullback(
@@ -1512,7 +1514,9 @@ def test_range_sweep_allows_macro_displacement_against_direction(monkeypatch):
     "pattern": "sweep_reclaim",
     "bar_ts": 1_780_003_600,
     "close": 4098.0,
-    "extreme": 4100.0,
+    # stop_price = extreme + buffer must clear zone_high from worst fill
+    # without exceeding maximum_pips (30).
+    "extreme": 4101.1,
   }
   monkeypatch.setattr(
     "app.scalping.strategies.detect_sweep_reclaim",
@@ -1596,8 +1600,8 @@ def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
     nearest_support_high=None,
     nearest_resistance_low=None,
     nearest_resistance_high=None,
-    buy_corridor_room_pips=50.0,
-    sell_corridor_room_pips=50.0,
+    buy_corridor_room_pips=80.0,
+    sell_corridor_room_pips=80.0,
     permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
     atr=4.0,
   )
@@ -1654,8 +1658,13 @@ def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
 
 
 def _assert_scalp_stop_invariant(opp: ScalpOpportunity, *, pip_size: float = 0.1) -> None:
-  """Never delete: trigger/invalidation distance must equal expected_stop_pips."""
-  derived = abs(float(opp.trigger_price) - float(opp.invalidation_price)) / pip_size
+  """Never delete: worst-fill/invalidation distance must equal expected_stop_pips."""
+  from app.scalping.strategies import _worst_fill
+
+  worst = _worst_fill(
+    direction=opp.direction, zone_low=opp.zone_low, zone_high=opp.zone_high,
+  )
+  derived = abs(float(worst) - float(opp.invalidation_price)) / pip_size
   assert derived == pytest.approx(float(opp.expected_stop_pips), abs=1e-6)
   assert float(opp.expected_reward_risk) == pytest.approx(
     float(opp.expected_target_pips) / float(opp.expected_stop_pips),
@@ -2164,8 +2173,12 @@ def test_structural_stop_inside_envelope_leaves_fields_untouched(monkeypatch):
   opp = found[0]
   buffer = max(0.2, ctx.atr * 0.05)
   raw_stop_price = float(buy_ev["extreme"]) - buffer
-  raw_pips = (float(buy_ev["close"]) - raw_stop_price) / 0.1
+  zone_low = float(ctx.active_range_low) - buffer
+  zone_high = float(ctx.active_range_low) + buffer * 2
+  worst = zone_high  # BUY
+  raw_pips = (worst - raw_stop_price) / 0.1
   assert 12.0 < raw_pips < 30.0
   assert opp.expected_stop_pips == pytest.approx(raw_pips)
   assert opp.invalidation_price == pytest.approx(raw_stop_price)
+  assert opp.invalidation_price < zone_low
   _assert_scalp_stop_invariant(opp)
