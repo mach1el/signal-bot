@@ -1277,13 +1277,8 @@ def test_macro_momentum_direction_none_when_displacement_too_small():
   assert macro_momentum_direction(df, atr=8.0) is None
 
 
-def test_impulse_pullback_vetoes_sell_against_fresh_reclaim(monkeypatch):
-  # Regression, live 2026-08-06: an impulse_pullback SELL faded the "top"
-  # of a range whose own high was the pre-crash level -- price was
-  # mid-reclaim of a flash crash under an hour old, with the freshest,
-  # strongest momentum on the chart still running against the SELL.
-  # detect_impulse_pullback's own lookback (30 bars) never saw the move
-  # that made that level matter; this proves the wider veto now does.
+def test_impulse_pullback_allows_sell_against_fresh_reclaim(monkeypatch):
+  # Counter-bias and macro momentum are ranking signals, not discovery vetoes.
   from app.scalping.strategies import discover_impulse_pullback
 
   local_sell_match = {
@@ -1329,16 +1324,180 @@ def test_impulse_pullback_vetoes_sell_against_fresh_reclaim(monkeypatch):
     atr=8.0,
   )
 
-  # A wide BUY reclaim is still fresh -> the local SELL match is vetoed.
   reclaiming = _drift_bars(direction="BUY")
-  vetoed = discover_impulse_pullback(ctx, None, reclaiming, _cfg(), pip_size=0.1, now=1_780_003_600)
-  assert vetoed == []
+  found = discover_impulse_pullback(
+    ctx, None, reclaiming, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  assert found[0].direction == "SELL"
 
-  # No macro drift at all -> the same local match is allowed through.
-  flat = _drift_bars(direction="BUY", step=0.0)
-  allowed = discover_impulse_pullback(ctx, None, flat, _cfg(), pip_size=0.1, now=1_780_003_600)
-  assert len(allowed) == 1
-  assert allowed[0].direction == "SELL"
+
+def test_impulse_pullback_discovers_sell_when_htf_bias_up(monkeypatch):
+  from app.scalping.strategies import discover_impulse_pullback
+
+  match = {
+    "pattern": "impulse_pullback",
+    "direction": "SELL",
+    "bar_ts": 1_780_003_600,
+    "origin": 4270.0,
+    "extreme": 4230.0,
+    "retracement": 0.5,
+    "preferred": True,
+    "close": 4250.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_impulse_pullback",
+    lambda df, *, direction: match if direction == "SELL" else None,
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-up-bias",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=4230.0,
+    dealing_range_high=4274.0,
+    dealing_range_position=0.95,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=None,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=8.0,
+  )
+  m1 = _drift_bars(direction="BUY", step=0.0)
+  found = discover_impulse_pullback(
+    ctx, None, m1, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  assert found[0].direction == "SELL"
+
+
+def test_activation_allows_counter_bias_and_stamps_htf_bias():
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-counter",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="bullish",
+    regime="trend",
+    dealing_range_low=4230.0,
+    dealing_range_high=4274.0,
+    dealing_range_position=0.95,
+    active_range_low=None,
+    active_range_high=None,
+    active_range_eq=None,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=None,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_IMPULSE_PULLBACK,),
+    atr=8.0,
+  )
+  opp = ScalpOpportunity(
+    version=OPPORTUNITY_VERSION,
+    opportunity_id="opp-counter",
+    context_id=ctx.context_id,
+    symbol="XAU",
+    archetype=ARCHETYPE_IMPULSE_PULLBACK,
+    direction="SELL",
+    discovered_at=1_780_003_600,
+    source_bar_ts=1_780_003_600,
+    zone_low=4248.0,
+    zone_high=4252.0,
+    key_level=4250.0,
+    trigger_type="impulse_pullback",
+    trigger_bar_ts=1_780_003_590,
+    trigger_price=4250.0,
+    invalidation_price=4270.0,
+    expected_target_price=4230.0,
+    expected_target_pips=20.0,
+    expected_stop_pips=15.0,
+    expected_reward_risk=1.33,
+    location_position=0.95,
+    score=0.0,
+    reasons=("impulse_pullback",),
+    expires_at=1_780_004_500,
+  )
+  decision = evaluate_scalp_activation(
+    opp,
+    ctx,
+    quote_bid=4249.9,
+    quote_ask=4250.1,
+    quote_ts=1_780_003_600,
+    now=1_780_003_600,
+    pip_size=0.1,
+    cfg=_cfg(),
+  )
+  assert decision.allowed is True
+  assert decision.measured["htf_bias"] == "up"
+
+
+def test_range_sweep_allows_macro_displacement_against_direction(monkeypatch):
+  sell_ev = {
+    "pattern": "sweep_reclaim",
+    "bar_ts": 1_780_003_600,
+    "close": 4098.0,
+    "extreme": 4102.0,
+  }
+  monkeypatch.setattr(
+    "app.scalping.strategies.detect_sweep_reclaim",
+    lambda df, *, direction, edge_price, tolerance, lookback_bars: (
+      sell_ev if direction == "SELL" else None
+    ),
+  )
+  ctx = ScalpContextSnapshot(
+    version=CONTEXT_VERSION,
+    context_id="ctx-range-sweep",
+    symbol="XAU",
+    created_at=1_780_003_600,
+    h1_bar_ts=None,
+    m15_bar_ts=None,
+    m5_bar_ts=1_780_003_600,
+    htf_bias="up",
+    m5_structure="range",
+    regime="range",
+    dealing_range_low=4000.0,
+    dealing_range_high=4100.0,
+    dealing_range_position=0.95,
+    active_range_low=4000.0,
+    active_range_high=4100.0,
+    active_range_eq=4050.0,
+    nearest_support_low=None,
+    nearest_support_high=None,
+    nearest_resistance_low=None,
+    nearest_resistance_high=None,
+    buy_corridor_room_pips=50.0,
+    sell_corridor_room_pips=200.0,
+    session="london",
+    permitted_archetypes=(ARCHETYPE_RANGE_SWEEP,),
+    atr=8.0,
+  )
+  # Fresh BUY displacement >= 2.5 ATR would have vetoed the SELL sweep.
+  m1 = _drift_bars(direction="BUY", bars=60, step=0.7, start=4050.0)
+  found = discover_range_sweep(
+    ctx, None, m1, _cfg(), pip_size=0.1, now=1_780_003_600,
+  )
+  assert len(found) == 1
+  assert found[0].direction == "SELL"
 
 
 def test_impulse_pullback_hard_gates_outside_london_session(monkeypatch):
