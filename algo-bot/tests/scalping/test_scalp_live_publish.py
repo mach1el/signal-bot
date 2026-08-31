@@ -98,7 +98,7 @@ def test_build_scalp_strategy_match_is_valid():
   assert _valid_match(match)
 
 
-def test_build_hfs_1to2_publishes_half_at_one_r():
+def test_build_scalp_1to2_publishes_half_at_one_r():
   # Owner 2026-08-11: 1:2 books half at 1R and half at 2R; final TP stays 2R.
   opp = _opp()
   # Rebuild with exact 1:2 geometry (stop 15 → target 30).
@@ -118,7 +118,7 @@ def test_build_hfs_1to2_publishes_half_at_one_r():
   assert _valid_match(match)
 
 
-def test_build_hfs_fx_publishes_single_two_r_target():
+def test_build_scalp_fx_publishes_single_two_r_target():
   from dataclasses import replace
   from tests.test_config_effective_instrument_context import (
     _load_production_example,
@@ -151,7 +151,7 @@ def test_build_hfs_fx_publishes_single_two_r_target():
   assert _valid_match(match)
 
 
-def test_build_hfs_1to1_stays_single_full_exit():
+def test_build_scalp_1to1_stays_single_full_exit():
   from dataclasses import replace
   opp = replace(
     _opp(),
@@ -169,7 +169,7 @@ def test_build_hfs_1to1_stays_single_full_exit():
   assert _valid_match(match)
 
 
-def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
+def test_build_scalp_1to2_trade_plan_moves_sl_to_be_after_tp1():
   """1:2 scalp: half at 1R, then BE protects the 2R runner."""
   from dataclasses import replace
   from decimal import Decimal
@@ -205,7 +205,7 @@ def test_build_hfs_1to2_trade_plan_moves_sl_to_be_after_tp1():
   assert plan.management.be_after_target_id == "TP1"
 
 
-def test_build_hfs_1to1_trade_plan_books_full_volume():
+def test_build_scalp_1to1_trade_plan_books_full_volume():
   """1:1 scalp must not leave a runner — close_ratio on the sole TP is 1.0."""
   from dataclasses import replace
   from decimal import Decimal
@@ -247,7 +247,7 @@ def test_build_hfs_1to1_trade_plan_books_full_volume():
 
 
 def test_build_scalp_strategy_match_carries_execution_eligibility():
-  # Regression: strategy_mode="hfs_scalp" routes through the generic
+  # Regression: strategy_mode="scalp_m1" routes through the generic
   # source="scanner_strategy_match" intent branch in worker.py (only
   # "mapped_zone_reaction" is exempt), and that branch hard-rejects any
   # match whose execution_eligibility is None as static_eligibility_missing.

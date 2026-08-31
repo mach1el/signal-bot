@@ -20,8 +20,8 @@ def test_strategy_match_from_trade_plan_builds_card_fields():
     created_at=1_700_000_000,
     expires_at=1_700_000_600,
     analysis=SimpleNamespace(
-      strategy="HFS Impulse Pullback",
-      strategy_family="hfs",
+      strategy="Impulse Pullback Scalp",
+      strategy_family="scalp",
       direction="BUY",
       formation_timeframe="M1",
       confirmation_bar_ts=1_700_000_000,
@@ -46,7 +46,7 @@ def test_strategy_match_from_trade_plan_builds_card_fields():
   )
   match = strategy_match_from_trade_plan(plan)
   assert match.match_id == "abc123"
-  assert match.strategy == "HFS Impulse Pullback"
+  assert match.strategy == "Impulse Pullback Scalp"
   assert match.direction == "BUY"
   assert match.entry_low == pytest.approx(4405.1)
   assert match.entry_high == pytest.approx(4405.9)

@@ -118,25 +118,19 @@ def test_m1_scalp_strategies_bypass_opposing_when_room_fits():
     assert bypasses_opposing_structure_gates(name)
     assert bypasses_opposing_structure_gates(name, full_take_profit_pips=20)
     assert canonical_family(name) == CANONICAL_FAMILY_SCALP
-  assert is_m1_scalp_strategy("HFS Custom Archetype")
+  assert not is_m1_scalp_strategy("HFS Custom Archetype")
   assert bypasses_opposing_structure_gates(
     "Range Sweep Scalp",
     full_take_profit_pips=15,
     family="scalp",
     strategy_mode="scalp_m1",
   )
-  assert bypasses_opposing_structure_gates(
-    "HFS Range Sweep",
-    full_take_profit_pips=15,
-    family="hfs",
-    strategy_mode="hfs_scalp",
-  )
   # family/mode alone is enough for M1 scalp; range still needs fitted room.
   assert bypasses_opposing_structure_gates(
     "Unknown", family="scalp", strategy_mode="scalp_m1",
   )
-  assert bypasses_opposing_structure_gates(
-    "Unknown", family="hfs", strategy_mode="hfs_scalp",
+  assert not bypasses_opposing_structure_gates(
+    "Unknown", family="unknown", strategy_mode="range_scalp",
   )
   assert not bypasses_opposing_structure_gates(
     "Range Edge Scalp", family="range", strategy_mode="range_scalp",
@@ -149,18 +143,18 @@ def test_m1_scalp_strategies_bypass_opposing_when_room_fits():
   )
 
   class _Match:
-    strategy = "HFS Impulse Pullback"
+    strategy = "Impulse Pullback Scalp"
     full_take_profit_pips = 25
-    family = "hfs"
-    strategy_mode = "hfs_scalp"
+    family = "scalp"
+    strategy_mode = "scalp_m1"
 
   assert match_bypasses_opposing_structure(_Match())
   assert match_bypasses_opposing_structure(
     type("M", (), {
-      "strategy": "HFS Impulse Pullback",
+      "strategy": "Impulse Pullback Scalp",
       "full_take_profit_pips": None,
-      "family": "hfs",
-      "strategy_mode": "hfs_scalp",
+      "family": "scalp",
+      "strategy_mode": "scalp_m1",
     })(),
   )
 

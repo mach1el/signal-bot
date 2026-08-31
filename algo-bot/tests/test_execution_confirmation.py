@@ -147,9 +147,9 @@ def test_m1_scalp_confirmation_allows_same_cycle_publish():
   legacy = confirmation_policy_for(
     replace(
       _match(),
-      strategy="HFS Impulse Pullback",
-      family="hfs",
-      strategy_mode="hfs_scalp",
+      strategy="Impulse Pullback Scalp",
+      family="scalp",
+      strategy_mode="scalp_m1",
       structural_source="scalp",
       structural_zone_id="legacy-ep-1",
       reaction_type="impulse_pullback",

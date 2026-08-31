@@ -51,7 +51,7 @@ BASELINE = {
   "owners": {"python": 401, "shared": 96, "ctrader": 49},
   "projection": 497,
   "env": 479,
-  "deprecated_aliases": 64,
+  "deprecated_aliases": 21,
 }
 
 # Paths removed from the live catalog after the v1 parity snapshot was frozen.

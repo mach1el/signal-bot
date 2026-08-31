@@ -420,9 +420,9 @@ def test_reaction_room_stop_missing_tp_falls_back_to_legacy_envelope():
   assert trend.measured.get("stop_bounds_source") == "strategy_default"
 
 
-def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
-  """Dig 2026-08-25: HFS Range Sweep used reaction 40–60 because
-  uses_scalp_room_stop excluded HFS_STRATEGIES."""
+def test_scalp_stop_bounds_use_scalp_envelope_not_reaction_40_60():
+  """Dig 2026-08-25: Range Sweep Scalp used reaction 40–60 because
+  uses_scalp_room_stop excluded M1 scalp strategies."""
   from types import SimpleNamespace
 
   from app.autotrade.protective_stop import (
@@ -431,8 +431,8 @@ def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
     uses_scalp_room_stop,
   )
 
-  assert uses_scalp_room_stop("HFS Range Sweep") is True
-  assert uses_scalp_room_stop("HFS Breakout Retest") is True
+  assert uses_scalp_room_stop("Range Sweep Scalp") is True
+  assert uses_scalp_room_stop("Breakout Retest Scalp") is True
   assert uses_scalp_room_stop("Range Sweep Scalp") is True
   assert uses_scalp_room_stop("Breakout Retest Scalp") is True
   assert uses_scalp_room_stop("Key Level Reaction") is False
@@ -459,21 +459,21 @@ def test_hfs_stop_bounds_use_hfs_envelope_not_reaction_40_60():
     for_instrument=None,
   )
   assert stop_bounds_for_strategy(
-    strategy="HFS Range Sweep", pip_size=0.1, cfg=cfg,
+    strategy="Range Sweep Scalp", pip_size=0.1, cfg=cfg,
   ) == (12, 30)
   minimum, maximum, measured = stop_bounds_for_reaction_room(
-    strategy="HFS Range Sweep",
+    strategy="Range Sweep Scalp",
     primary_tp_pips=20,
     pip_size=0.1,
     cfg=cfg,
   )
-  # Single-leg pins min to 1:1 with primary TP; max stays HFS envelope
+  # Single-leg pins min to 1:1 with primary TP; max stays scalp envelope
   # (not reaction 40–60). Group path keeps the raw floor at 12.
   assert minimum == 20
   assert maximum == 30
-  assert measured["stop_bounds_source"] == "hfs_stop_envelope"
+  assert measured["stop_bounds_source"] == "scalp_stop_envelope"
   group_min, group_max, _ = stop_bounds_for_reaction_room(
-    strategy="HFS Range Sweep",
+    strategy="Range Sweep Scalp",
     primary_tp_pips=20,
     pip_size=0.1,
     cfg=cfg,

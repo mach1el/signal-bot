@@ -691,8 +691,8 @@ def _hfs_eligibility(match: StrategyMatch) -> ExecutionEligibility:
     version=EXECUTION_ELIGIBILITY_VERSION,
     allowed=True,
     state=STATIC_ELIGIBLE,
-    reason_code="hfs_scalp_eligible",
-    message="HFS scalp opportunity is executable by construction",
+    reason_code="scalp_m1_eligible",
+    message="M1 scalp opportunity is executable by construction",
     hard_block=False,
     direction=match.direction,
     entry_low=match.entry_low,
@@ -714,8 +714,8 @@ async def test_hfs_match_without_eligibility_is_admission_rejected(monkeypatch):
   match = _reaction_match(
     match_id="hfs-preflight-missing",
     thesis_id="hfs-preflight-missing-thesis",
-    strategy="HFS impulse_pullback",
-    strategy_mode="hfs_scalp",
+    strategy="Impulse Pullback Scalp",
+    strategy_mode="scalp_m1",
     execution_eligibility=None,
   )
   await _confirm_setup(client, match)
@@ -741,8 +741,8 @@ async def test_hfs_match_with_eligibility_is_admitted(monkeypatch):
   match = _reaction_match(
     match_id="hfs-preflight-eligible",
     thesis_id="hfs-preflight-eligible-thesis",
-    strategy="HFS impulse_pullback",
-    strategy_mode="hfs_scalp",
+    strategy="Impulse Pullback Scalp",
+    strategy_mode="scalp_m1",
   )
   match = replace(match, execution_eligibility=_hfs_eligibility(match))
   await _confirm_setup(client, match)
@@ -1152,16 +1152,16 @@ async def test_range_edge_scalp_publishes_inside_opposing_structure():
 
 
 @pytest.mark.asyncio
-async def test_hfs_scalp_publishes_inside_opposing_structure():
-  """HFS with fitted native room must ignore HTF opposing containment."""
+async def test_scalp_m1_publishes_inside_opposing_structure():
+  """M1 scalp with fitted native room must ignore HTF opposing containment."""
   client = redis_state.get_client()
   match = _match(
     match_id="match-v8-hfs-opposing",
     thesis_id="thesis-v8-hfs-opposing",
-    strategy="HFS Range Sweep",
-    strategy_mode="hfs_scalp",
+    strategy="Range Sweep Scalp",
+    strategy_mode="scalp_m1",
     direction="BUY",
-    family="hfs",
+    family="scalp",
     structural_source="scalp",
     structural_kind="demand",
     key_level=4089.0,

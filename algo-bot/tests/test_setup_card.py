@@ -104,7 +104,7 @@ async def test_concurrent_first_create_sends_only_one_telegram_root():
   waiting = "\n".join([
     "⚫ <b>XAU M1 · IN ZONE · WAITING FILL</b>",
     "⏳ <b>IN ZONE · waiting market fill</b>",
-    "🔴 <b>SELL</b> · HFS Impulse Pullback",
+    "🔴 <b>SELL</b> · Impulse Pullback Scalp",
   ])
   activated = setup_card.apply_forming_card_status(
     waiting,
@@ -204,7 +204,7 @@ def test_waiting_fill_header_stays_intact_on_terminal_status():
   waiting = "\n".join([
     "🔎 <b>XAU M1 · IN ZONE · WAITING FILL</b>",
     "⏳ <b>IN ZONE</b> · waiting market fill",
-    "🔴 <b>SELL · HFS Impulse Pullback</b>",
+    "🔴 <b>SELL · Impulse Pullback Scalp</b>",
   ])
   text = setup_card.apply_forming_card_status(
     waiting, "❌ <b>TERMINAL</b> · outside zone",
@@ -254,10 +254,10 @@ def test_event_recovery_root_card_is_activated_on_fill():
     "type": "order_filled",
     "symbol": "XAU",
     "message": "SELL 0.10 lots filled 4334.47",
-    "strategy": "HFS Impulse Pullback",
+    "strategy": "Impulse Pullback Scalp",
   })
   assert text.splitlines()[0] == "✅ <b>POSITION ACTIVATED · XAU M1</b>"
-  assert "SELL · HFS Impulse Pullback" in text
+  assert "SELL · Impulse Pullback Scalp" in text
 
 
 @pytest.mark.asyncio

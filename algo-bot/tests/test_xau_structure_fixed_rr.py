@@ -25,10 +25,10 @@ def test_technique_fixed_rr_targeting_skips_m1_scalp():
   key = technique_fixed_rr_targeting("XAU", "Key Level Reaction", cfg)
   assert key is not None
   assert float(key.reward_risk) == 2.0
-  assert technique_fixed_rr_targeting("XAU", "HFS Impulse Pullback", cfg) is None
+  assert technique_fixed_rr_targeting("XAU", "Impulse Pullback Scalp", cfg) is None
   assert technique_fixed_rr_targeting("XAU", "Impulse Pullback Scalp", cfg) is None
   assert technique_fixed_rr_targeting("EURUSD", "Key Level Reaction", cfg) is not None
-  assert technique_fixed_rr_targeting("EURUSD", "HFS Range Sweep", cfg) is None
+  assert technique_fixed_rr_targeting("EURUSD", "Range Sweep Scalp", cfg) is None
 
 
 def test_xau_still_hosts_m1_scalping_with_technique_fixed_rr():
@@ -73,7 +73,7 @@ def test_xau_key_level_expands_fixed_rr_targets_from_stop():
 def test_xau_scalp_match_does_not_expand_technique_fixed_rr_ladder():
   cfg = _load_production_example().config
   match = _policy_match(
-    strategy="HFS Impulse Pullback",
+    strategy="Impulse Pullback Scalp",
     family="scalp",
     strategy_mode="scalp_m1",
     symbol="XAU",
