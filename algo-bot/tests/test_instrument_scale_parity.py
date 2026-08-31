@@ -82,7 +82,7 @@ def test_target_selection_is_identical_in_pip_space(runtime_root, symbol, entry)
 
   selected = _select_target(
     direction="BUY",
-    entry=entry,
+    worst_fill=entry,
     room_pips=30.0,
     stop_pips=15.0,
     min_net=15.0,
