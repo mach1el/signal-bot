@@ -574,6 +574,57 @@ def test_risk_loss_streak_blocks_after_cooldown_until_reset():
   assert winning.consecutive_losses == 0
 
 
+def test_record_scalp_outcome_skips_accrual_without_stop():
+  from app.scalping.risk import ScalpRiskState, record_scalp_outcome
+
+  state = ScalpRiskState(daily_r=-1.0, session_r=-0.5, open_positions=1)
+  result = record_scalp_outcome(
+    state,
+    result_pips=-14.0,
+    stop_pips=None,
+    now=1_780_000_000,
+    closed=True,
+    group_id="v8:no-stop",
+  )
+  assert result.skipped_no_stop is True
+  assert result.accrued_r is None
+  assert result.state.daily_r == -1.0
+  assert result.state.session_r == -0.5
+  # Position bookkeeping still closes.
+  assert result.state.open_positions == 0
+
+
+def test_record_scalp_outcome_accrues_exact_pips_over_stop():
+  from app.scalping.risk import ScalpRiskState, record_scalp_outcome
+
+  result = record_scalp_outcome(
+    ScalpRiskState(),
+    result_pips=-14.0,
+    stop_pips=14.0,
+    now=1_780_000_000,
+    closed=True,
+  )
+  assert result.skipped_no_stop is False
+  assert result.accrued_r == pytest.approx(-1.0)
+  assert result.state.daily_r == pytest.approx(-1.0)
+  assert result.state.session_r == pytest.approx(-1.0)
+
+
+def test_record_scalp_outcome_never_uses_hardcoded_20_fallback():
+  from app.scalping.risk import ScalpRiskState, record_scalp_outcome
+
+  # Old behaviour: stop missing → divide by 20 → -14/20 = -0.7R.
+  result = record_scalp_outcome(
+    ScalpRiskState(daily_r=0.0, session_r=0.0),
+    result_pips=-14.0,
+    stop_pips=0.0,
+    now=1,
+    closed=True,
+  )
+  assert result.skipped_no_stop is True
+  assert result.state.daily_r == 0.0
+
+
 def test_daily_loss_limit_unsticks_at_trading_day_rollover():
   """Live 2026-08-13: daily_r sat at -3.75R from a loss on 2026-08-12,
   scalp_daily_loss_limit stayed tripped over 24h later because day_key was
