@@ -455,3 +455,130 @@ async def test_algo_manual_group_result_does_not_dilute_peak(sql):
     "SELECT result_pips FROM auto_trade_results WHERE group_id=$1", gid,
   )
   assert float(stored) == 50.0
+
+
+@pytest.mark.asyncio
+async def test_two_clip_fills_use_volume_weighted_stop_for_r_multiple():
+  """entry_clips=2 must not inflate R via AVG(stop_pips)."""
+  await store.init_db()
+  gid = "v8:two-clip-r"
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 100,
+    "position_id": 77001,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4000.0,
+    "stop_loss": 3995.0,
+    "volume": 400,
+  })
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 101,
+    "position_id": 77002,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "Key Level Reaction",
+    "symbol": "XAU",
+    "price": 4001.0,
+    "stop_loss": 3995.0,
+    "volume": 600,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 110,
+    "position_id": 77001,
+    "group_id": gid,
+    "candidate_id": gid,
+    "message": "PLAN CLOSED · highest TP archived TP2",
+    "target_pips": 100,
+    "group_realized_pips": 100,
+    "break_even_applied": True,
+    "highest_booked_target_index": 1,
+    "planned_reward_risk": 2.0,
+    "target_room_fallback_used": False,
+  })
+
+  rows = await store.get_pips_records(0, 10**12)
+  hit = [row for row in rows if row["trade_key"] == f"algo:{gid}"]
+  assert len(hit) == 1
+  # stop_pips: clip1=50, clip2=60 → VW = (50*400 + 60*600) / 1000 = 56
+  assert hit[0]["stop_pips"] == pytest.approx(56.0)
+  assert hit[0]["r_multiple"] == pytest.approx(100.0 / 56.0)
+  assert hit[0]["planned_reward_risk"] == pytest.approx(2.0)
+  assert hit[0]["target_room_fallback_used"] is False
+  assert hit[0]["exit_path"] == "tp2_full"
+
+
+@pytest.mark.asyncio
+async def test_exit_path_and_planned_reward_risk_round_trip():
+  await store.init_db()
+  gid = "v8:tp1-be-path"
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 200,
+    "position_id": 77011,
+    "group_id": gid,
+    "candidate_id": gid,
+    "direction": "BUY",
+    "setup": "Trend Pullback",
+    "symbol": "XAU",
+    "price": 4000.0,
+    "stop_loss": 3995.0,
+    "volume": 800,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 210,
+    "position_id": 77011,
+    "group_id": gid,
+    "message": "PLAN CLOSED · highest TP archived TP1 · break-even",
+    "target_pips": 50,
+    "break_even_applied": True,
+    "highest_booked_target_index": 0,
+    "planned_reward_risk": 2.0,
+    "target_room_fallback_used": False,
+  })
+  rows = await store.get_pips_records(0, 10**12)
+  hit = [row for row in rows if row["trade_key"] == f"algo:{gid}"]
+  assert len(hit) == 1
+  assert hit[0]["exit_path"] == "tp1_be"
+  assert hit[0]["planned_reward_risk"] == pytest.approx(2.0)
+  assert hit[0]["target_room_fallback_used"] is False
+
+  gid2 = "v8:one-r-fallback"
+  await store.record_auto_trade_event({
+    "type": "order_filled",
+    "timestamp": 300,
+    "position_id": 77021,
+    "group_id": gid2,
+    "candidate_id": gid2,
+    "direction": "BUY",
+    "setup": "Trend Pullback",
+    "symbol": "XAU",
+    "price": 4000.0,
+    "stop_loss": 3995.0,
+    "volume": 800,
+  })
+  await store.record_auto_trade_event({
+    "type": "position_closed",
+    "timestamp": 310,
+    "position_id": 77021,
+    "group_id": gid2,
+    "message": "PLAN CLOSED · highest TP archived TP1",
+    "target_pips": 50,
+    "planned_reward_risk": 1.0,
+    "target_room_fallback_used": True,
+    "highest_booked_target_index": 0,
+    "break_even_applied": False,
+  })
+  rows2 = await store.get_pips_records(0, 10**12)
+  hit2 = [row for row in rows2 if row["trade_key"] == f"algo:{gid2}"]
+  assert len(hit2) == 1
+  assert hit2[0]["exit_path"] == "tp1_stop"
+  assert hit2[0]["planned_reward_risk"] == pytest.approx(1.0)
+  assert hit2[0]["target_room_fallback_used"] is True

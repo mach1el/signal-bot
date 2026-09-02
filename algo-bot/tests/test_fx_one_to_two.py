@@ -23,8 +23,8 @@ from tests.test_config_effective_instrument_context import _load_production_exam
 
 pytestmark = pytest.mark.no_database
 
-_FX_TARGET_R_MULTIPLES = (1.0, 1.5, 2.0)
-_FX_CLOSE_RATIOS = (0.25, 0.25, 0.50)
+_FX_TARGET_R_MULTIPLES = (1.0, 2.0)
+_FX_CLOSE_RATIOS = (0.5, 0.5)
 
 
 def _targeting(reward_risk: float = 2.0) -> dict[str, object]:
@@ -36,8 +36,7 @@ def _targeting(reward_risk: float = 2.0) -> dict[str, object]:
     "reward_risk": reward_risk,
     "target_r_multiples": levels,
     "close_ratios": _FX_CLOSE_RATIOS,
-    "trail_after_r": 1.5 * reward_risk / 2.0,
-    "trail_to_r": 1.0 * reward_risk / 2.0,
+    "breakeven_after_r": 1.0 * reward_risk / 2.0,
     "entry_clips": 2,
   }
 
@@ -54,7 +53,7 @@ def test_fixed_rr_targeting_requires_ratio_and_matching_policy():
       mode="fixed_rr",
       reward_risk=2.0,
       target_r_multiples=_FX_TARGET_R_MULTIPLES,
-      close_ratios=(0.2, 0.2, 0.2),
+      close_ratios=(0.2, 0.2),
     )
   with pytest.raises(ValueError, match="must be set together"):
     InstrumentTargetingConfig(
@@ -63,6 +62,28 @@ def test_fixed_rr_targeting_requires_ratio_and_matching_policy():
       target_r_multiples=_FX_TARGET_R_MULTIPLES,
       close_ratios=_FX_CLOSE_RATIOS,
       trail_after_r=1.5,
+    )
+  with pytest.raises(
+    ValueError, match="breakeven_after_r and trail_after_r are mutually exclusive"
+  ):
+    InstrumentTargetingConfig(
+      mode="fixed_rr",
+      reward_risk=2.0,
+      target_r_multiples=_FX_TARGET_R_MULTIPLES,
+      close_ratios=_FX_CLOSE_RATIOS,
+      breakeven_after_r=1.0,
+      trail_after_r=1.5,
+      trail_to_r=1.0,
+    )
+  with pytest.raises(
+    ValueError, match="breakeven_after_r must equal one of target_r_multiples"
+  ):
+    InstrumentTargetingConfig(
+      mode="fixed_rr",
+      reward_risk=2.0,
+      target_r_multiples=_FX_TARGET_R_MULTIPLES,
+      close_ratios=_FX_CLOSE_RATIOS,
+      breakeven_after_r=1.5,
     )
   with pytest.raises(ValueError, match="fixed_rr targeting requires policy in"):
     InstrumentConfig(
@@ -74,8 +95,8 @@ def test_fixed_rr_targeting_requires_ratio_and_matching_policy():
     )
 
 
-def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
-  with pytest.raises(ValueError, match="targets 1R/1.5R/2R"):
+def test_fx_policy_is_locked_to_uniform_two_r_breakeven_contract():
+  with pytest.raises(ValueError, match="targeting.reward_risk must be 2.0"):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
@@ -83,7 +104,9 @@ def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
       policy=FX_FIXED_2R_V1_POLICY,
       targeting=_targeting(1.5),
     )
-  with pytest.raises(ValueError, match="targets 1R/1.5R/2R"):
+  with pytest.raises(
+    ValueError, match="targeting.target_r_multiples must be \\(1.0, 2.0\\)"
+  ):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
@@ -92,14 +115,47 @@ def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
       targeting={
         "mode": "fixed_rr",
         "reward_risk": 2.0,
-        "target_r_multiples": (0.5, 1.5, 2.0),
+        "target_r_multiples": (1.0, 1.5, 2.0),
         "close_ratios": (0.25, 0.25, 0.50),
-        "trail_after_r": 1.5,
-        "trail_to_r": 0.5,
+        "breakeven_after_r": 1.0,
         "entry_clips": 2,
       },
     )
-  with pytest.raises(ValueError, match="entry_clips=2"):
+  with pytest.raises(
+    ValueError, match="targeting.close_ratios must be \\(0.5, 0.5\\)"
+  ):
+    InstrumentConfig(
+      enabled=False,
+      canonical_symbol="TESTFX",
+      broker_symbol="TESTFX",
+      policy=FX_FIXED_2R_V1_POLICY,
+      targeting={
+        "mode": "fixed_rr",
+        "reward_risk": 2.0,
+        "target_r_multiples": _FX_TARGET_R_MULTIPLES,
+        "close_ratios": (0.4, 0.6),
+        "breakeven_after_r": 1.0,
+        "entry_clips": 2,
+      },
+    )
+  with pytest.raises(
+    ValueError, match="targeting.close_ratios must be \\(0.5, 0.5\\)"
+  ):
+    InstrumentConfig(
+      enabled=False,
+      canonical_symbol="GBPJPY",
+      broker_symbol="GBPJPY",
+      policy="fx_fixed_2r_frontload_v1",
+      targeting={
+        "mode": "fixed_rr",
+        "reward_risk": 2.0,
+        "target_r_multiples": _FX_TARGET_R_MULTIPLES,
+        "close_ratios": (0.4, 0.6),
+        "breakeven_after_r": 1.0,
+        "entry_clips": 2,
+      },
+    )
+  with pytest.raises(ValueError, match="targeting.entry_clips must be 2"):
     InstrumentConfig(
       enabled=False,
       canonical_symbol="TESTFX",
@@ -110,8 +166,7 @@ def test_fx_policy_is_locked_to_two_r_partial_and_trail_contract():
         "reward_risk": 2.0,
         "target_r_multiples": _FX_TARGET_R_MULTIPLES,
         "close_ratios": _FX_CLOSE_RATIOS,
-        "trail_after_r": 1.5,
-        "trail_to_r": 1.0,
+        "breakeven_after_r": 1.0,
         "entry_clips": 5,
       },
     )
@@ -214,24 +269,18 @@ def test_fx_auto_plan_books_single_leg_market_for_fvg():
 
 def test_fx_targeting_is_explicit_configuration_not_symbol_detection():
   cfg = _load_production_example().config
-  # GBPJPY front-loads close_ratios (fx_fixed_2r_frontload_v1, 2026 dig:
-  # ATR ~180 pips/day vs EURUSD's ~70, moves reverse hard once they've run)
-  # -- everything else about the 2R contract is identical across FX pairs.
-  expected_close_ratios = {
-    "EURUSD": _FX_CLOSE_RATIOS,
-    "USDJPY": _FX_CLOSE_RATIOS,
-    "GBPJPY": (0.40, 0.25, 0.35),
-  }
-  for symbol, close_ratios in expected_close_ratios.items():
+  # Uniform 50/50 across FX pairs — front-load retired.
+  for symbol in ("EURUSD", "USDJPY", "GBPJPY"):
     effective = cfg.for_instrument(symbol)
     assert effective.policy_name in (
       FX_FIXED_2R_V1_POLICY, "fx_fixed_2r_frontload_v1",
     )
     assert effective.targeting.mode is InstrumentTargetMode.FIXED_RR
     assert effective.targeting.target_r_multiples == _FX_TARGET_R_MULTIPLES
-    assert effective.targeting.close_ratios == close_ratios
-    assert effective.targeting.trail_after_r == 1.5
-    assert effective.targeting.trail_to_r == 1.0
+    assert effective.targeting.close_ratios == _FX_CLOSE_RATIOS
+    assert effective.targeting.breakeven_after_r == 1.0
+    assert effective.targeting.trail_after_r is None
+    assert effective.targeting.trail_to_r is None
     assert effective.targeting.entry_clips == 2
     assert effective.execution.technique.require_sweep_body is False
     assert fixed_reward_risk(symbol, cfg) == 2.0
@@ -374,7 +423,7 @@ def test_fx_auto_reaction_books_pack_volume_multiplier():
     assert scalp.measured["effective_risk_multiplier"] == pytest.approx(2.0)
 
 
-def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
+def test_fx_fixed_rr_builds_one_r_two_r_with_breakeven():
   cfg = _load_production_example().config
   match = _fx_match()
   evaluation = evaluate_execution_policy(
@@ -388,6 +437,11 @@ def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
   assert evaluation.allowed is True
   assert evaluation.measured["target_policy_mode"] == "fixed_rr"
   assert evaluation.measured["effective_risk_multiplier"] == pytest.approx(1.5)
+  assert evaluation.measured["breakeven_after_r"] == pytest.approx(1.0)
+  assert evaluation.measured["target_room_fallback_used"] is False
+  assert evaluation.measured["planned_target_r_multiples"] == ["1.0", "2.0"]
+  assert evaluation.measured["planned_target_close_ratios"] == ["0.5", "0.5"]
+  assert "planned_trail_after_target_id" not in evaluation.measured
 
   plan = build_trade_plan_from_strategy_match(
     match,
@@ -406,20 +460,19 @@ def test_fx_trade_plan_books_partials_then_finishes_at_exactly_two_r():
 
   entry = Decimal(str(evaluation.measured["planned_entry_price"]))
   risk = abs(entry - plan.stop.price)
-  assert len(plan.targets) == 3
+  assert len(plan.targets) == 2
   assert [target.close_ratio for target in plan.targets] == [
-    Decimal("0.25"),
-    Decimal("0.25"),
+    Decimal("0.5"),
     Decimal("0.5"),
   ]
   for target, multiple in zip(
     plan.targets,
-    (Decimal("1"), Decimal("1.5"), Decimal("2")),
+    (Decimal("1"), Decimal("2")),
   ):
     assert abs(target.price - entry) == risk * multiple
   assert plan.management.be_after_target_id == "TP1"
-  assert plan.management.trail_after_target_id == "TP2"
-  assert plan.management.trail_to_target_id == "TP1"
+  assert plan.management.trail_after_target_id is None
+  assert plan.management.trail_to_target_id is None
   # The 50-pip match target was only provisional; stop geometry owns TP.
   assert abs(plan.targets[-1].price - entry) / Decimal("0.0001") != Decimal("50")
 
@@ -441,6 +494,7 @@ def test_fixed_rr_falls_back_to_one_r_when_two_r_does_not_fit():
   assert evaluation.measured["target_reward_risk"] == pytest.approx(1.0)
   assert evaluation.measured["planned_target_r_multiples"] == ["1.0"]
   assert evaluation.measured["planned_target_close_ratios"] == ["1.0"]
+  assert evaluation.measured["breakeven_after_r"] is None
   assert "planned_trail_after_target_id" not in evaluation.measured
 
   plan = build_trade_plan_from_strategy_match(
@@ -466,6 +520,11 @@ def test_fixed_rr_falls_back_to_one_r_when_two_r_does_not_fit():
 def test_fixed_rr_rejects_when_opposing_room_cannot_hold_one_r():
   cfg = _load_production_example().config
   match = _fx_match()
+  sink_calls: list[tuple[str, str, dict[str, str]]] = []
+
+  def _sink(name: str, symbol: str, labels: dict[str, str]) -> None:
+    sink_calls.append((name, symbol, labels))
+
   evaluation = evaluate_execution_policy(
     match,
     spot_price=match.current_price,
@@ -474,11 +533,19 @@ def test_fixed_rr_rejects_when_opposing_room_cannot_hold_one_r():
     pip_size=0.0001,
     cfg=cfg,
     available_target_room_pips=9.0,
+    metric_sink=_sink,
   )
   assert evaluation.allowed is False
   assert evaluation.reason_code == "fixed_rr_room_insufficient"
   assert evaluation.terminal is True
   assert evaluation.measured["target_fallback_reward_risk"] == 1.0
+  assert sink_calls == [
+    (
+      "fixed_rr_room_below_1r",
+      "EURUSD",
+      {"setup": "Trend Pullback"},
+    ),
+  ]
 
 
 def test_fixed_rr_one_r_fallback_is_symmetric_for_sell():
@@ -511,6 +578,7 @@ def test_fixed_rr_one_r_fallback_is_symmetric_for_sell():
   )
   assert evaluation.allowed is True
   assert evaluation.measured["target_room_fallback_used"] is True
+  assert evaluation.measured["breakeven_after_r"] is None
   entry = Decimal(str(evaluation.measured["planned_entry_price"]))
   targets = tuple(
     Decimal(value) for value in evaluation.measured["planned_target_prices"]
@@ -520,7 +588,7 @@ def test_fixed_rr_one_r_fallback_is_symmetric_for_sell():
   assert evaluation.measured["planned_target_close_ratios"] == ["1.0"]
 
 
-def test_gbpjpy_sell_uses_two_r_contract_with_frontloaded_partials():
+def test_gbpjpy_sell_uses_uniform_two_r_contract():
   cfg = _load_production_example().config
   match = replace(
     _fx_match("GBPJPY"),
@@ -565,26 +633,19 @@ def test_gbpjpy_sell_uses_two_r_contract_with_frontloaded_partials():
   assert entry - plan.targets[-1].price == (
     plan.stop.price - entry
   ) * Decimal("2")
-  # Front-loaded vs EURUSD/USDJPY's 25/25/50 -- same 1R/1.5R/2R ladder,
-  # different partial-close split (fx_fixed_2r_frontload_v1).
   assert [target.close_ratio for target in plan.targets] == [
-    Decimal("0.4"),
-    Decimal("0.25"),
-    Decimal("0.35"),
+    Decimal("0.5"),
+    Decimal("0.5"),
   ]
   assert plan.management.be_after_target_id == "TP1"
-  assert plan.management.trail_after_target_id == "TP2"
-  assert plan.management.trail_to_target_id == "TP1"
+  assert plan.management.trail_after_target_id is None
+  assert plan.management.trail_to_target_id is None
 
 
-def test_xau_technique_uses_structure_fixed_rr_policy():
+def test_xau_technique_shares_uniform_fixed_rr_ladder():
   cfg = _load_production_example().config
   xau = cfg.for_instrument("XAU")
-  assert xau.targeting.mode is InstrumentTargetMode.FIXED_RR
-  assert xau.targeting.reward_risk == 2.0
-  assert xau.targeting.target_r_multiples == (1.0, 1.5, 2.0)
-  assert xau.targeting.close_ratios == (0.25, 0.25, 0.50)
-  assert xau.targeting.trail_after_r == 1.5
-  assert xau.targeting.trail_to_r == 1.0
-  assert int(xau.execution.reaction.stop_min_pips) == 25
-  assert int(xau.execution.reaction.stop_max_pips) == 100
+  assert xau.targeting.target_r_multiples == (1.0, 2.0)
+  assert xau.targeting.close_ratios == (0.5, 0.5)
+  assert xau.targeting.breakeven_after_r == 1.0
+  assert xau.targeting.trail_after_r is None

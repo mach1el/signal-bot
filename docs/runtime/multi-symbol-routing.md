@@ -23,19 +23,19 @@ allowed after explicit trading-policy review.
 Trading policy is explicit per instrument in `config/trading-bot.yml`:
 
 - XAU uses `xau_fixed_2r_v1` (pack `xau_fixed_2r_v1`): **technique** SL from
-  structure inside a 25–100 pip envelope, TP at 1R/1.5R/2R with 25/25/50
-  closes (same shape as `fx_fixed_2r_v1`). **M1 scalping** stays on
+  structure inside a 25–100 pip envelope, TP at 1R/2R with 50/50 closes and
+  breakeven after TP1 (same shape as `fx_fixed_2r_v1`). **M1 scalping** stays on
   `strategies.scalping` discovery (1:2 / 1:1) via
   `technique_fixed_rr_targeting` — instrument fixed_rr must not expand scalp
   matches. Compatibility policy `xau_current_v1` remains for ladder inheritance
   in tests / non-live defaults.
-- EURUSD and USDJPY use `fx_fixed_2r_v1`; GBPJPY uses `fx_fixed_2r_frontload_v1`
-  (same 1R/1.5R/2R ladder, front-loaded 40/25/35 partials instead of 25/25/50
-  — see "Per-symbol position management" below). Both are `FIXED_RR_POLICY_
-  CLOSE_RATIOS` entries and require a **named reaction session**, **stop
-  envelope**, **activation**, and **price scale** pack once live/paper.
-  The envelope is pair-scale (EURUSD/USDJPY 10–18 pips, GBPJPY 15–30).
-  Do not copy dotted stop or geometry paths per pair.
+- EURUSD and USDJPY use `fx_fixed_2r_v1`; GBPJPY keeps the historical
+  `fx_fixed_2r_frontload_v1` policy name. All three share the uniform
+  `FIXED_RR_REQUIRED_TARGETING` contract (1R/2R, 50/50, `breakeven_after_r: 1.0`)
+  and require a **named reaction session**, **stop envelope**, **activation**,
+  and **price scale** pack once live/paper. The envelope is pair-scale
+  (EURUSD/USDJPY 10–18 pips, GBPJPY 15–30). Do not copy dotted stop or
+  geometry paths per pair.
 - A new live FX instrument declares `policy`, `reaction_session`
   (`london_ny`, `tokyo_london`, `tokyo_london_ny`, or a raw `7-11,13-16`
   list), `stop_envelope`, `activation`, and `price_scale`. Register a new
@@ -53,9 +53,8 @@ Trading policy is explicit per instrument in `config/trading-bot.yml`:
   not inferred from `targeting.mode`. `entry_mode: zone_ladder` keeps XAU's
   shallow/mid/deep entry distribution, while `single` is the current FX
   entry-at route. `risk_reference` is deliberately restricted to `shallow`.
-- FX books 25% at 1R and 25% at 1.5R, then closes the remaining 50% at 2R
-  (GBPJPY: 40%/25%/35%). TP1 enables protected break-even; booking 1.5R
-  trails the runner to 1R.
+- FX books 50% at 1R and 50% at 2R. TP1 moves the runner to protected
+  break-even (group weighted fill). There is no R-trail after 1.5R.
 - Broker-step rules may defer an undersized partial to a later target; they
   never inflate a small close beyond its declared share.
 - FX keeps the existing equity sizing and strategy-specific risk multipliers.
@@ -77,10 +76,9 @@ price_scale:
 targeting:
   mode: fixed_rr
   reward_risk: 2.0
-  target_r_multiples: [1.0, 1.5, 2.0]
-  close_ratios: [0.25, 0.25, 0.50]
-  trail_after_r: 1.5
-  trail_to_r: 1.0
+  target_r_multiples: [1.0, 2.0]
+  close_ratios: [0.5, 0.5]
+  breakeven_after_r: 1.0
   entry_clips: 2
 manual:
   enabled: true
@@ -92,19 +90,20 @@ manual:
 ```
 
 The target is computed only after the entry route and protective stop are
-final. If the nearest credible opposing structure cannot provide 2R of room,
-the plan fails closed instead of shrinking the target. New FX instruments must
-declare this policy, targeting block, `reaction_session`, `stop_envelope`,
-`activation`, and `price_scale`; symbol-name hard-coding is not used.
+final. Prefer 2R when opposing room holds it; fall back to a single 1R
+all-in target when room is between 1R and 2R; reject below 1R. New FX
+instruments must declare this policy, targeting block, `reaction_session`,
+`stop_envelope`, `activation`, and `price_scale`; symbol-name hard-coding
+is not used.
 
 ## Per-symbol position management
 
 Beyond geometry, individual pairs own genuinely different management
 mechanisms, grounded in each pair's real 2026 market behavior:
 
-- **GBPJPY** (`fx_fixed_2r_frontload_v1` + event-cluster guard): ATR(14)
-  ~180 pips/day vs EURUSD's ~70, and moves reverse hard once they've run —
-  40%/25%/35% partials lock in more of the win at 1R. Separately, when a
+- **GBPJPY** (`fx_fixed_2r_frontload_v1` policy name retained; uniform 50/50
+  targeting): ATR(14) ~180 pips/day vs EURUSD's ~70. Close-ratio front-load
+  was retired so cells stay comparable across symbols. Separately, when a
   BoE and a BoJ high-impact calendar event land within 48h of each other
   ("volatility clusters" compound rather than add), the news guard widens
   from the normal 30-minute single-event window to 3 hours around
