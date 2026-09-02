@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `052e43e73ad9756b8b6a95db493ec846e0d6856dc218662f89e796c09a3159e7`
-- Environment-bound fields: `480`
+- Contract fingerprint: `36e0a6912b1022fcd26b7db86e23edfd0f9788c253fdb45cd80886ef248deec5`
+- Environment-bound fields: `494`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -207,7 +207,13 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_TP_WEIGHTS` | `execution.targeting.tp_weights` | `list[int]` | no | no | — | `[20, 20, 20, 20, 20]` |
 | `AUTO_TRADE_TRACK_ALL_STRUCTURAL_MATCHES` | `strategies.matching.track_all_structural_matches` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_TRADE_PLAN_STREAM` | `contract.streams.trade_plans` | `str` | no | yes | — | `execution:trade_plans` |
+| `AUTO_TRADE_TRENDLINE_MAX_BARS_SINCE_TOUCH` | `strategies.reaction.trendline.maximum_bars_since_last_touch` | `Optional[int]` | no | no | — | `None` |
+| `AUTO_TRADE_TRENDLINE_MAX_FIT_ERROR_ATR` | `strategies.reaction.trendline.maximum_fit_error_atr` | `Optional[float]` | no | no | — | `None` |
+| `AUTO_TRADE_TRENDLINE_MIN_GRADE` | `strategies.reaction.trendline.minimum_grade` | `Optional[str]` | no | no | — | `None` |
 | `AUTO_TRADE_TRENDLINE_REACTION_ENABLED` | `strategies.reaction.trendline.enabled` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TRENDLINE_REJECT_EXHAUSTED` | `strategies.reaction.trendline.reject_exhausted` | `bool` | no | no | — | `True` |
+| `AUTO_TRADE_TRENDLINE_REQUIRE_HTF_ALIGNED` | `strategies.reaction.trendline.require_htf_aligned` | `bool` | no | no | — | `False` |
+| `AUTO_TRADE_TRENDLINE_REQUIRE_KILLZONE` | `strategies.reaction.trendline.require_killzone` | `bool` | no | no | — | `False` |
 | `AUTO_TRADE_TREND_ENABLED` | `strategies.trend.enabled` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `execution.trend.hard_entry_drift_pips` | `float` | no | no | — | `30.0` |
 | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `execution.trend.max_entry_drift_atr` | `float` | no | no | — | `0.85` |
@@ -456,8 +462,16 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `TELEGRAM_BOT_TOKEN` | `bootstrap.telegram.bot_token` | `str` | yes | no | — | `<redacted>` |
 | `TELEGRAM_OWNER_ID` | `delivery.telegram.telegram_owner_id` | `Optional[int]` | no | no | — | `None` |
 | `TIINGO_API_KEY` | `market_data.tiingo.api_key` | `Optional[str]` | yes | no | — | `<redacted>` |
+| `TL_MAX_BARS_SINCE_TOUCH` | `analysis.trendlines.maximum_bars_since_last_touch` | `int` | no | no | — | `30` |
+| `TL_MAX_FIT_ERROR_ATR` | `analysis.trendlines.maximum_fit_error_atr` | `float` | no | no | — | `0.15` |
 | `TL_MAX_SLOPE_ATR` | `analysis.trendlines.maximum_slope_atr` | `float` | no | no | — | `0.15` |
+| `TL_MAX_TOUCHES` | `analysis.trendlines.maximum_touches` | `int` | no | no | — | `4` |
+| `TL_MAX_VIOLATIONS` | `analysis.trendlines.maximum_violations` | `int` | no | no | — | `2` |
+| `TL_MIN_SLOPE_ATR` | `analysis.trendlines.minimum_slope_atr` | `float` | no | no | — | `0.02` |
+| `TL_MIN_SPAN_BARS` | `analysis.trendlines.minimum_span_bars` | `int` | no | no | — | `20` |
 | `TL_MIN_TOUCHES` | `analysis.trendlines.minimum_touches` | `int` | no | no | — | `3` |
+| `TL_MIN_TOUCH_SPACING` | `analysis.trendlines.minimum_touch_spacing_bars` | `int` | no | no | — | `3` |
+| `TL_PIERCE_TOL_ATR` | `analysis.trendlines.pierce_tolerance_atr` | `float` | no | no | — | `0.5` |
 | `TL_TOL_ATR` | `analysis.trendlines.tolerance_atr` | `float` | no | no | — | `0.3` |
 | `TP_MIN_SPACING_ATR` | `analysis.measurements.tp_min_spacing_atr` | `float` | no | no | — | `0.5` |
 | `TRACK_INTERVAL` | `market_data.watcher.interval_seconds` | `int` | no | no | — | `30` |

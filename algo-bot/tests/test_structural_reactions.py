@@ -546,9 +546,11 @@ def test_trendline_unbroken_support_and_resistance():
   buy_df = _buy_rejection_df()
   support = Trendline(
     "support", (0, 2, 4), 0.0, 105.0, touches=3, broken=False, break_index=None,
+    fit_error_atr=0.0, violations=0, bars_since_last_touch=0, span_bars=4,
+    exhausted=False,
   )
   buy = detectors.trendline_reaction(
-    _ctx(buy_df, bias="down", trendlines=[support]),
+    _ctx(buy_df, bias="up", trendlines=[support]),
   )
   assert buy is not None
   assert buy.setup == "Trendline Reaction"
@@ -563,9 +565,14 @@ def test_trendline_unbroken_support_and_resistance():
     touches=3,
     broken=False,
     break_index=None,
+    fit_error_atr=0.0,
+    violations=0,
+    bars_since_last_touch=0,
+    span_bars=4,
+    exhausted=False,
   )
   sell = detectors.trendline_reaction(
-    _ctx(sell_df, bias="up", trendlines=[resistance]),
+    _ctx(sell_df, bias="down", trendlines=[resistance]),
   )
   assert sell is not None
   assert sell.direction == "SELL"
@@ -581,6 +588,11 @@ def test_broken_trendline_is_not_trendline_reaction():
     touches=3,
     broken=True,
     break_index=2,
+    fit_error_atr=0.0,
+    violations=0,
+    bars_since_last_touch=0,
+    span_bars=2,
+    exhausted=False,
   )
   assert detectors.trendline_reaction(_ctx(df, trendlines=[broken])) is None
 

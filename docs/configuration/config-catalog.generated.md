@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `052e43e73ad9756b8b6a95db493ec846e0d6856dc218662f89e796c09a3159e7`
-- Document fingerprint: `1fd4d55e7f520ceed8108ed46e0617497a18faad36d41f6c26ff24d7a58c134d`
-- Items: `547`
+- Contract fingerprint: `36e0a6912b1022fcd26b7db86e23edfd0f9788c253fdb45cd80886ef248deec5`
+- Document fingerprint: `e32edfd7fa4e952fc882d70ea918ef0ef612112a1e12520afe6c4569def114ae`
+- Items: `561`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -124,8 +124,16 @@
 | `analysis.techniques.validation_enabled` | `TECHNIQUE_VALIDATION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `analysis.trendlines.dedup_slope_percent` | `—` | `float` | `percent` | `algorithm_constant` | `0.2` |
 | `analysis.trendlines.dedup_value_atr` | `—` | `float` | `atr` | `algorithm_constant` | `0.5` |
+| `analysis.trendlines.maximum_bars_since_last_touch` | `TL_MAX_BARS_SINCE_TOUCH` | `int` | `count` | `configurable` | `30` |
+| `analysis.trendlines.maximum_fit_error_atr` | `TL_MAX_FIT_ERROR_ATR` | `float` | `atr` | `configurable` | `0.15` |
 | `analysis.trendlines.maximum_slope_atr` | `TL_MAX_SLOPE_ATR` | `float` | `atr` | `configurable` | `0.15` |
+| `analysis.trendlines.maximum_touches` | `TL_MAX_TOUCHES` | `int` | `count` | `configurable` | `4` |
+| `analysis.trendlines.maximum_violations` | `TL_MAX_VIOLATIONS` | `int` | `count` | `configurable` | `2` |
+| `analysis.trendlines.minimum_slope_atr` | `TL_MIN_SLOPE_ATR` | `float` | `atr` | `configurable` | `0.02` |
+| `analysis.trendlines.minimum_span_bars` | `TL_MIN_SPAN_BARS` | `int` | `count` | `configurable` | `20` |
+| `analysis.trendlines.minimum_touch_spacing_bars` | `TL_MIN_TOUCH_SPACING` | `int` | `count` | `configurable` | `3` |
 | `analysis.trendlines.minimum_touches` | `TL_MIN_TOUCHES` | `int` | `count` | `configurable` | `3` |
+| `analysis.trendlines.pierce_tolerance_atr` | `TL_PIERCE_TOL_ATR` | `float` | `atr` | `configurable` | `0.5` |
 | `analysis.trendlines.tolerance_atr` | `TL_TOL_ATR` | `float` | `atr` | `configurable` | `0.3` |
 | `analysis.triggers.m1.patterns` | `M1_TRIGGER_PATTERNS` | `str` | `string` | `configurable` | `"wick_rejection,body_close,strong_close,pin_bar,engulfing,hammer"` |
 | `analysis.triggers.m1.strong_close_pct` | `M1_TRIGGER_STRONG_CLOSE_PCT` | `float` | `percent` | `configurable` | `0.2` |
@@ -534,6 +542,12 @@
 | `strategies.reaction.session_level.enabled` | `AUTO_TRADE_SESSION_LEVEL_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.supply.enabled` | `AUTO_TRADE_SUPPLY_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.reaction.trendline.enabled` | `AUTO_TRADE_TRENDLINE_REACTION_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.reaction.trendline.maximum_bars_since_last_touch` | `AUTO_TRADE_TRENDLINE_MAX_BARS_SINCE_TOUCH` | `Optional[int]` | `count` | `configurable` | `null` |
+| `strategies.reaction.trendline.maximum_fit_error_atr` | `AUTO_TRADE_TRENDLINE_MAX_FIT_ERROR_ATR` | `Optional[float]` | `atr` | `configurable` | `null` |
+| `strategies.reaction.trendline.minimum_grade` | `AUTO_TRADE_TRENDLINE_MIN_GRADE` | `Optional[str]` | `enum` | `configurable` | `null` |
+| `strategies.reaction.trendline.reject_exhausted` | `AUTO_TRADE_TRENDLINE_REJECT_EXHAUSTED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.reaction.trendline.require_htf_aligned` | `AUTO_TRADE_TRENDLINE_REQUIRE_HTF_ALIGNED` | `bool` | `boolean` | `configurable` | `false` |
+| `strategies.reaction.trendline.require_killzone` | `AUTO_TRADE_TRENDLINE_REQUIRE_KILLZONE` | `bool` | `boolean` | `configurable` | `false` |
 | `strategies.scalp.fade_scalp_enabled` | `AUTO_TRADE_FADE_SCALP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalp.scalp_barrier_fallback_enabled` | `SCALP_BARRIER_FALLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalp.scalp_barrier_fallback_min_confirmations` | `SCALP_BARRIER_FALLBACK_MIN_CONFIRMATIONS` | `int` | `count` | `configurable` | `1` |
