@@ -2129,22 +2129,19 @@ public sealed class TradePlanRuntimeTests
   }
 
   [Fact]
-  public async Task FxOnePointFiveRBooksThenTrailsRunnerToOneR()
+  public async Task FxOneRBooksThenBreakEvenWithoutTrail()
   {
     var targets = """
       [
-        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.25"},
-        {"target_id": "TP2", "type": "absolute", "price": "4093.50", "close_ratio": "0.25"},
-        {"target_id": "TP3", "type": "absolute", "price": "4095.00", "close_ratio": "0.50"}
+        {"target_id": "TP1", "type": "absolute", "price": "4092.00", "close_ratio": "0.50"},
+        {"target_id": "TP2", "type": "absolute", "price": "4095.00", "close_ratio": "0.50"}
       ]
       """;
     var management = """
       {
         "be_after_target_id": "TP1",
         "be_buffer_ticks": 6,
-        "never_worsen_stop": true,
-        "trail_after_target_id": "TP2",
-        "trail_to_target_id": "TP1"
+        "never_worsen_stop": true
       }
       """;
     var store = new FakeTradePlanStore();
@@ -2177,23 +2174,27 @@ public sealed class TradePlanRuntimeTests
     Assert.True(afterOneR.BreakEvenApplied);
     Assert.Equal(2, client.StopAmendments.Count);
     Assert.Equal(4089.06m, client.StopAmendments[^1].StopLoss);
+    Assert.DoesNotContain(
+      store.Events,
+      item => item.Type == "sl_moved"
+        && item.Message.Contains("trail", StringComparison.OrdinalIgnoreCase)
+    );
 
     await runtime.PollAsync(
       client,
       Symbol,
-      new SpotPrice("XAU", 4093.55m, 4093.60m, 3),
+      new SpotPrice("XAU", 4095.05m, 4095.10m, 3),
       CancellationToken.None
     );
-    var afterOnePointFiveR = Assert.Single(runtime.TrackedStates);
-    Assert.Equal(1, afterOnePointFiveR.HighestBookedTargetIndex);
+    Assert.Empty(runtime.TrackedStates);
     Assert.Equal(2, client.Closes.Count);
-    Assert.Equal(3, client.StopAmendments.Count);
-    Assert.Equal(4092.00m, client.StopAmendments[^1].StopLoss);
-    Assert.Contains(
-      store.Events,
-      item => item.Type == "sl_moved"
-        && item.Message.Contains("trail TP1")
-    );
+    // No additional trail amend after BE — only the structural SL + BE move.
+    Assert.Equal(2, client.StopAmendments.Count);
+    var closed = Assert.Single(store.Events, item => item.Type == "position_closed");
+    Assert.Equal(true, closed.BreakEvenApplied);
+    Assert.Equal(1, closed.HighestBookedTargetIndex);
+    Assert.Equal(2.0m, closed.PlannedRewardRisk);
+    Assert.Equal(false, closed.TargetRoomFallbackUsed);
   }
 
   [Fact]

@@ -28,10 +28,9 @@ def test_expand_instrument_pack_merges_defaults_and_overrides():
       "targeting": {
         "mode": "fixed_rr",
         "reward_risk": 2.0,
-        "target_r_multiples": [1.0, 1.5, 2.0],
-        "close_ratios": [0.25, 0.25, 0.50],
-        "trail_after_r": 1.5,
-        "trail_to_r": 1.0,
+        "target_r_multiples": [1.0, 2.0],
+        "close_ratios": [0.5, 0.5],
+        "breakeven_after_r": 1.0,
         "entry_clips": 2,
       },
       "manual": {
@@ -213,10 +212,9 @@ instruments:
     targeting:
       mode: fixed_rr
       reward_risk: 2.0
-      target_r_multiples: [1.0, 1.5, 2.0]
-      close_ratios: [0.25, 0.25, 0.50]
-      trail_after_r: 1.5
-      trail_to_r: 1.0
+      target_r_multiples: [1.0, 2.0]
+      close_ratios: [0.5, 0.5]
+      breakeven_after_r: 1.0
       entry_clips: 2
     stop_envelope: {min_pips: 10, max_pips: 18, sl_distance: 0.0018}
     activation:
@@ -328,5 +326,8 @@ def test_synthetic_audusd_onboarding_inherits_manual_profile_and_symbols(
   candidate = manual_execution._intent_to_candidate_payload(intent)
   assert candidate["symbol"] == "AUDUSD"
   assert candidate["manual_single_entry"] is True
-  assert candidate["manual_target_weights"] == [25, 25, 50]
+  # Default FX /algo TPs follow targeting.target_r_multiples (1R/2R → two
+  # TPs). Explicit manual.target_close_ratios still applies when TP count
+  # matches; with two TPs the equal split is used.
+  assert candidate["manual_target_weights"] == [50, 50]
   assert candidate["risk_multiplier"] == 1.5

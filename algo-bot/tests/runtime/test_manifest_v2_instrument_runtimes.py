@@ -44,13 +44,14 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert eurusd["targeting"]["mode"] == "fixed_rr"
   assert float(eurusd["targeting"]["reward_risk"]) == 2.0
   assert [float(value) for value in eurusd["targeting"]["target_r_multiples"]] == [
-    1.0, 1.5, 2.0,
+    1.0, 2.0,
   ]
   assert [float(value) for value in eurusd["targeting"]["close_ratios"]] == [
-    0.25, 0.25, 0.50,
+    0.5, 0.5,
   ]
-  assert float(eurusd["targeting"]["trail_after_r"]) == 1.5
-  assert float(eurusd["targeting"]["trail_to_r"]) == 1.0
+  assert float(eurusd["targeting"]["breakeven_after_r"]) == 1.0
+  assert eurusd["targeting"]["trail_after_r"] is None
+  assert eurusd["targeting"]["trail_to_r"] is None
   assert int(eurusd["targeting"]["entry_clips"]) == 2
   gbpjpy = payload["instrument_runtimes"]["GBPJPY"]
   assert gbpjpy["rollout"] == "live"
@@ -59,19 +60,11 @@ def test_manifest_v2_has_instrument_runtimes_xau_and_fx_live():
   assert gbpjpy["units"]["pip_value_per_lot"] == "7"
   assert gbpjpy["targeting"]["mode"] == "fixed_rr"
   assert float(gbpjpy["targeting"]["reward_risk"]) == 2.0
-  # GBPJPY front-loads partials (fx_fixed_2r_frontload_v1, 2026 dig: ATR
-  # ~180 pips/day vs EURUSD's ~70) -- same 2R ladder, different split, so
-  # unlike USDJPY below it does not match eurusd["targeting"] exactly.
+  # Policy name retained; targeting is now identical across fixed_rr FX.
   assert [
     float(value) for value in gbpjpy["targeting"]["close_ratios"]
-  ] == [0.40, 0.25, 0.35]
-  assert {
-    key: value for key, value in gbpjpy["targeting"].items()
-    if key != "close_ratios"
-  } == {
-    key: value for key, value in eurusd["targeting"].items()
-    if key != "close_ratios"
-  }
+  ] == [0.5, 0.5]
+  assert gbpjpy["targeting"] == eurusd["targeting"]
   usdjpy = payload["instrument_runtimes"]["USDJPY"]
   assert usdjpy["rollout"] == "live"
   assert usdjpy["feed"]["ctrader_symbol"] == "USDJPY"

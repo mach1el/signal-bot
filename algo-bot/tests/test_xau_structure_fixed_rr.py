@@ -61,13 +61,15 @@ def test_xau_key_level_expands_fixed_rr_targets_from_stop():
     float(value)
     for value in evaluation.measured.get("planned_target_r_multiples")
   ]
-  assert multiples == [1.0, 1.5, 2.0]
+  assert multiples == [1.0, 2.0]
   stop_pips = float(evaluation.measured["planned_final_stop_pips"])
   targets = [float(value) for value in evaluation.measured["planned_target_pips"]]
-  assert len(targets) == 3
+  assert len(targets) == 2
   assert targets[0] == pytest.approx(stop_pips * 1.0, rel=0.02)
-  assert targets[1] == pytest.approx(stop_pips * 1.5, rel=0.02)
-  assert targets[2] == pytest.approx(stop_pips * 2.0, rel=0.02)
+  assert targets[1] == pytest.approx(stop_pips * 2.0, rel=0.02)
+  assert evaluation.measured["breakeven_after_r"] == pytest.approx(1.0)
+  assert evaluation.measured["target_room_fallback_used"] is False
+  assert evaluation.measured["planned_target_close_ratios"] == ["0.5", "0.5"]
 
 
 def test_xau_scalp_match_does_not_expand_technique_fixed_rr_ladder():

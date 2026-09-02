@@ -255,8 +255,10 @@ public sealed class TradePlanExecutionEngineTests
   }
 
   [Fact]
-  public void ExplicitFxTrailMovesToOneRAfterOnePointFiveRIsBooked()
+  public void ExplicitFxTrailMovesToOneRAfterConfiguredTrailTargetIsBooked()
   {
+    // Explicit trail IDs still work when a plan declares them (legacy /
+    // non-uniform ladders). Uniform fixed_rr 1R/2R omits trail IDs.
     var plan = MarketWatchPlan() with
     {
       Management = new TradePlanManagement(
@@ -277,6 +279,34 @@ public sealed class TradePlanExecutionEngineTests
     );
     Assert.Equal(
       0,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 2, highestBookedTargetIndex: 1
+      )
+    );
+  }
+
+  [Fact]
+  public void TwoTargetLadderWithoutTrailIdsNeverAppliesLegacyTrail()
+  {
+    var plan = MarketWatchPlan() with
+    {
+      Targets =
+      [
+        new TradePlanTarget("TP1", "absolute", 4092.00m, 0.50m),
+        new TradePlanTarget("TP2", "absolute", 4095.00m, 0.50m),
+      ],
+      Management = new TradePlanManagement("TP1", 6, true),
+    };
+
+    TradePlanValidator.Validate(plan);
+    Assert.Equal(
+      -1,
+      TradePlanExecutionEngine.ResolveTrailTargetIndex(
+        plan, nextTargetIndex: 1, highestBookedTargetIndex: 0
+      )
+    );
+    Assert.Equal(
+      -1,
       TradePlanExecutionEngine.ResolveTrailTargetIndex(
         plan, nextTargetIndex: 2, highestBookedTargetIndex: 1
       )

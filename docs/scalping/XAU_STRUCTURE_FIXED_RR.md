@@ -5,7 +5,8 @@ XAU **technique / reaction** auto now follows the FX structure book:
 | Layer | Behavior |
 |-------|----------|
 | Stop | Structure swing → fit pack envelope **25–100** pips |
-| Targets | **1.0R / 1.5R / 2.0R** of final stop; closes **25 / 25 / 50** |
+| Targets | **1.0R / 2.0R** of final stop; closes **50 / 50** |
+| Runner | After TP1, stop moves to **breakeven** (group weighted fill) |
 | Fallback | Single **1R** full close when opposing room cannot hold 2R |
 | Pack | `instrument_packs.xau_fixed_2r_v1` / policy `xau_fixed_2r_v1` |
 

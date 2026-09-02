@@ -157,30 +157,33 @@ def test_production_yaml_fx_live_executable_units():
   assert eurusd.units.plan_max_volume() == 100_000_000
   assert gbpjpy.units.plan_max_volume() == 100_000_000
   assert eurusd.policy_name == FX_FIXED_2R_V1_POLICY
-  # GBPJPY front-loads partials (fx_fixed_2r_frontload_v1, 2026 dig: ATR
-  # ~180 pips/day vs EURUSD's ~70) -- same 2R contract, different split.
+  # GBPJPY keeps the historical frontload policy name; close-ratio front-load
+  # was retired — same uniform 1R/2R 50/50 + BE contract as other fixed_rr.
   assert gbpjpy.policy_name == "fx_fixed_2r_frontload_v1"
   assert xau.policy_name == XAU_FIXED_2R_V1_POLICY
   assert eurusd.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert gbpjpy.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert eurusd.targeting.reward_risk == 2.0
   assert gbpjpy.targeting.reward_risk == 2.0
-  assert eurusd.targeting.target_r_multiples == (1.0, 1.5, 2.0)
-  assert gbpjpy.targeting.target_r_multiples == (1.0, 1.5, 2.0)
-  assert eurusd.targeting.close_ratios == (0.25, 0.25, 0.50)
-  assert gbpjpy.targeting.close_ratios == (0.40, 0.25, 0.35)
-  assert eurusd.targeting.trail_after_r == 1.5
-  assert gbpjpy.targeting.trail_after_r == 1.5
-  assert eurusd.targeting.trail_to_r == 1.0
-  assert gbpjpy.targeting.trail_to_r == 1.0
+  assert eurusd.targeting.target_r_multiples == (1.0, 2.0)
+  assert gbpjpy.targeting.target_r_multiples == (1.0, 2.0)
+  assert eurusd.targeting.close_ratios == (0.5, 0.5)
+  assert gbpjpy.targeting.close_ratios == (0.5, 0.5)
+  assert eurusd.targeting.breakeven_after_r == 1.0
+  assert gbpjpy.targeting.breakeven_after_r == 1.0
+  assert eurusd.targeting.trail_after_r is None
+  assert gbpjpy.targeting.trail_after_r is None
+  assert eurusd.targeting.trail_to_r is None
+  assert gbpjpy.targeting.trail_to_r is None
   assert eurusd.targeting.entry_clips == 2
   assert gbpjpy.targeting.entry_clips == 2
   assert xau.targeting.mode is InstrumentTargetMode.FIXED_RR
   assert xau.targeting.reward_risk == 2.0
-  assert xau.targeting.target_r_multiples == (1.0, 1.5, 2.0)
-  assert xau.targeting.close_ratios == (0.25, 0.25, 0.50)
-  assert xau.targeting.trail_after_r == 1.5
-  assert xau.targeting.trail_to_r == 1.0
+  assert xau.targeting.target_r_multiples == (1.0, 2.0)
+  assert xau.targeting.close_ratios == (0.5, 0.5)
+  assert xau.targeting.breakeven_after_r == 1.0
+  assert xau.targeting.trail_after_r is None
+  assert xau.targeting.trail_to_r is None
   assert xau.targeting.entry_clips == 2
   assert int(xau.execution.reaction.stop_min_pips) == 25
   assert int(xau.execution.reaction.stop_max_pips) == 100
@@ -308,7 +311,9 @@ def test_manual_profile_compatibility_defaults_are_narrow():
   assert xau_manual.tp1_close_fraction is None
   assert eurusd_manual.entry_mode is InstrumentManualEntryMode.SINGLE
   assert eurusd_manual.risk_multiplier == 1.5
-  assert eurusd_manual.target_close_ratios == (0.25, 0.25, 0.50)
+  # Compatibility path copies autonomous targeting.close_ratios when manual
+  # is omitted — now the uniform 50/50 ladder.
+  assert eurusd_manual.target_close_ratios == (0.5, 0.5)
   assert eurusd_manual.tp1_close_fraction is None
   assert xag_manual.enabled is False
   assert xag_manual.algo_enabled is False
