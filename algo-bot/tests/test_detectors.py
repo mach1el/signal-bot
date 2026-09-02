@@ -876,7 +876,11 @@ def test_counter_bias_publishes_and_records_observation():
 
 def test_trendline_break_retest_fires_outside_chop_only():
   df = _buy_rejection_df()
-  line = Trendline("resistance", (0, 1, 2), 0.0, 105.0, 3, True, 3)
+  line = Trendline(
+    "resistance", (0, 1, 2), 0.0, 105.0, 3, True, 3,
+    fit_error_atr=0.0, violations=0, bars_since_last_touch=0, span_bars=2,
+    exhausted=False,
+  )
   ctx = _ctx(df, trendlines=[line])
 
   result = detectors.break_retest(ctx)
