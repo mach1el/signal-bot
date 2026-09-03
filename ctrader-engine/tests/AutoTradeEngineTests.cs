@@ -5017,7 +5017,7 @@ public sealed partial class AutoTradeEngineTests
     Assert.Contains(positionId, store.Positions.Keys);
 
     client.PositionCloseExecutionPriceToReturn = 4009.35m;
-    now = now.AddSeconds(16);
+    now = now.AddSeconds(61);
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
@@ -5078,7 +5078,7 @@ public sealed partial class AutoTradeEngineTests
     var brokerFill = stop - 0.12m;
     client.PositionCloseReasonToReturn = PositionCloseReason.StopLossOrTakeProfit;
     client.PositionCloseExecutionPriceToReturn = brokerFill;
-    now = now.AddSeconds(16);
+    now = now.AddSeconds(61);
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
