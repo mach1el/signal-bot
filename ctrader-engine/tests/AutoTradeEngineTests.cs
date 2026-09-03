@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ApexVoid.CTraderFeed;
@@ -7255,8 +7256,11 @@ public sealed partial class AutoTradeEngineTests
     private readonly List<string> _payloads = [payload];
     private readonly List<string> _commandPayloads = [];
     public Dictionary<long, AutoTradePositionState> Positions { get; } = [];
-    public List<AutoTradeEvent> Events { get; } = [];
-    public List<AutoTradeEvent> LifecycleEvents { get; } = [];
+    // The engine session publishes from async callbacks while tests poll these
+    // collections. Enumerate a stable snapshot so a producer cannot mutate a
+    // List<T> midway through a LINQ assertion.
+    public SnapshotList<AutoTradeEvent> Events { get; } = new();
+    public SnapshotList<AutoTradeEvent> LifecycleEvents { get; } = new();
     public Dictionary<string, string> Values { get; } = [];
     public Dictionary<string, TimeSpan> ValueTtls { get; } = [];
     public List<string> Metrics { get; } = [];
@@ -7928,5 +7932,43 @@ public sealed partial class AutoTradeEngineTests
       RangeSides.Add((rangeId, direction, state));
       return Task.CompletedTask;
     }
+  }
+
+  private sealed class SnapshotList<T> : IReadOnlyCollection<T>
+  {
+    private readonly object _sync = new();
+    private readonly List<T> _items = [];
+
+    public int Count
+    {
+      get
+      {
+        lock (_sync)
+        {
+          return _items.Count;
+        }
+      }
+    }
+
+    public void Add(T item)
+    {
+      lock (_sync)
+      {
+        _items.Add(item);
+      }
+    }
+
+    public T[] Snapshot()
+    {
+      lock (_sync)
+      {
+        return [.. _items];
+      }
+    }
+
+    public IEnumerator<T> GetEnumerator() =>
+      ((IEnumerable<T>)Snapshot()).GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
   }
 }
