@@ -228,6 +228,9 @@ def test_build_scalp_1to2_trade_plan_moves_sl_to_be_after_tp1():
     Decimal("0.5"), Decimal("0.5"),
   ]
   assert plan.management.be_after_target_id == "TP1"
+  assert plan.sizing is not None
+  assert plan.sizing.mode == "risk"
+  assert plan.risk.risk_percent == Decimal("0.5")
 
 
 def test_build_scalp_1to1_trade_plan_books_full_volume():
@@ -269,6 +272,17 @@ def test_build_scalp_1to1_trade_plan_books_full_volume():
   assert plan.targets[0].target_id == "TP1"
   # Full exit at TP1 — no BE trail contract on a single-target plan.
   assert plan.management.be_after_target_id is None
+
+
+def test_scalping_risk_percent_is_bounded_and_unambiguous():
+  from app.configuration.models.strategies import StrategiesScalpingRiskConfig
+
+  assert StrategiesScalpingRiskConfig().risk_percent_per_trade == 0.5
+  assert StrategiesScalpingRiskConfig().sizing_mode == "risk"
+  with pytest.raises(ValueError):
+    StrategiesScalpingRiskConfig(risk_percent_per_trade=0.001)
+  with pytest.raises(ValueError):
+    StrategiesScalpingRiskConfig(risk_percent_per_trade=10)
 
 
 def test_build_scalp_strategy_match_carries_execution_eligibility():
