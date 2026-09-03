@@ -1162,6 +1162,18 @@ def test_stop_pips_rejects_above_maximum_widens_below_minimum():
   assert _stop_pips(structural=0.0, cfg=cfg) == (None, "stop_not_positive")
 
 
+def test_stop_pips_rejects_when_structure_cannot_clear_spread_cost():
+  from app.scalping.strategies import _stop_pips
+
+  cfg = _cfg()
+  assert _stop_pips(
+    structural=11.9, cfg=cfg, spread_pips=3.0,
+  ) == (None, "stop_below_spread_multiple")
+  assert _stop_pips(
+    structural=12.0, cfg=cfg, spread_pips=3.0,
+  ) == (12.0, None)
+
+
 def test_scalp_target_prefers_1to2_falls_back_to_1to1():
   # Owner 2026-08-11: every scalp is 1:2 when the room supports it, 1:1
   # otherwise - never a ladder, never anything outside this pair.

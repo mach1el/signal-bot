@@ -76,6 +76,32 @@ public sealed class TradePlanExecutionEngineTests
     )
   );
 
+  private static TradePlan RiskSizedScalpPlan(
+    decimal stopPips,
+    long maxVolume = 100_000
+  )
+  {
+    const decimal zoneLow = 4_000.00m;
+    const decimal zoneHigh = 4_000.10m;
+    return MarketWatchPlan(
+      direction: "BUY",
+      zoneLow: zoneLow,
+      zoneHigh: zoneHigh,
+      stopPrice: zoneHigh - stopPips * 0.1m,
+      maxVolume: maxVolume
+    ) with
+    {
+      Analysis = new TradePlanAnalysis(
+        "Range Sweep Scalp", "scalp", "BUY",
+        new[] { "M1" }, "M1", "M1", 1, 1, 0.8, 3, "range", "range"
+      ),
+      Risk = new TradePlanRisk(0.5m, 1.5m, maxVolume, 2.0m),
+      Sizing = new TradePlanSizing(
+        "risk", "owner_equity_v1", "single", Array.Empty<decimal>()
+      ),
+    };
+  }
+
   [Fact]
   public void MarketWatchSubmitsWhenAskInsideZone()
   {
@@ -532,6 +558,91 @@ public sealed class TradePlanExecutionEngineTests
 
     Assert.Equal(3_000, result.TotalVolume); // LotsForEquity(10000)=0.30
     Assert.Empty(result.Slices);
+  }
+
+  [Theory]
+  [InlineData(12.0, 800L)]
+  [InlineData(28.57, 300L)]
+  public void CalculateVolumeRiskModeSizesFromDeclaredStop(
+    decimal stopPips,
+    long expectedVolume
+  )
+  {
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      RiskSizedScalpPlan(stopPips), Account(2_000m), 0.1m, 10m, Symbol
+    );
+
+    // 0.5% of $2,000 is a $10 budget. Broker-step rounding floors the
+    // resulting 0.0833 / 0.0350 lots to 0.08 / 0.03.
+    Assert.Equal(expectedVolume, result.TotalVolume);
+  }
+
+  [Theory]
+  [InlineData(5.0)]
+  [InlineData(12.0)]
+  [InlineData(20.0)]
+  [InlineData(30.0)]
+  public void CalculateVolumeRiskModeKeepsMoneyRiskConstant(decimal stopPips)
+  {
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      RiskSizedScalpPlan(stopPips), Account(2_000m), 0.1m, 10m, Symbol
+    );
+    var lots = result.TotalVolume / (decimal)Symbol.LotSize;
+    var moneyRisk = lots * stopPips * 10m;
+
+    // Step rounding may leave up to one 0.01-lot step of unused budget.
+    Assert.InRange(moneyRisk, 8.5m, 10m);
+  }
+
+  [Fact]
+  public void CalculateVolumeRiskModeRejectsZeroDeclaredStopDistance()
+  {
+    var error = Assert.Throws<TradePlanContractException>(() =>
+      TradePlanExecutionEngine.CalculateVolume(
+        RiskSizedScalpPlan(0m), Account(2_000m), 0.1m, 10m, Symbol
+      )
+    );
+
+    Assert.Equal("risk_sizing_stop_pips_must_be_positive", error.Message);
+  }
+
+  [Fact]
+  public void CalculateVolumeRiskModeKeepsMaxVolumeAsAHardReject()
+  {
+    var error = Assert.Throws<TradePlanContractException>(() =>
+      TradePlanExecutionEngine.CalculateVolume(
+        RiskSizedScalpPlan(5m, maxVolume: 500), Account(2_000m), 0.1m, 10m, Symbol
+      )
+    );
+
+    Assert.Equal("equity_table_above_broker_maximum", error.Message);
+  }
+
+  [Fact]
+  public void SmallRiskSizedScalpLadderDegradesToOneFullExit()
+  {
+    var plan = RiskSizedScalpPlan(30m) with
+    {
+      Targets = new[]
+      {
+        new TradePlanTarget("TP1", "absolute", 4_003m, 0.5m),
+        new TradePlanTarget("TP2", "absolute", 4_006m, 0.5m),
+      },
+      Management = new TradePlanManagement("TP1", 6, true),
+    };
+    var volume = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(2_000m), 0.1m, 10m, Symbol
+    );
+
+    var degraded = TradePlanExecutionEngine.DegradeScalpLadderForMinVolume(
+      plan, volume.TotalVolume, Symbol
+    );
+
+    Assert.NotNull(degraded);
+    Assert.Single(degraded.Targets);
+    Assert.Equal("TP2", degraded.Targets[0].TargetId);
+    Assert.Equal(1m, degraded.Targets[0].CloseRatio);
+    Assert.Null(degraded.Management.BeAfterTargetId);
   }
 
   [Fact]
