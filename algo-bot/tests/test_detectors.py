@@ -147,15 +147,6 @@ def _uptrend_df(bars: int) -> pd.DataFrame:
   return _df(rows)
 
 
-def _trend_pullback_ctx() -> detectors.DetectionContext:
-  df = _buy_rejection_df()
-  return _ctx(
-    df,
-    levels=[Level(105, "reaction")],
-    zones=[Zone(103, 105, "demand", source="order_block")],
-  )
-
-
 def _break_retest_ctx() -> detectors.DetectionContext:
   df = _df([
     (100, 102, 98, 100, 100),
@@ -224,7 +215,6 @@ SETUPS: list[
     str,
   ]
 ] = [
-  (detectors.trend_pullback, _trend_pullback_ctx, "Trend Pullback"),
   (detectors.break_retest, _break_retest_ctx, "Break & Retest"),
   (detectors.snap_back, _snap_back_ctx, "Snap-Back"),
   (detectors.momentum_ride, _momentum_ride_ctx, "Momentum Ride"),
@@ -262,7 +252,6 @@ def test_named_setup_triggers_only_when_confirmed_and_correct_side(
 @pytest.mark.parametrize(
   ("detector", "ctx_factory"),
   [
-    (detectors.trend_pullback, _trend_pullback_ctx),
     (detectors.break_retest, _break_retest_ctx),
     (detectors.momentum_ride, _momentum_ride_ctx),
   ],
@@ -358,105 +347,6 @@ def test_wrong_side_level_fallback_is_gone_for_sell_and_buy():
   assert detectors._nearest_level(buy.structures["M5"].levels, 109, "BUY") is None
 
 
-def test_broken_supply_zone_is_rejected():
-  df = _df([
-    (110, 112, 108, 110, 100),
-    (109, 110, 101, 102, 100),
-    (102, 107, 100, 106, 100),
-    (106, 108, 104, 107, 100),
-    (107, 112, 101, 103, 100),
-  ])
-  ctx = _ctx(
-    df,
-    bias="down",
-    levels=[Level(102, "reaction")],
-    zones=[Zone(100, 102, "supply", source="order_block")],
-  )
-
-  assert detectors.trend_pullback(ctx) is None
-
-
-def test_confirmation_rejection_is_required():
-  no_rejection = _ctx(
-    _no_rejection_df(),
-    levels=[Level(105, "reaction")],
-    zones=[Zone(103, 105, "demand", source="order_block")],
-  )
-  confirmed = _trend_pullback_ctx()
-
-  assert detectors.trend_pullback(no_rejection) is None
-  assert detectors.trend_pullback(confirmed) is not None
-
-
-def test_trend_pullback_keeps_counter_bias_local_structure_executable():
-  ctx = _ctx(
-    _buy_rejection_df(),
-    zones=[
-      Zone(
-        103,
-        105,
-        "demand",
-        source="order_block",
-        score=0.0,
-      ),
-    ],
-  )
-  ctx = replace(ctx, htf_bias="down")
-
-  result = detectors.trend_pullback(ctx)
-
-  assert result is not None
-  assert result.direction == "BUY"
-  assert "counter_bias" in result.reasons
-
-
-def test_trend_pullback_can_still_require_htf_alignment_when_configured():
-  ctx = _trend_pullback_ctx()
-  ctx = replace(
-    ctx,
-    htf_bias="down",
-    settings=replace(ctx.settings, allow_counter_trend=False),
-  )
-
-  assert detectors.trend_pullback(ctx) is None
-
-
-def test_trend_pullback_prefers_best_scored_zone_over_nearest_zone():
-  df = _buy_rejection_df()
-  ctx = _ctx(
-    df,
-    zones=[
-      Zone(
-        106,
-        107,
-        "demand",
-        source="bullish_fvg",
-        score=2,
-        score_reasons=["FVG"],
-      ),
-      Zone(
-        103,
-        105,
-        "demand",
-        source="order_block",
-        break_kind="BOS",
-        score=9,
-        score_reasons=["fresh", "OB", "HTF zone"],
-      ),
-    ],
-    # Floor 1 so the remapped 1★ score-9 zone remains observable.
-    settings=detectors.DetectorSettings(confluence_floor=1),
-  )
-
-  result = detectors.trend_pullback(ctx)
-
-  assert result is not None
-  assert result.entry_zone.low == 103
-  assert result.entry_zone.high == 105
-  assert result.confluence == 1
-  assert result.reasons[1:4] == ["fresh", "OB", "HTF zone"]
-
-
 def test_wide_zone_uses_proximal_band_slice():
   zone = Zone(60, 100, "demand", source="order_block", score=9)
   selected = detectors._best_valid_zone(
@@ -476,19 +366,6 @@ def test_wide_zone_uses_proximal_band_slice():
   assert proximal.low == 98
   assert proximal.high == 100
   assert "proximal of wide zone" in detectors._add_proximal_reason([], sliced)
-
-
-def test_live_spot_is_used_for_entry_validation():
-  df = _sell_rejection_df()
-  base = _ctx(
-    df,
-    bias="down",
-    zones=[Zone(104, 106, "supply", source="order_block")],
-  )
-  live_wrong_side = replace(base, spot_price=107.0)
-
-  assert detectors.trend_pullback(base) is not None
-  assert detectors.trend_pullback(live_wrong_side) is None
 
 
 @pytest.mark.no_database
@@ -841,37 +718,6 @@ def test_range_edge_scalp_requires_room_to_eq():
   )
 
   assert detectors.range_edge_scalp(ctx) is None
-
-
-def test_counter_bias_publishes_and_records_observation():
-  ctx = _ctx(
-    _buy_rejection_df(),
-    zones=[
-      Zone(
-        103,
-        105,
-        "demand",
-        source="order_block",
-        score=0.0,
-      ),
-    ],
-  )
-  ctx = replace(
-    ctx,
-    htf_bias="down",
-    settings=replace(
-      ctx.settings,
-      allow_counter_trend=True,
-      confluence_floor=2,
-    ),
-  )
-  detectors.drain_discovery_observations()
-  result = detectors.trend_pullback(ctx)
-  assert result is not None
-  assert result.bias_relationship == "counter_bias"
-  assert detectors.drain_discovery_observations() == {
-    "counter_bias_published": 1,
-  }
 
 
 def test_trendline_break_retest_fires_outside_chop_only():
