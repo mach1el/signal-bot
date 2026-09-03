@@ -25,6 +25,10 @@ pytestmark = pytest.mark.no_database
 _CONFIG = (
   Path(__file__).resolve().parents[2] / "config" / "trading-bot.yml"
 )
+_EXAMPLE_MANIFEST = (
+  Path(__file__).resolve().parents[2]
+  / "contracts" / "configuration" / "runtime-manifest-example.generated.json"
+)
 
 
 def test_classification_has_zero_unclassified():
@@ -60,6 +64,14 @@ def test_manifest_deterministic_and_secret_safe(tmp_path):
     loaded["effective_configuration_fingerprint"]
     == first["effective_configuration_fingerprint"]
   )
+
+
+def test_checked_in_example_snapshots_all_effective_instruments():
+  """Keep cleanup changes from altering resolved runtime settings."""
+  actual = serialize_manifest_bytes(
+    build_resolved_runtime_manifest(config_file=str(_CONFIG))
+  )
+  assert actual == _EXAMPLE_MANIFEST.read_bytes()
 
 
 def test_changed_trading_value_changes_fingerprint(monkeypatch):
