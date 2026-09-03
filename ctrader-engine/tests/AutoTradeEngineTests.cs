@@ -4842,7 +4842,14 @@ public sealed partial class AutoTradeEngineTests
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
-    var client = new FakeTradingClient { PositionCloseReasonToReturn = reason };
+    var executionPrice = reason == PositionCloseReason.StopLossOrTakeProfit
+      ? 3994.2m
+      : 4009.35m;
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = reason,
+      PositionCloseExecutionPriceToReturn = executionPrice,
+    };
     var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
@@ -4872,13 +4879,12 @@ public sealed partial class AutoTradeEngineTests
     Assert.NotEqual(0, client.PositionCloseOpenedAtTimestamps.Single());
     if (reason == PositionCloseReason.StopLossOrTakeProfit)
     {
-      // Confirmed SL with no deal fill still books against the protective stop.
-      Assert.Equal(client.StopAmendments.Single().StopLoss, closed.Price);
+      Assert.Equal(executionPrice, closed.Price);
     }
     else
     {
-      // Manual close with no deal fill must not invent the stop as the exit.
-      Assert.Equal(4000.0m, closed.Price);
+      // Manual close uses the broker deal, never the current quote or stop.
+      Assert.Equal(executionPrice, closed.Price);
       Assert.NotEqual(client.StopAmendments.Single().StopLoss, closed.Price);
       Assert.Contains("pips", closed.Message);
       Assert.NotNull(closed.GroupRealizedPips);
@@ -4972,7 +4978,7 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task UnknownWithoutRecoveredExitKeepsAmbiguousMessage()
+  public async Task MissingCloseFillWaitsForBrokerExecutionPrice()
   {
     // Deal-list timeout / Unknown with no execution price must NOT promote
     // to SL/TP just because pip accounting fell back to CurrentStopLoss.
@@ -5001,12 +5007,23 @@ public sealed partial class AutoTradeEngineTests
     );
     await Task.Delay(50, cts.Token);
     now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_close_execution_price_pending")
+    );
+
+    // A quote observed after the close is not a close price. Keep the state
+    // pending instead of publishing a misleading P/L card.
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+    Assert.Contains(positionId, store.Positions.Keys);
+
+    client.PositionCloseExecutionPriceToReturn = 4009.35m;
+    now = now.AddSeconds(16);
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
     Assert.Null(closed.ReasonCode);
     Assert.Contains("unconfirmed", closed.Message);
-    Assert.Equal(4000.0m, closed.Price);
+    Assert.Equal(4009.35m, closed.Price);
     Assert.NotEqual(stop, closed.Price);
     Assert.Contains("pips", closed.Message);
     Assert.NotNull(closed.GroupRealizedPips);
@@ -5016,12 +5033,11 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
-  public async Task UnknownLiveQuoteBeyondProtectiveStopBooksStopNotSweep()
+  public async Task MissingCloseFillWaitsForActualSlippageInsteadOfUsingQuote()
   {
-    // Live dig 2026-08-25 XAU manual #5: deal window missed the SL fill;
-    // live bid printed the post-stop sweep and journaled -109 on a 60-pip
-    // stop. With no recovered deal price, a live quote past the protective
-    // stop must promote to SL/TP and book the stop itself.
+    // A live quote can move far beyond the stop before reconciliation. The
+    // close card must wait for the broker deal and retain the actual stop
+    // slippage, rather than inventing either the quote or exact stop price.
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     var now = Now;
     var store = new FakeAutoTradeStore(CandidateJson());
@@ -5041,8 +5057,8 @@ public sealed partial class AutoTradeEngineTests
     var stop = client.StopAmendments.Single().StopLoss;
     Assert.True(stop < 4000.0m);
 
-    // Sweep continues well below the protective stop after the position
-    // has already vanished from the broker snapshot.
+    // Sweep continues well below the protective stop after the position has
+    // already vanished from the broker snapshot.
     await engine.ObserveSpotAsync(
       new SpotPrice("XAU", stop - 7.0m, stop - 6.8m, now.ToUnixTimeSeconds()),
       cts.Token
@@ -5054,18 +5070,27 @@ public sealed partial class AutoTradeEngineTests
     );
     await Task.Delay(50, cts.Token);
     now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_close_execution_price_pending")
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+
+    var brokerFill = stop - 0.12m;
+    client.PositionCloseReasonToReturn = PositionCloseReason.StopLossOrTakeProfit;
+    client.PositionCloseExecutionPriceToReturn = brokerFill;
+    now = now.AddSeconds(16);
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
     Assert.Equal("stop_loss_or_take_profit", closed.ReasonCode);
     Assert.Contains("stop loss / take profit", closed.Message);
     Assert.DoesNotContain("unconfirmed", closed.Message);
-    Assert.Equal(stop, closed.Price);
+    Assert.Equal(brokerFill, closed.Price);
     Assert.NotEqual(stop - 7.0m, closed.Price);
     Assert.NotNull(closed.GroupRealizedPips);
     Assert.True(closed.GroupRealizedPips < 0m);
-    // Must not inflate past the protective-stop distance from entry.
-    var maxLossPips = Math.Abs(4000.2m - stop) / 0.1m + 1m;
+    // Actual broker slippage may exceed the configured stop by a little.
+    var maxLossPips = Math.Abs(4000.2m - stop) / 0.1m + 2m;
     Assert.True(Math.Abs(closed.GroupRealizedPips.Value) <= maxLossPips);
 
     cts.Cancel();
@@ -6880,7 +6905,9 @@ public sealed partial class AutoTradeEngineTests
     public int? FailCancelCall { get; init; }
     public PositionCloseReason PositionCloseReasonToReturn { get; set; } =
       PositionCloseReason.Unknown;
-    public decimal? PositionCloseExecutionPriceToReturn { get; set; }
+    // By default the fake broker history returns a real closing deal. Tests
+    // that exercise delayed history explicitly set this to null first.
+    public decimal? PositionCloseExecutionPriceToReturn { get; set; } = 4000.2m;
     public decimal CloseExecutionPriceToReturn { get; set; } = 4013.2m;
     public List<long> PositionCloseReasonLookups { get; } = [];
     public List<long> PositionCloseOpenedAtTimestamps { get; } = [];
