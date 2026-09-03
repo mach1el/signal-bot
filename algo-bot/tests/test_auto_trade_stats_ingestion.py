@@ -10,6 +10,38 @@ from app.signals.reports import build_stats
 
 
 @pytest.mark.asyncio
+async def test_terminal_result_inherits_setup_from_labelled_fill(sql):
+  """Regression for the Aug 6-14 result rows that lost their fill label."""
+  await store.init_db()
+  gid = "v6:terminal-result-setup"
+  await store.record_auto_trade_event({
+    "type": "opened",
+    "timestamp": 10,
+    "position_id": 99000,
+    "group_id": gid,
+    "candidate_id": gid,
+    "stream": "algo_auto",
+    "symbol": "XAU",
+    "setup": "Flip Zone",
+    "direction": "BUY",
+    "price": 4050.0,
+    "stop_loss": 4045.0,
+    "volume": 800,
+  })
+  await store.record_auto_trade_event({
+    "type": "group_result",
+    "timestamp": 20,
+    "position_id": 99000,
+    "group_id": gid,
+    "group_realized_pips": 35.0,
+  })
+
+  assert await sql.val(
+    "SELECT setup_type FROM auto_trade_results WHERE group_id = $1", gid,
+  ) == "Flip Zone"
+
+
+@pytest.mark.asyncio
 async def test_no_tp_archived_without_price_records_stop_distance_loss():
   """Bare 'no TP archived' closes used to vanish from /trade_stats."""
   await store.init_db()
