@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `36e0a6912b1022fcd26b7db86e23edfd0f9788c253fdb45cd80886ef248deec5`
-- Document fingerprint: `e32edfd7fa4e952fc882d70ea918ef0ef612112a1e12520afe6c4569def114ae`
-- Items: `561`
+- Contract fingerprint: `d9fc5a863b579b9bbf3ec96a21f0043b78a791c286daa645e6d8f91041b48b60`
+- Document fingerprint: `6a60fc8fc4538b3077fccc782d924494c7a778a3b1d20b0afe2991e52a03ffbb`
+- Items: `566`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -67,6 +67,11 @@
 | `analysis.breakout.accept_bars` | `BREAKOUT_ACCEPT_BARS` | `int` | `bars` | `configurable` | `2` |
 | `analysis.breakout.buffer_atr` | `BREAKOUT_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
 | `analysis.breakout.max_age_bars` | `BREAKOUT_MAX_AGE_BARS` | `int` | `bars` | `configurable` | `6` |
+| `analysis.confluence.scoring_version` | `CONFLUENCE_SCORING_VERSION` | `str` | `enum` | `configurable` | `"v1"` |
+| `analysis.confluence.v2_mad_score_weight` | `CONFLUENCE_V2_MAD_WEIGHT` | `float` | `score` | `configurable` | `2.0` |
+| `analysis.confluence.v2_star_three_ratio` | `CONFLUENCE_V2_STAR_THREE_RATIO` | `float` | `ratio` | `configurable` | `0.585` |
+| `analysis.confluence.v2_star_two_ratio` | `CONFLUENCE_V2_STAR_TWO_RATIO` | `float` | `ratio` | `configurable` | `0.39` |
+| `analysis.confluence.v2_zone_quality_weight` | `CONFLUENCE_V2_ZONE_QUALITY_WEIGHT` | `float` | `score` | `configurable` | `4.0` |
 | `analysis.detectors.reaction.maximum_distance_atr` | `—` | `float` | `atr` | `algorithm_constant` | `1.0` |
 | `analysis.detectors.scoring.coil` | `—` | `float` | `score` | `algorithm_constant` | `1.5` |
 | `analysis.detectors.star_thresholds.three` | `—` | `float` | `score` | `algorithm_constant` | `12.0` |

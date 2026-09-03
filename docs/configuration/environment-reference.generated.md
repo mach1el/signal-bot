@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `36e0a6912b1022fcd26b7db86e23edfd0f9788c253fdb45cd80886ef248deec5`
-- Environment-bound fields: `494`
+- Contract fingerprint: `d9fc5a863b579b9bbf3ec96a21f0043b78a791c286daa645e6d8f91041b48b60`
+- Environment-bound fields: `499`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -257,7 +257,12 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `CHOP_LOOKBACK` | `analysis.regime.chop.lookback` | `int` | no | no | — | `24` |
 | `CHOP_RANGE_ATR` | `analysis.regime.chop.range_atr` | `float` | no | no | — | `4.0` |
 | `COIL_CONTRACT` | `analysis.measurements.coil_contract` | `float` | no | no | — | `0.8` |
+| `CONFLUENCE_SCORING_VERSION` | `analysis.confluence.scoring_version` | `str` | no | no | — | `v1` |
 | `CONFLUENCE_TECHNIQUE_BONUS_SCORE` | `analysis.zones.confluence.technique_bonus_score` | `float` | no | no | — | `2.5` |
+| `CONFLUENCE_V2_MAD_WEIGHT` | `analysis.confluence.v2_mad_score_weight` | `float` | no | no | — | `2.0` |
+| `CONFLUENCE_V2_STAR_THREE_RATIO` | `analysis.confluence.v2_star_three_ratio` | `float` | no | no | — | `0.585` |
+| `CONFLUENCE_V2_STAR_TWO_RATIO` | `analysis.confluence.v2_star_two_ratio` | `float` | no | no | — | `0.39` |
+| `CONFLUENCE_V2_ZONE_QUALITY_WEIGHT` | `analysis.confluence.v2_zone_quality_weight` | `float` | no | no | — | `4.0` |
 | `CONTESTED_CORRIDOR_GAP_ATR` | `actionability.contested_corridor.gap_atr` | `float` | no | no | — | `0.5` |
 | `CTRADER_ACCESS_TOKEN` | `bootstrap.ctrader.credentials.access_token` | `string` | yes | no | — | `<redacted>` |
 | `CTRADER_ACCOUNT_ID` | `bootstrap.ctrader.credentials.account_id` | `long` | no | no | — | `<required>` |
