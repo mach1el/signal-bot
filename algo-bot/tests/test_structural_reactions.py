@@ -188,7 +188,6 @@ def test_live_registry_matches_detector_settings_defaults():
     "session_level_reaction",
     "trendline_reaction",
     "range_edge_scalp",
-    "trend_pullback",
     "momentum_ride",
     "snap_back",
     "fade_scalp",
@@ -216,7 +215,6 @@ def test_disabled_registry_entries_all_have_a_replay_only_reason():
 def test_build_default_detectors_honors_settings_not_just_defaults():
   all_on = detectors.DetectorSettings(
     box_breakout_enabled=True,
-    trend_pullback_enabled=True,
     break_retest_enabled=True,
     momentum_ride_enabled=True,
     snap_back_enabled=True,
@@ -242,7 +240,6 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     "trendline_reaction",
     "range_edge_scalp",
     "box_breakout",
-    "trend_pullback",
     "break_retest",
     "momentum_ride",
     "snap_back",
@@ -257,7 +254,6 @@ def test_build_default_detectors_honors_settings_not_just_defaults():
     session_level_reaction_enabled=False,
     trendline_reaction_enabled=False,
     range_scalp_enabled=False,
-    trend_pullback_enabled=False,
     momentum_ride_enabled=False,
     snap_back_enabled=False,
     fade_scalp_enabled=False,
