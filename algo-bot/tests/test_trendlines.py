@@ -470,7 +470,7 @@ def test_structural_agreement_for_reclaim_and_choch():
 def test_different_confirmation_types_change_confluence_score(monkeypatch):
   df = _buy_rejection_df()
   line = _tl("support", (0, 2, 4), 0.0, 105.0, 3, False, None)
-  scores: dict[str, int] = {}
+  raw_scores: dict[str, float] = {}
 
   for confirmation_type in (CONFIRM_WICK_REJECTION, CONFIRM_REJECTION_CHOCH):
     monkeypatch.setattr(
@@ -481,9 +481,9 @@ def test_different_confirmation_types_change_confluence_score(monkeypatch):
     )
     result = trendline_reaction(_tl_ctx(df, line, bias="up"))
     assert result is not None
-    scores[confirmation_type] = result.confluence
+    raw_scores[confirmation_type] = result.confluence_v2_raw or 0.0
 
-  assert scores[CONFIRM_WICK_REJECTION] != scores[CONFIRM_REJECTION_CHOCH]
+  assert raw_scores[CONFIRM_WICK_REJECTION] != raw_scores[CONFIRM_REJECTION_CHOCH]
   assert _raw_factor_score(_mapped_factors(CONFIRM_WICK_REJECTION)) != (
     _raw_factor_score(_mapped_factors(CONFIRM_REJECTION_CHOCH))
   )
