@@ -453,8 +453,7 @@ public sealed class TradePlanExecutionEngineTests
   [Fact]
   public void CalculateVolumeScalesEquityTableByRiskMultiplier()
   {
-    // Owner: scalp stamps risk_multiplier=2 → 2× equity-table lots when
-    // equity is at/above $2k. Stop geometry is unchanged; volume only.
+    // A caller-provided multiplier still scales equity-table volume.
     var plan = MarketWatchPlan() with
     {
       Risk = new TradePlanRisk(1.0m, 2.0m, 100_000, 2.0m),
@@ -466,6 +465,23 @@ public sealed class TradePlanExecutionEngineTests
 
     // LotsForEquity(2500)=0.15 → ×2 = 0.30 lots → 3000 volume units.
     Assert.Equal(3_000, result.TotalVolume);
+    Assert.Empty(result.Slices);
+  }
+
+  [Fact]
+  public void CalculateVolumeUsesOnePointFiveScalpBoostAtOrAboveTwoThousandEquity()
+  {
+    var plan = MarketWatchPlan() with
+    {
+      Risk = new TradePlanRisk(1.0m, 1.5m, 100_000, 2.0m),
+    };
+
+    var result = TradePlanExecutionEngine.CalculateVolume(
+      plan, Account(2_500m), pipSize: 0.1m, pipValuePerLot: 10m, symbol: Symbol
+    );
+
+    // LotsForEquity(2500)=0.15 → ×1.5 = 0.225, rounded to 0.23 lots.
+    Assert.Equal(2_300, result.TotalVolume);
     Assert.Empty(result.Slices);
   }
 
