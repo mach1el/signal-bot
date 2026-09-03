@@ -136,6 +136,46 @@ def test_tier_rendering_hides_public_id():
 
 
 @pytest.mark.no_database
+def test_manual_entry_card_shows_canonical_setup_and_confluence():
+  signal = {
+    "daily_seq": 7,
+    "symbol": "XAU",
+    "action": "BUY",
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 1990.0,
+    "tps": [2010.0],
+    "setup_type": "key-level",
+    "confluence": 2,
+  }
+
+  vip = broadcast.render_entry(signal, "vip")
+  public = broadcast.render_entry(signal, "public")
+
+  assert "🏷 Setup:  <b>Key Level Reaction</b>  ⭐⭐" in vip
+  assert "🏷 Setup:  <b>Key Level Reaction</b>  ⭐⭐" in public
+  assert "#7" not in public
+
+
+@pytest.mark.no_database
+def test_manual_entry_card_preserves_unknown_setup_label_safely():
+  signal = {
+    "daily_seq": 7,
+    "symbol": "XAU",
+    "action": "BUY",
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 1990.0,
+    "tps": [2010.0],
+    "setup_type": "Custom <setup>",
+  }
+
+  card = broadcast.render_entry(signal, "vip")
+
+  assert "🏷 Setup:  <b>Custom &lt;setup&gt;</b>" in card
+
+
+@pytest.mark.no_database
 def test_fx_manual_algo_entry_card_uses_entry_price_not_zone(monkeypatch):
   from tests.test_config_effective_instrument_context import _load_production_example
 
