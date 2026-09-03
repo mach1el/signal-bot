@@ -417,10 +417,10 @@ def test_fx_auto_reaction_books_pack_volume_multiplier():
     pip_size=0.0001,
     cfg=cfg,
   )
-  # May reject on room/geometry; when allowed, pack must not stack onto 2.0.
+  # May reject on room/geometry; scalps use the standalone 1.5× multiplier.
   if scalp.allowed:
     assert scalp.measured["instrument_volume_multiplier"] == pytest.approx(1.0)
-    assert scalp.measured["effective_risk_multiplier"] == pytest.approx(2.0)
+    assert scalp.measured["effective_risk_multiplier"] == pytest.approx(1.5)
 
 
 def test_fx_fixed_rr_builds_one_r_two_r_with_breakeven():
