@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `d9fc5a863b579b9bbf3ec96a21f0043b78a791c286daa645e6d8f91041b48b60`
-- Document fingerprint: `6a60fc8fc4538b3077fccc782d924494c7a778a3b1d20b0afe2991e52a03ffbb`
-- Items: `566`
+- Contract fingerprint: `2d2146a4c50ede784894cdec04f5252c58d2e961da818fb80f95bb7507813275`
+- Document fingerprint: `e1a5d5402217c31e1f3079bc5a2fbb8b2d4549f950c2e14045e0323462c1d847`
+- Items: `571`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -84,6 +84,9 @@
 | `analysis.fibonacci.deep_premium` | `FIBONACCI_DEEP_PREMIUM` | `float` | `fraction` | `configurable` | `0.618` |
 | `analysis.fibonacci.enabled` | `FIBONACCI_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `analysis.fibonacci.epsilon_atr` | `FIBONACCI_EPSILON_ATR` | `float` | `atr` | `configurable` | `0.15` |
+| `analysis.flip_zone.accept_bars` | `FLIP_ZONE_ACCEPT_BARS` | `Optional[int]` | `bars` | `configurable` | `null` |
+| `analysis.flip_zone.band_body_fraction` | `FLIP_ZONE_BAND_BODY_FRACTION` | `float` | `fraction` | `configurable` | `0.5` |
+| `analysis.flip_zone.max_break_age_bars` | `FLIP_ZONE_MAX_BREAK_AGE_BARS` | `int` | `bars` | `configurable` | `48` |
 | `analysis.levels.equal_tol_atr` | `EQUAL_TOL_ATR` | `float` | `atr` | `configurable` | `0.15` |
 | `analysis.levels.level_cluster_atr` | `LEVEL_CLUSTER_ATR` | `float` | `atr` | `configurable` | `0.5` |
 | `analysis.levels.minimum_key_touches` | `KEY_LEVEL_MIN_TOUCHES` | `int` | `count` | `configurable` | `2` |
@@ -470,7 +473,7 @@
 | `risk.sizing.mode` | `AUTO_TRADE_SIZING_MODE` | `str` | `enum` | `configurable` | `"equity_table"` |
 | `risk.sizing.one_sided_range_risk_multiplier` | `AUTO_TRADE_ONE_SIDED_RANGE_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `0.5` |
 | `risk.sizing.post_impulse_risk_multiplier` | `AUTO_TRADE_POST_IMPULSE_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `0.5` |
-| `risk.sizing.range_max_risk_multiplier` | `AUTO_TRADE_RANGE_MAX_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `2.0` |
+| `risk.sizing.range_max_risk_multiplier` | `AUTO_TRADE_RANGE_MAX_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.5` |
 | `risk.sizing.risk_pct` | `AUTO_TRADE_RISK_PCT` | `decimal` | `percent` | `configurable` | `"2"` |
 | `risk.tiers.a_multiplier` | `AUTO_TRADE_TIER_A_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.0` |
 | `risk.tiers.b_multiplier` | `AUTO_TRADE_TIER_B_RISK_MULTIPLIER` | `float` | `multiplier` | `configurable` | `1.0` |
@@ -595,10 +598,13 @@
 | `strategies.scalping.risk.maximum_session_trades` | `SCALPING_MAXIMUM_SESSION_TRADES` | `int` | `count` | `configurable` | `12` |
 | `strategies.scalping.risk.mode` | `SCALPING_RISK_MODE` | `str` | `enum` | `configurable` | `"live"` |
 | `strategies.scalping.risk.risk_fraction_per_trade` | `SCALPING_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
+| `strategies.scalping.risk.risk_percent_per_trade` | `SCALPING_RISK_PERCENT_PER_TRADE` | `float` | `percent` | `configurable` | `0.5` |
 | `strategies.scalping.risk.session_loss_limit_r` | `SCALPING_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
+| `strategies.scalping.risk.sizing_mode` | `SCALPING_SIZING_MODE` | `str` | `enum` | `configurable` | `"risk"` |
 | `strategies.scalping.stop.buffer_atr` | `SCALPING_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
 | `strategies.scalping.stop.maximum_pips` | `SCALPING_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `strategies.scalping.stop.minimum_pips` | `SCALPING_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
+| `strategies.scalping.stop.minimum_stop_spread_multiple` | `SCALPING_MINIMUM_STOP_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `4.0` |
 | `strategies.scalping.target.minimum_net_target_pips` | `SCALPING_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
 | `strategies.scalping.target.preferred_ladder_pips` | `SCALPING_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |
 | `strategies.selection.box_breakout_enabled` | `AUTO_TRADE_BOX_BREAKOUT_ENABLED` | `bool` | `boolean` | `configurable` | `false` |
@@ -628,7 +634,6 @@
 | `strategies.trend.level_buffer_atr` | `TREND_LEVEL_BUFFER_ATR` | `float` | `atr` | `configurable` | `1.0` |
 | `strategies.trend.min_height_atr` | `TREND_MIN_HEIGHT_ATR` | `float` | `atr` | `configurable` | `3.0` |
 | `strategies.trend.minimum_bos` | `TREND_MIN_BOS` | `int` | `count` | `configurable` | `2` |
-| `strategies.trend.pullback_enabled` | `AUTO_TRADE_TREND_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.zone.demand.enabled` | `AUTO_TRADE_DEMAND_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.zone.enabled` | `AUTO_TRADE_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.zone.flip.enabled` | `AUTO_TRADE_FLIP_ZONE_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
