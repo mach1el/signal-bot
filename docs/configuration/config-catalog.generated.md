@@ -3,9 +3,9 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `2d2146a4c50ede784894cdec04f5252c58d2e961da818fb80f95bb7507813275`
-- Document fingerprint: `e1a5d5402217c31e1f3079bc5a2fbb8b2d4549f950c2e14045e0323462c1d847`
-- Items: `571`
+- Contract fingerprint: `8183266e1dd5f12b9a6ef4bee626fa5d8bc02cd6c20db94e6c41eb51cdf811ab`
+- Document fingerprint: `80512b571eb592b03e829ec6a3437b6ec5d3569627b487558abd09e202a63c1d`
+- Items: `579`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
 ## actionability
@@ -566,8 +566,12 @@
 | `strategies.scalping.activation.rearm_distance_atr` | `SCALPING_REARM_DISTANCE_ATR` | `float` | `atr` | `configurable` | `0.25` |
 | `strategies.scalping.activation.trigger_maximum_age_bars` | `SCALPING_TRIGGER_MAXIMUM_AGE_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.scalping.archetypes.breakout_retest_enabled` | `SCALPING_BREAKOUT_RETEST_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.archetypes.impulse_body_dominance` | `SCALPING_IMPULSE_BODY_DOMINANCE` | `float` | `fraction` | `configurable` | `0.5` |
+| `strategies.scalping.archetypes.impulse_displacement_atr_multiple` | `SCALPING_IMPULSE_DISPLACEMENT_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `4.0` |
 | `strategies.scalping.archetypes.impulse_pullback_allowed_sessions` | `SCALPING_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `str` | `string` | `configurable` | `"london"` |
 | `strategies.scalping.archetypes.impulse_pullback_enabled` | `SCALPING_IMPULSE_PULLBACK_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
+| `strategies.scalping.archetypes.pullback_corrective_ratio` | `SCALPING_PULLBACK_CORRECTIVE_RATIO` | `float` | `fraction` | `configurable` | `0.7` |
+| `strategies.scalping.archetypes.pullback_extreme_confirm_bars` | `SCALPING_PULLBACK_EXTREME_CONFIRM_BARS` | `int` | `bars` | `configurable` | `2` |
 | `strategies.scalping.archetypes.range_sweep_enabled` | `SCALPING_RANGE_SWEEP_ENABLED` | `bool` | `boolean` | `configurable` | `true` |
 | `strategies.scalping.breakout.box_max_atr` | `SCALPING_BREAKOUT_BOX_MAX_ATR` | `float` | `atr` | `configurable` | `1.5` |
 | `strategies.scalping.breakout.max_box_bars` | `SCALPING_BREAKOUT_MAX_BOX_BARS` | `int` | `bars` | `configurable` | `20` |
@@ -581,6 +585,7 @@
 | `strategies.scalping.context.historic_context_ttl_seconds` | `SCALPING_HISTORIC_CONTEXT_TTL_SECONDS` | `int` | `seconds` | `configurable` | `86400` |
 | `strategies.scalping.context.m1_lookback_bars` | `SCALPING_M1_LOOKBACK_BARS` | `int` | `bars` | `configurable` | `60` |
 | `strategies.scalping.context.maximum_m5_age_seconds` | `SCALPING_MAXIMUM_M5_AGE_SECONDS` | `int` | `seconds` | `configurable` | `420` |
+| `strategies.scalping.location.level_proximity_atr_multiple` | `SCALPING_LEVEL_PROXIMITY_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.0` |
 | `strategies.scalping.location.pullback_buy_maximum_position` | `SCALPING_PULLBACK_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.6` |
 | `strategies.scalping.location.pullback_sell_minimum_position` | `SCALPING_PULLBACK_SELL_MIN_POSITION` | `float` | `fraction` | `configurable` | `0.4` |
 | `strategies.scalping.location.range_buy_maximum_position` | `SCALPING_RANGE_BUY_MAX_POSITION` | `float` | `fraction` | `configurable` | `0.35` |
@@ -602,9 +607,12 @@
 | `strategies.scalping.risk.session_loss_limit_r` | `SCALPING_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
 | `strategies.scalping.risk.sizing_mode` | `SCALPING_SIZING_MODE` | `str` | `enum` | `configurable` | `"risk"` |
 | `strategies.scalping.stop.buffer_atr` | `SCALPING_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
+| `strategies.scalping.stop.buffer_m1_atr_multiple` | `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.2` |
+| `strategies.scalping.stop.buffer_minimum_spread_multiple` | `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `1.5` |
 | `strategies.scalping.stop.maximum_pips` | `SCALPING_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
 | `strategies.scalping.stop.minimum_pips` | `SCALPING_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
 | `strategies.scalping.stop.minimum_stop_spread_multiple` | `SCALPING_MINIMUM_STOP_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `4.0` |
+| `strategies.scalping.stop.zone_maximum_atr_multiple` | `SCALPING_STOP_ZONE_MAXIMUM_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.5` |
 | `strategies.scalping.target.minimum_net_target_pips` | `SCALPING_MINIMUM_NET_TARGET_PIPS` | `float` | `pips` | `configurable` | `15.0` |
 | `strategies.scalping.target.preferred_ladder_pips` | `SCALPING_PREFERRED_LADDER_PIPS` | `str` | `string` | `configurable` | `"20,25,30"` |
 | `strategies.selection.box_breakout_enabled` | `AUTO_TRADE_BOX_BREAKOUT_ENABLED` | `bool` | `boolean` | `configurable` | `false` |

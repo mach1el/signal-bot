@@ -44,13 +44,13 @@ pytestmark = pytest.mark.no_database
 
 
 BASELINE = {
-  "entries": 546,
-  "configurable": 479,
+  "entries": 579,
+  "configurable": 512,
   "protocol": 10,
   "algorithm": 57,
-  "owners": {"python": 401, "shared": 96, "ctrader": 49},
-  "projection": 497,
-  "env": 479,
+  "owners": {"python": 434, "shared": 96, "ctrader": 49},
+  "projection": 530,
+  "env": 512,
   "deprecated_aliases": 21,
 }
 
@@ -58,6 +58,7 @@ BASELINE = {
 # Historical leaf_types still list them; skip rather than rewriting history.
 _INTENTIONAL_POST_V1_REMOVED_PATHS = frozenset({
   "analysis.measurements.regime_chop_alert_share",
+  "strategies.trend.pullback_enabled",
 })
 
 
@@ -321,6 +322,9 @@ _INTENTIONAL_POST_V1_DEFAULT_CHANGES = {
   "execution.stops.reaction.room_floor_pips",
   "execution.zone_scaling.first_leg_fraction",
   "risk.tiers.b_multiplier",
+  # The range risk cap was reduced to the current conservative value after
+  # the v1 parity snapshot was frozen.
+  "risk.sizing.range_max_risk_multiplier",
   # 12 Aug 2026 HFS quality dig: Impulse bleed on late chase / wide stops /
   # mid-range location; tighten chase and pullback location gates.
   "strategies.scalping.activation.maximum_chase_pips",
