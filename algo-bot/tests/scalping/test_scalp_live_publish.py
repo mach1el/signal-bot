@@ -254,7 +254,10 @@ def test_build_scalp_1to2_trade_plan_moves_sl_to_be_after_tp1():
   ]
   assert plan.management.be_after_target_id == "TP1"
   assert plan.sizing is not None
-  assert plan.sizing.mode == "risk"
+  # Owner 2026-09-04: scalp now sizes off the same equity_table lot as any
+  # other trade by default; risk_percent still tracks the configured
+  # per-trade budget even though "risk" mode no longer consumes it.
+  assert plan.sizing.mode == "equity_table"
   assert plan.risk.risk_percent == Decimal("0.5")
 
 
@@ -303,11 +306,26 @@ def test_scalping_risk_percent_is_bounded_and_unambiguous():
   from app.configuration.models.strategies import StrategiesScalpingRiskConfig
 
   assert StrategiesScalpingRiskConfig().risk_percent_per_trade == 0.5
-  assert StrategiesScalpingRiskConfig().sizing_mode == "risk"
+  # Owner 2026-09-04: scalp now defaults to the same equity_table lot as
+  # any other trade; "risk" (the risk-percent-of-stop-distance formula)
+  # remains a selectable mode, just no longer the default.
+  assert StrategiesScalpingRiskConfig().sizing_mode == "equity_table"
   with pytest.raises(ValueError):
     StrategiesScalpingRiskConfig(risk_percent_per_trade=0.001)
   with pytest.raises(ValueError):
     StrategiesScalpingRiskConfig(risk_percent_per_trade=10)
+
+
+def test_scalping_sizing_mode_allows_both_documented_values():
+  from app.configuration.models.strategies import StrategiesScalpingRiskConfig
+
+  assert StrategiesScalpingRiskConfig(sizing_mode="risk").sizing_mode == "risk"
+  assert (
+    StrategiesScalpingRiskConfig(sizing_mode="equity_table").sizing_mode
+    == "equity_table"
+  )
+  with pytest.raises(ValueError):
+    StrategiesScalpingRiskConfig(sizing_mode="turbo")
 
 
 def test_build_scalp_strategy_match_carries_execution_eligibility():
