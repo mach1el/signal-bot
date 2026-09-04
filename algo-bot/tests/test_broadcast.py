@@ -284,7 +284,7 @@ def test_partial_close_uses_clear_pips_without_at_sign():
 
   text = trade_ops.render_result(result, "XAU", "public")
 
-  assert text == "🎯 booked 50% · +100 pips 💸 · remaining 50%"
+  assert text == "🎯 +100 pips 💸"
   assert "@" not in text
 
 
@@ -303,10 +303,10 @@ def test_partial_close_with_tp_number_labels_which_target_was_hit():
   }
 
   assert trade_ops.render_result(result, "XAU", "vip") == (
-    "🎯 #7 TP1 booked 25% · +37 pips 💸 · remaining 75%"
+    "🎯 #7 TP1 +37 pips 💸"
   )
   assert trade_ops.render_result(result, "XAU", "public") == (
-    "🎯 TP1 booked 25% · +37 pips 💸 · remaining 75%"
+    "🎯 TP1 +37 pips 💸"
   )
 
 
