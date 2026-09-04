@@ -915,6 +915,73 @@ async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
+async def test_manual_tp_reached_is_notify_only(monkeypatch):
+  notify = AsyncMock(return_value={
+    "action": "tp_reached",
+    "ok": True,
+    "sid": 7,
+    "seq": 7,
+    "tp_number": 4,
+    "pips": 130,
+  })
+  post = AsyncMock()
+  monkeypatch.setattr("app.signals.trade_ops.do_tp_reached", notify)
+  monkeypatch.setattr("app.signals.trade_ops.post_result", post)
+  sig = {
+    "id": 7,
+    "action": "SELL",
+    "symbol": "XAU",
+    "entry": 4100.0,
+    "entry_end": 4105.0,
+    "sl": 4110.0,
+    "tps": [4097.0, 4094.0, 4090.0, 4087.0, 4080.0],
+  }
+  monkeypatch.setattr(manual_execution, "get_manual_signal", AsyncMock(return_value=sig))
+  monkeypatch.setattr(
+    manual_execution,
+    "get_signal_by_execution_intent_id",
+    AsyncMock(return_value=sig),
+  )
+
+  await manual_execution._handle_event(
+    None,
+    {
+      "type": "manual_tp_reached",
+      "stream": "algo_manual",
+      "candidate_id": "manual:7:0",
+      "position_id": 555,
+      "target_pips": 130,
+    },
+    {555: 7},
+  )
+
+  notify.assert_awaited_once_with({
+    "sid": 7,
+    "symbol": "XAU",
+    "tp_number": 4,
+    "pips": 130,
+  })
+  post.assert_awaited_once()
+
+
+@pytest.mark.no_database
+def test_trade_result_renders_unbooked_tp_as_reached():
+  from app.signals import trade_ops
+
+  rendered = trade_ops.render_result({
+    "action": "tp_reached",
+    "ok": True,
+    "seq": 7,
+    "tp_number": 4,
+    "pips": 130,
+  }, "XAU")
+
+  assert "TP4 reached" in rendered
+  assert "no volume booked" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_handle_event_sl_moved_is_treated_as_stop_moved(monkeypatch):
   execute = AsyncMock()
   post = AsyncMock()
@@ -1112,6 +1179,122 @@ async def test_handle_event_group_result_keeps_peak_tp_not_shallow_blend(
   text = send.call_args.args[0]
   assert "+160" in text
   assert "achieved +160" in text
+
+
+@pytest.mark.asyncio
+async def test_final_close_declutters_interim_replies_and_shows_realized_rr(
+  monkeypatch,
+):
+  """On the terminal close, every interim TP/reached/SL reply this signal
+  accumulated during its life gets deleted and replaced by one summary
+  reply on the root card carrying the realized R, instead of leaving a
+  dozen scattered bubbles behind.
+  """
+  import re
+
+  from app.signals import trade_ops
+
+  send = _mock_send(monkeypatch)
+  deleted = AsyncMock()
+  monkeypatch.setattr(trade_ops, "delete_posts", deleted)
+  sid = await _algo_signal(
+    tps=[4095.0, 4090.0, 4080.0, 4070.0, 4050.0],
+  )
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+
+  # TP1 books for real (a genuine partial close).
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit", "position_id": 555, "price": 4095.0,
+      "target_pips": 50, "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  # TP3 is reached but never booked (no leg's own ladder owns it).
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "manual_tp_reached", "position_id": 555,
+      "target_pips": 200, "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  deleted.assert_not_awaited()
+  send.reset_mock()
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "group_result",
+      "position_id": 555,
+      "candidate_id": f"manual:{sid}:0",
+      "group_realized_pips": 160,
+    },
+    positions,
+  )
+
+  deleted.assert_awaited_once()
+  assert len(deleted.await_args.args[0]) == 2
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "closed" in text
+  assert re.search(r"[+-]\d+\.\dR", text)
+
+
+@pytest.mark.asyncio
+async def test_realized_rr_uses_the_booking_legs_own_entry_price(monkeypatch):
+  """``leg_entry_price`` on a real take_profit event must flow all the way
+  through to the terminal close summary's R, not the advertised entry
+  zone - a multi-leg group's actual fills routinely differ from it.
+  """
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()  # SELL entry=4100/4105, sl=original_sl=4110
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+
+  # TP1 (tps[0]=4095.0 -> 50p) books with a real leg fill of 4098.0 -
+  # inside the advertised 4100-4105 zone, but not its 4102.5 midpoint.
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit", "position_id": 555, "price": 4095.0,
+      "target_pips": 50, "candidate_id": f"manual:{sid}:0",
+      "leg_realized_pips": 30, "leg_entry_price": 4098.0,
+    },
+    positions,
+  )
+  row = await store.get_manual_signal(sid)
+  assert row["legs"][0]["entry_price"] == 4098.0
+  send.reset_mock()
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "group_result",
+      "position_id": 555,
+      "candidate_id": f"manual:{sid}:0",
+      "group_realized_pips": 30,
+      # Same physical leg 555 - AutoTradeEngine.cs always carries its own
+      # EntryPrice on this event too (see PublishAsync call sites).
+      "leg_entry_price": 4098.0,
+    },
+    positions,
+  )
+
+  # _resolve_group_close_pips takes the runner-pips high-water mark (the
+  # TP1 target level, 50) over the raw group_realized_pips (30) here, so
+  # the achieved net is 50 - filled at the same leg's 4098.0. Risk against
+  # original_sl 4110.0 = |4098-4110| = 12.0 price = 120 pips (XAU pip 0.1)
+  # -> 50/120 = +0.4R. The zone-midpoint calc (4102.5) would give a
+  # different, wrong number.
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "+50 pips" in text
+  assert "+0.4R" in text
 
 
 @pytest.mark.asyncio
