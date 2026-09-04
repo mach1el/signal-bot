@@ -99,6 +99,31 @@ def test_build_scalp_strategy_match_is_valid():
   assert _valid_match(match)
 
 
+def test_build_scalp_strategy_match_computes_real_bias_relationship():
+  """Live 2026-08-25: card display hardcoded strategy_mode='scalp_m1'
+  always rendered as counter-trend regardless of true bias. bias_relationship
+  is now computed from real HTF bias + direction (like structural setups),
+  without touching strategy_mode - other code keys on that literal value
+  for scalp-family classification and trade-plan building.
+  """
+  from dataclasses import replace
+
+  aligned_ctx = replace(_ctx(), htf_bias="up")
+  match = build_scalp_strategy_match(
+    _opp(), aligned_ctx, bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.direction == "BUY"
+  assert match.bias_relationship == "with_bias"
+  assert match.strategy_mode == "scalp_m1"
+
+  opposed_ctx = replace(_ctx(), htf_bias="down")
+  match = build_scalp_strategy_match(
+    _opp(), opposed_ctx, bar_ts=120, quote_bid=4001.0, quote_ask=4002.0,
+  )
+  assert match.bias_relationship == "counter_bias"
+  assert match.strategy_mode == "scalp_m1"
+
+
 def test_build_scalp_strategy_match_sell_uses_invalidation_exactly():
   from dataclasses import replace
 

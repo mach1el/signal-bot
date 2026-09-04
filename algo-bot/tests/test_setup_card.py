@@ -1061,6 +1061,7 @@ def _strategy_match_for_card(setup_id: str = "setup-publish-card") -> object:
     expires_at=1_785_503_400,
     strategy="Key Level Reaction",
     strategy_mode="with_bias",
+    bias_relationship="with_bias",
     direction="BUY",
     key_level=4050.68,
     entry_low=4048.73,
@@ -1078,6 +1079,60 @@ def _strategy_match_for_card(setup_id: str = "setup-publish-card") -> object:
     reaction_type="sweep_reclaim",
     htf_bias="up (H1)",
   )
+
+
+def test_root_card_shows_unified_with_bias_line():
+  match = _strategy_match_for_card("setup-with-bias")
+  text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
+  assert "🧭 <b>Bias:</b> with bias" in text
+  assert "Mode:" not in text
+
+
+def test_root_card_shows_unified_counter_bias_line():
+  from dataclasses import replace
+
+  match = replace(
+    _strategy_match_for_card("setup-counter-bias"),
+    bias_relationship="counter_bias",
+  )
+  text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
+  assert "⚠️ <b>Bias:</b> counter bias" in text
+  assert "Mode:" not in text
+  assert "counter swing" not in text
+  assert "Counter-trend" not in text
+
+
+def test_root_card_omits_bias_line_when_relationship_unknown():
+  from dataclasses import replace
+
+  match = replace(
+    _strategy_match_for_card("setup-neutral-bias"),
+    bias_relationship=None,
+  )
+  text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
+  assert "Bias:" not in text
+  assert "Mode:" not in text
+
+
+def test_root_card_scalp_match_shows_real_bias_not_hardcoded_mode():
+  """Live 2026-08-25: HFS scalp cards hardcoded strategy_mode='scalp_m1',
+  which always rendered as 'Mode: Counter-trend - counter swing' regardless
+  of true bias. bias_relationship is now a separate, correctly-computed
+  field so scalp cards show the same unified Bias: line structural cards do.
+  """
+  from dataclasses import replace
+
+  match = replace(
+    _strategy_match_for_card("setup-scalp-bias"),
+    strategy="Breakout Retest Scalp",
+    strategy_mode="scalp_m1",
+    bias_relationship="with_bias",
+    structural_source="scalp",
+  )
+  text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
+  assert "🧭 <b>Bias:</b> with bias" in text
+  assert "Counter-trend" not in text
+  assert "Mode:" not in text
 
 
 def test_fx_root_card_uses_instrument_price_digits(monkeypatch):
