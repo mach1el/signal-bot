@@ -224,6 +224,66 @@ def test_tier_rendering_hides_public_id():
 
 
 @pytest.mark.no_database
+def test_render_entry_pins_tp_r_multiples_to_original_sl_not_trailed_stop():
+  """Live 2026-09-04: editing the pinned card after a stop trail re-ran
+  this with the now-current (near-BE) sl. R = TP-distance / risk, so as a
+  trailed stop shrinks risk toward zero every TP's R blows up (a 343.8R
+  line went out live on a real XAU SELL). Each TP's R must stay pinned to
+  the ORIGINAL risk - same convention _achieved_rr already uses for the
+  close line - while the SL/risk display itself still tracks the live
+  trail.
+  """
+  # XAU SELL 4420-4425 (entry_reference from rr_entry - the wider edge),
+  # original stop 4428 (risk 8 from that edge), now trailed to 4420.16.
+  signal = {
+    "daily_seq": 10,
+    "symbol": "XAU",
+    "action": "SELL",
+    "entry": 4420.0,
+    "entry_end": 4425.0,
+    "sl": 4420.16,
+    "original_sl": 4428.0,
+    "tps": [4414.0, 4407.0, 4398.0, 4384.0, 4365.0],
+  }
+
+  card = broadcast.render_entry(signal, "vip")
+
+  assert "SL:     <b>4,420.16</b>" in card
+  assert "risk <b>0.16</b>" in card
+  entry_reference = broadcast.rr_entry(signal)
+  original_risk = abs(entry_reference - 4428.0)
+  for tp in signal["tps"]:
+    assert broadcast._rr(tp, entry_reference, original_risk) in card
+  # The bug this guards: with the live (near-zero) risk instead, TP1 alone
+  # would have rendered as roughly 37R - assert that never appears.
+  assert "343.8R" not in card
+  assert "37.5R" not in card
+
+
+@pytest.mark.no_database
+def test_render_entry_falls_back_to_current_sl_when_never_trailed():
+  """A signal that hasn't trailed yet has no original_sl - must fall back
+  to the live sl so a first-post card (sl == the real original) is
+  unaffected by this fix.
+  """
+  signal = {
+    "daily_seq": 10,
+    "symbol": "XAU",
+    "action": "SELL",
+    "entry": 4420.0,
+    "entry_end": 4425.0,
+    "sl": 4428.0,
+    "tps": [4414.0],
+  }
+
+  card = broadcast.render_entry(signal, "vip")
+  entry_reference = broadcast.rr_entry(signal)
+  risk = abs(entry_reference - 4428.0)
+
+  assert broadcast._rr(4414.0, entry_reference, risk) in card
+
+
+@pytest.mark.no_database
 def test_manual_entry_card_shows_canonical_setup_and_confluence():
   signal = {
     "daily_seq": 7,
