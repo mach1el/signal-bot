@@ -310,6 +310,47 @@ def test_partial_close_with_tp_number_labels_which_target_was_hit():
   )
 
 
+def test_achieved_rr_matches_reports_realized_r_convention():
+  # Entry 2000-2002 (midpoint 2001), original_sl 1990 - risk = 110 pips.
+  # +220 pips achieved is exactly 2R.
+  sig = {
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 1994.0,
+    "original_sl": 1990.0,
+    "symbol": "XAU",
+  }
+
+  assert trade_ops._achieved_rr(sig, 220) == "+2.0R"
+  assert trade_ops._achieved_rr(sig, -55) == "-0.5R"
+
+
+def test_achieved_rr_uses_original_sl_not_a_trailed_stop():
+  # sl has since trailed to break-even (2001) - risk must stay pinned to
+  # original_sl, or a trailed stop would inflate R toward infinity.
+  sig = {
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 2001.0,
+    "original_sl": 1990.0,
+    "symbol": "XAU",
+  }
+
+  assert trade_ops._achieved_rr(sig, 220) == "+2.0R"
+
+
+def test_achieved_rr_falls_back_to_sl_when_original_sl_missing():
+  sig = {"entry": 2000.0, "entry_end": 2002.0, "sl": 1990.0, "symbol": "XAU"}
+
+  assert trade_ops._achieved_rr(sig, 220) == "+2.0R"
+
+
+def test_achieved_rr_none_when_risk_is_zero():
+  sig = {"entry": 2000.0, "entry_end": 2002.0, "sl": 2001.0, "symbol": "XAU"}
+
+  assert trade_ops._achieved_rr(sig, 0) is None
+
+
 def test_final_close_with_tp_number_labels_which_target_closed_it(monkeypatch):
   install_runtime_overrides(monkeypatch, legacy_overrides={"public_show_pips": True})
   result = {

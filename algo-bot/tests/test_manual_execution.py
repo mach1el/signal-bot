@@ -1182,6 +1182,69 @@ async def test_handle_event_group_result_keeps_peak_tp_not_shallow_blend(
 
 
 @pytest.mark.asyncio
+async def test_final_close_declutters_interim_replies_and_shows_realized_rr(
+  monkeypatch,
+):
+  """On the terminal close, every interim TP/reached/SL reply this signal
+  accumulated during its life gets deleted and replaced by one summary
+  reply on the root card carrying the realized R, instead of leaving a
+  dozen scattered bubbles behind.
+  """
+  import re
+
+  from app.signals import trade_ops
+
+  send = _mock_send(monkeypatch)
+  deleted = AsyncMock()
+  monkeypatch.setattr(trade_ops, "delete_posts", deleted)
+  sid = await _algo_signal(
+    tps=[4095.0, 4090.0, 4080.0, 4070.0, 4050.0],
+  )
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+
+  # TP1 books for real (a genuine partial close).
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit", "position_id": 555, "price": 4095.0,
+      "target_pips": 50, "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  # TP3 is reached but never booked (no leg's own ladder owns it).
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "manual_tp_reached", "position_id": 555,
+      "target_pips": 200, "candidate_id": f"manual:{sid}:0",
+    },
+    positions,
+  )
+  deleted.assert_not_awaited()
+  send.reset_mock()
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "group_result",
+      "position_id": 555,
+      "candidate_id": f"manual:{sid}:0",
+      "group_realized_pips": 160,
+    },
+    positions,
+  )
+
+  deleted.assert_awaited_once()
+  assert len(deleted.await_args.args[0]) == 2
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "closed" in text
+  assert re.search(r"[+-]\d+\.\dR", text)
+
+
+@pytest.mark.asyncio
 async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_broker_fill(
   monkeypatch,
 ):
