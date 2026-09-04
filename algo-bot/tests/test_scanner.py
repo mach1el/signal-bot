@@ -702,7 +702,10 @@ def test_range_scalp_alert_is_two_sided_and_keeps_target_reasons():
 
   text = scanner._format_detection("XAU", "M5", ctx, result, ["M30"])
 
-  assert "RANGE SCALP" in text
+  # Owner 2026-08-25: card no longer carries a Mode: line at all - the
+  # header only ever shows a unified with_bias/counter_bias Bias: line.
+  assert "Mode:" not in text
+  assert "RANGE SCALP" not in text
   assert "COUNTER-TREND" not in text
   assert "TP1 EQ 4105" in text
   assert "TP2 edge 4100" in text
