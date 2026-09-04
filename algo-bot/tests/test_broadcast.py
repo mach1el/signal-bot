@@ -351,6 +351,43 @@ def test_achieved_rr_none_when_risk_is_zero():
   assert trade_ops._achieved_rr(sig, 0) is None
 
 
+def test_achieved_rr_prefers_the_deep_legs_own_entry_over_the_zone():
+  # Zone 4100-4105 (midpoint 4102.5) would give a materially different,
+  # wrong risk (7.5 price = 75 pips) if used - the deep leg that actually
+  # achieved this signal's peak pips (120) filled at 4098.0, well outside
+  # the advertised zone. Risk must be measured from THAT leg's own entry:
+  # |4098.0 - 4110.0| = 12.0 price = 120 pips -> 120/120 = 1.0R exactly.
+  sig = {
+    "entry": 4100.0,
+    "entry_end": 4105.0,
+    "sl": 4106.0,
+    "original_sl": 4110.0,
+    "symbol": "XAU",
+    "legs": [
+      {"frac": 0.5, "pips": 30, "entry_price": 4101.0},
+      {"frac": 0.5, "pips": 120, "entry_price": 4098.0},
+    ],
+  }
+
+  assert trade_ops._achieved_rr(sig, 120) == "+1.0R"
+
+
+def test_achieved_rr_falls_back_to_zone_when_no_leg_carries_entry_price():
+  # An older signal's legs predate entry_price - must not crash, and must
+  # fall back to the zone-midpoint convention rather than silently using
+  # an absent value.
+  sig = {
+    "entry": 2000.0,
+    "entry_end": 2002.0,
+    "sl": 1994.0,
+    "original_sl": 1990.0,
+    "symbol": "XAU",
+    "legs": [{"frac": 1.0, "pips": 220, "ts": 1}],
+  }
+
+  assert trade_ops._achieved_rr(sig, 220) == "+2.0R"
+
+
 def test_final_close_with_tp_number_labels_which_target_closed_it(monkeypatch):
   install_runtime_overrides(monkeypatch, legacy_overrides={"public_show_pips": True})
   result = {

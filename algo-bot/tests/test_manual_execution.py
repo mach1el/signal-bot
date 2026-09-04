@@ -1245,6 +1245,59 @@ async def test_final_close_declutters_interim_replies_and_shows_realized_rr(
 
 
 @pytest.mark.asyncio
+async def test_realized_rr_uses_the_booking_legs_own_entry_price(monkeypatch):
+  """``leg_entry_price`` on a real take_profit event must flow all the way
+  through to the terminal close summary's R, not the advertised entry
+  zone - a multi-leg group's actual fills routinely differ from it.
+  """
+  send = _mock_send(monkeypatch)
+  sid = await _algo_signal()  # SELL entry=4100/4105, sl=original_sl=4110
+  await store.set_execution_fill(sid, broker_position_id=555, broker_fill_price=4100.0)
+  client = redis_state.get_client()
+  positions = {555: sid}
+
+  # TP1 (tps[0]=4095.0 -> 50p) books with a real leg fill of 4098.0 -
+  # inside the advertised 4100-4105 zone, but not its 4102.5 midpoint.
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "take_profit", "position_id": 555, "price": 4095.0,
+      "target_pips": 50, "candidate_id": f"manual:{sid}:0",
+      "leg_realized_pips": 30, "leg_entry_price": 4098.0,
+    },
+    positions,
+  )
+  row = await store.get_manual_signal(sid)
+  assert row["legs"][0]["entry_price"] == 4098.0
+  send.reset_mock()
+
+  await manual_execution._handle_event(
+    client,
+    {
+      "type": "group_result",
+      "position_id": 555,
+      "candidate_id": f"manual:{sid}:0",
+      "group_realized_pips": 30,
+      # Same physical leg 555 - AutoTradeEngine.cs always carries its own
+      # EntryPrice on this event too (see PublishAsync call sites).
+      "leg_entry_price": 4098.0,
+    },
+    positions,
+  )
+
+  # _resolve_group_close_pips takes the runner-pips high-water mark (the
+  # TP1 target level, 50) over the raw group_realized_pips (30) here, so
+  # the achieved net is 50 - filled at the same leg's 4098.0. Risk against
+  # original_sl 4110.0 = |4098-4110| = 12.0 price = 120 pips (XAU pip 0.1)
+  # -> 50/120 = +0.4R. The zone-midpoint calc (4102.5) would give a
+  # different, wrong number.
+  send.assert_awaited_once()
+  text = send.await_args.args[0]
+  assert "+50 pips" in text
+  assert "+0.4R" in text
+
+
+@pytest.mark.asyncio
 async def test_handle_event_position_closed_partial_close_uses_leg_fields_not_broker_fill(
   monkeypatch,
 ):
