@@ -115,7 +115,7 @@ async def test_order_filled_waits_for_a_root_card_still_mid_send(monkeypatch):
   # Live 2026-08-11: order_filled sent standalone (no reply_to) because its
   # own setup's root card was still mid-send (Telegram flood-control
   # stretched a single edit/send to 17s+) - the owner saw a disconnected
-  # ORDER FILLED bubble with no thread to its POSITION ACTIVATED card.
+  # ORDER FILLED bubble with no thread to its ORDER ACTIVATED card.
   # Reply resolution must poll for the card instead of giving up on the
   # first empty lookup.
   client = redis_state.get_client()
@@ -250,10 +250,10 @@ async def test_mark_forming_card_position_activated_rewrites_head_and_stop(
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
   lines = card["text"].splitlines()
-  assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
-  # The header alone carries the POSITION ACTIVATED text now - the status
+  assert lines[0] == "✅ <b>ORDER ACTIVATED · XAU M5</b>"
+  # The header alone carries the ORDER ACTIVATED text now - the status
   # slot beneath it collapses to invisible instead of repeating it.
-  assert card["text"].count("POSITION ACTIVATED") == 1
+  assert card["text"].count("ORDER ACTIVATED") == 1
   assert "• <b>Stop:</b> <b>3,395.50</b>" in card["text"]
   assert "SL</b>" not in card["text"]
 
@@ -307,7 +307,7 @@ async def test_order_filled_rewrites_waiting_fill_root(monkeypatch):
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
   assert "WAITING FILL" not in card["text"]
-  assert "POSITION ACTIVATED" in card["text"]
+  assert "ORDER ACTIVATED" in card["text"]
   assert not await client.sismember(setup_card.FORMING_ACTIVE_INDEX_KEY, match_id)
 
 
@@ -465,7 +465,7 @@ async def test_order_filled_creates_root_when_publish_never_posted(monkeypatch):
   card = await setup_card.load_forming_card(client, match_id)
   assert card is not None
   assert card["message_id"] == 6100
-  assert "POSITION ACTIVATED" in card["text"]
+  assert "ORDER ACTIVATED" in card["text"]
   assert replies
   assert replies[0][1].get("reply_to") == 6100
   assert "ORDER FILLED" in replies[0][0]

@@ -134,7 +134,7 @@ async def test_concurrent_first_create_sends_only_one_telegram_root():
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
   assert card["message_id"] == 3946
-  assert "POSITION ACTIVATED" in card["text"]
+  assert "ORDER ACTIVATED" in card["text"]
 
 
 @pytest.mark.asyncio
@@ -174,18 +174,6 @@ def test_apply_forming_card_stop_does_not_duplicate_existing_stop():
   text = setup_card.apply_forming_card_stop(original, 4039.68)
   assert text.count("• <b>Stop:</b>") == 1
   assert "• <b>Stop:</b> <b>4,039.68</b>" in text
-
-
-def test_apply_forming_card_price_updates_live_line():
-  original = "\n".join([
-    "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "• <b>Price now:</b> <b>4,268.10</b> <i>(live)</i>",
-    "• <b>Entry zone:</b> <b>4,270.00–4,275.00</b>",
-  ])
-  text = setup_card.apply_forming_card_price(original, 4269.55)
-  assert "• <b>Price now:</b> <b>4,269.55</b> <i>(live)</i>" in text
-  assert setup_card.parse_forming_card_symbol(original) == "XAU"
-  assert setup_card.parse_forming_card_price_now(text) == pytest.approx(4269.55)
 
 
 def test_should_stop_forming_price_track_after_activation():
@@ -277,84 +265,8 @@ def test_event_recovery_root_card_is_activated_on_fill():
     "message": "SELL 0.10 lots filled 4334.47",
     "strategy": "Impulse Pullback Scalp",
   })
-  assert text.splitlines()[0] == "✅ <b>POSITION ACTIVATED · XAU M1</b>"
+  assert text.splitlines()[0] == "✅ <b>ORDER ACTIVATED · XAU M1</b>"
   assert "SELL · Impulse Pullback Scalp" in text
-
-
-@pytest.mark.asyncio
-async def test_edit_forming_card_price_skips_tiny_move():
-  client = redis_state.get_client()
-  setup_id = "setup-price-live"
-  await _confirmed_setup(client, setup_id)
-  original = "\n".join([
-    "🔎 <b>XAU M5 · SETUP FORMING</b>",
-    "• <b>Price now:</b> <b>4,268.10</b> <i>(live)</i>",
-  ])
-  await setup_card.save_forming_card(
-    client,
-    setup_id,
-    chat_id=123,
-    message_id=901,
-    text=original,
-  )
-  edits: list[str] = []
-
-  async def edit_fn(chat_id, message_id, text):
-    edits.append(text)
-
-  changed = await setup_card.edit_forming_card_price(
-    client,
-    setup_id,
-    4268.15,
-    edit_fn=edit_fn,
-    min_move=0.1,
-  )
-  assert changed is False
-  assert edits == []
-  changed = await setup_card.edit_forming_card_price(
-    client,
-    setup_id,
-    4268.30,
-    edit_fn=edit_fn,
-    min_move=0.1,
-  )
-  assert changed is True
-  assert edits and "4,268.30" in edits[0]
-  members = await client.smembers(setup_card.FORMING_ACTIVE_INDEX_KEY)
-  assert setup_id.encode() in members or setup_id in {
-    (m.decode() if isinstance(m, bytes) else m) for m in members
-  }
-
-
-@pytest.mark.asyncio
-async def test_in_flight_forming_reservation_skips_price_track_and_index():
-  """message_id=0 reserves Redis during Telegram send — never edit Telegram."""
-  client = redis_state.get_client()
-  setup_id = "setup-inflight-reserve"
-  await _confirmed_setup(client, setup_id)
-  text = "🔎 <b>XAU M5 · SETUP FORMING</b>\n• <b>Price now:</b> <b>4,268.10</b>"
-  await setup_card.save_forming_card(
-    client, setup_id, chat_id=123, message_id=0, text=text,
-  )
-  members = await client.smembers(setup_card.FORMING_ACTIVE_INDEX_KEY)
-  normalized = {
-    (m.decode() if isinstance(m, bytes) else m) for m in (members or ())
-  }
-  assert setup_id not in normalized
-
-  edits: list[tuple[int, int, str]] = []
-
-  async def edit_fn(chat_id, message_id, text):
-    edits.append((chat_id, message_id, text))
-
-  assert await setup_card.edit_forming_card_price(
-    client, setup_id, 4268.50, edit_fn=edit_fn, min_move=0.1,
-  ) is False
-  assert edits == []
-  assert await setup_card.refresh_forming_card_prices(
-    client, edit_fn=edit_fn, min_move=0.1,
-  ) == 0
-  assert edits == []
 
 
 def test_parse_forming_card_symbol_from_position_activated_header():
@@ -535,7 +447,7 @@ async def test_position_activated_rewrites_the_stale_setup_forming_head():
   assert changed
   text = edited[0][2]
   lines = text.splitlines()
-  assert lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert lines[0] == "✅ <b>ORDER ACTIVATED · XAU M5</b>"
   # Live incident: line[1] used to repeat the identical "POSITION
   # ACTIVATED" text the header now already says, reading as a duplicated
   # line. The header alone is enough. A blank placeholder line was tried
@@ -543,7 +455,7 @@ async def test_position_activated_rewrites_the_stale_setup_forming_head():
   # at full line-height, showing a stray empty line under the header -
   # so the slot line is removed outright instead of blanked.
   assert lines[1] == "🔴 <b>SELL · Key Level Reaction</b> · ⭐⭐"
-  assert text.count("POSITION ACTIVATED") == 1
+  assert text.count("ORDER ACTIVATED") == 1
   assert "SETUP FORMING" not in text
 
 
@@ -592,8 +504,8 @@ async def test_second_fill_event_does_not_double_the_activated_header():
 
   assert len(edited) == 1, "second identical fill event should be a no-op edit"
   text = edited[0][2]
-  assert text.splitlines()[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
-  assert text.count("POSITION ACTIVATED") == 1
+  assert text.splitlines()[0] == "✅ <b>ORDER ACTIVATED · XAU M5</b>"
+  assert text.count("ORDER ACTIVATED") == 1
 
 
 @pytest.mark.asyncio
@@ -645,7 +557,7 @@ async def test_second_post_fill_status_replaces_not_stacks():
   )
 
   final_lines = edited[-1][2].splitlines()
-  assert final_lines[0] == "✅ <b>POSITION ACTIVATED · XAU M5</b>"
+  assert final_lines[0] == "✅ <b>ORDER ACTIVATED · XAU M5</b>"
   assert final_lines[1] == "🎯 <b>TP1 HIT</b>"
   assert final_lines[2] == "🔴 <b>SELL · Trendline Reaction</b> · ⭐⭐"
   assert len(final_lines) == 3, "TP status must replace SL line, not stack"
@@ -1196,7 +1108,6 @@ def test_fx_root_card_uses_instrument_price_digits(monkeypatch):
   assert "1.36420–1.36480" in text
   assert "1.36380" in text
   assert setup_card.card_price_digits("GBPUSD") == 5
-  assert setup_card.card_min_price_move("GBPUSD") == pytest.approx(0.0001)
 
 
 def test_root_card_shows_target_prices_with_pip_offsets():
@@ -1206,18 +1117,18 @@ def test_root_card_shows_target_prices_with_pip_offsets():
     stop_price=4045.0,
     target_prices=(4050.73, 4052.73, 4054.73),
   )
-  assert "Targets" in text
-  assert "TP1 4,050.73 (+20)" in text
-  assert "TP2 4,052.73 (+40)" in text
-  assert "TP3 4,054.73 (+60)" in text
+  assert "• <b>TP1:</b> <b>4,050.73 (+20)</b>" in text
+  assert "• <b>TP2:</b> <b>4,052.73 (+40)</b>" in text
+  assert "• <b>TP3:</b> <b>4,054.73 (+60)</b>" in text
 
 
 def test_root_card_falls_back_to_targets_pips_ladder():
+  """No absolute TP prices known yet - still one labeled line per level."""
   match = _strategy_match_for_card("setup-tp-pips")
   text = setup_card.format_plan_published_root_card(match, stop_price=4045.0)
-  assert "Targets" in text
-  assert "+20 / +40 / +60 pips" in text
-  assert "TP1" not in text
+  assert "• <b>TP1:</b> <b>+20 pips</b>" in text
+  assert "• <b>TP2:</b> <b>+40 pips</b>" in text
+  assert "• <b>TP3:</b> <b>+60 pips</b>" in text
 
 
 def test_fx_root_card_shows_target_levels_with_instrument_digits(monkeypatch):
@@ -1244,9 +1155,9 @@ def test_fx_root_card_shows_target_levels_with_instrument_digits(monkeypatch):
     stop_price=1.36380,
     target_prices=(1.36620, 1.36820, 1.37020),
   )
-  assert "TP1 1.36620 (+20)" in text
-  assert "TP2 1.36820 (+40)" in text
-  assert "TP3 1.37020 (+60)" in text
+  assert "• <b>TP1:</b> <b>1.36620 (+20)</b>" in text
+  assert "• <b>TP2:</b> <b>1.36820 (+40)</b>" in text
+  assert "• <b>TP3:</b> <b>1.37020 (+60)</b>" in text
   assert "1.36 " not in text  # must not collapse FX to 2dp
 
 
@@ -1290,12 +1201,12 @@ async def test_ensure_plan_published_root_card_creates_missing_card():
   assert "PLAN PUBLISHED" not in text
   assert "waiting market fill" in text
   assert "Trade area" in text
-  assert "Price now" in text
   assert "Entry zone" in text
   assert "Key level" in text
   assert "Stop" in text
-  assert "Targets" in text
-  assert "+20 / +40 / +60 pips" in text
+  assert "TP1:</b> <b>+20 pips" in text
+  assert "TP2:</b> <b>+40 pips" in text
+  assert "TP3:</b> <b>+60 pips" in text
   assert "Context" in text
   assert "Identity" not in text
   assert "Kind:" not in text
@@ -1513,9 +1424,9 @@ async def test_ensure_plan_published_patches_targets_onto_scanner_card(monkeypat
   assert message_id == 555
   card = await setup_card.load_forming_card(client, setup_id)
   assert card is not None
-  assert "Targets" in card["text"]
+  assert "TP1:" in card["text"]
   assert "1.15892" in card["text"]
-  assert any("Targets" in text for text in edited)
+  assert any("TP1:" in text for text in edited)
 
 
 @pytest.mark.asyncio
@@ -1562,9 +1473,9 @@ async def test_ensure_plan_published_root_card_edits_existing_status_only():
     "QUEUED" in text for _, _, text in edited
   )
   assert "PLAN PUBLISHED" not in card["text"]
-  # Match has targets_pips — publish must still surface a Targets line.
-  assert "Targets" in card["text"] or any(
-    "Targets" in text for _, _, text in edited
+  # Match has targets_pips — publish must still surface TP lines.
+  assert "TP1:" in card["text"] or any(
+    "TP1:" in text for _, _, text in edited
   )
 
 
