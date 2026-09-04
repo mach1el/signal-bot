@@ -6666,6 +6666,150 @@ public sealed partial class AutoTradeEngineTests
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
   }
 
+  [Fact]
+  public async Task ReconcilesOrphanedGroupPlanFilledAndClosedDuringRestartGap()
+  {
+    // Owner-reported 2026-09-04: two real manual /algo signals filled AND
+    // stopped out while a redeploy had this engine mid-restart - the
+    // previous instance never got the chance to publish the fill/close
+    // events, and nothing before this fix could ever discover what
+    // happened. A still-persisted AutoTradeGroupPlan with no _states entry
+    // and no live position/pending order for its ClientOrderIds is exactly
+    // that gap - the startup scan must recover it from broker history.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    const long positionId = 555_001;
+    var client = new FakeTradingClient();
+    client.HistoricalOrders.Add(new HistoricalOrderMatch(
+      "av-orphan-leg1", Filled: true, positionId, Symbol.SymbolId, ExecutedVolume: 100
+    ));
+    client.ClosingDealsByPosition[positionId] =
+    [
+      new ClosingDeal(
+        EntryPrice: 4000.0m, ExitPrice: 3990.0m, ClosedVolume: 100, ExecutionTimestamp: 900_000
+      ),
+    ];
+    await store.SaveGroupPlanAsync(
+      new AutoTradeGroupPlan(
+        CandidateId: "manual:900:0",
+        GroupId: "manual:900",
+        MatchId: null,
+        StrategyFamily: "manual",
+        RangeId: null,
+        Setup: "Confluence Zone",
+        Direction: "SELL",
+        CreatedAt: 900,
+        ClientOrderIds: ["av-orphan-leg1"],
+        SubmittedAt: 900
+      ),
+      TimeSpan.FromDays(1),
+      cts.Token
+    );
+
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    engine.BindInstrumentSymbols([Symbol]);
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "group_result");
+
+    var reconciled = Assert.Single(
+      store.Events, item => item.Type == "group_result" && item.GroupId == "manual:900"
+    );
+    Assert.Equal("manual:900:0", reconciled.CandidateId);
+    Assert.Equal(100m, reconciled.GroupRealizedPips);
+    Assert.Equal(100, reconciled.GroupInitialVolume);
+    Assert.Equal(4000.0m, reconciled.LegEntryPrice);
+    Assert.Equal("SELL", reconciled.Direction);
+    Assert.Equal("orphaned_group_plan_reconciled", reconciled.ReasonCode);
+    Assert.False(store.Values.ContainsKey("auto_trade:group_plan:manual:900"));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task LeavesOrphanCandidatePlanAloneWhenBrokerNeverFilledIt()
+  {
+    // A plan whose legs never reached the broker's history at all (still
+    // genuinely pending, or cancelled/expired/rejected) must not be
+    // guessed at - no event, and the plan stays for a later restart's scan.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    // No HistoricalOrders seeded - FindHistoricalOrdersAsync reports nothing.
+    await store.SaveGroupPlanAsync(
+      new AutoTradeGroupPlan(
+        CandidateId: "manual:901:0",
+        GroupId: "manual:901",
+        MatchId: null,
+        StrategyFamily: "manual",
+        RangeId: null,
+        Setup: "Confluence Zone",
+        Direction: "SELL",
+        CreatedAt: 900,
+        ClientOrderIds: ["av-never-filled"],
+        SubmittedAt: 900
+      ),
+      TimeSpan.FromDays(1),
+      cts.Token
+    );
+
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    Assert.DoesNotContain(store.Events, item => item.Type == "group_result");
+    Assert.True(store.Values.ContainsKey("auto_trade:group_plan:manual:901"));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task SkipsGroupPlanWhoseLegIsStillOpenRightNow()
+  {
+    // A leg still currently open belongs to the existing broker-position
+    // self-adoption path, not this scan - investigating it here would
+    // duplicate (or race) that path instead of deferring to it.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient();
+    client.SeedPosition(new TradingPosition(
+      555_002, Symbol.SymbolId, TradeDirection.Sell, 100, 4000.0m, 4010.0m,
+      "apexvoid-auto", "manual:902", "av-still-open"
+    ));
+    // Even though history also shows it filled+"closed", the live snapshot
+    // is authoritative - this must never fire from stale/duplicate history.
+    client.HistoricalOrders.Add(new HistoricalOrderMatch(
+      "av-still-open", Filled: true, 555_002, Symbol.SymbolId, ExecutedVolume: 100
+    ));
+    await store.SaveGroupPlanAsync(
+      new AutoTradeGroupPlan(
+        CandidateId: "manual:902:0",
+        GroupId: "manual:902",
+        MatchId: null,
+        StrategyFamily: "manual",
+        RangeId: null,
+        Setup: "Confluence Zone",
+        Direction: "SELL",
+        CreatedAt: 900,
+        ClientOrderIds: ["av-still-open"],
+        SubmittedAt: 900
+      ),
+      TimeSpan.FromDays(1),
+      cts.Token
+    );
+
+    var engine = new AutoTradeEngine(Options(), store, () => Now, _ => { });
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    Assert.DoesNotContain(store.Events, item => item.Type == "group_result");
+    Assert.True(store.Values.ContainsKey("auto_trade:group_plan:manual:902"));
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
   private static string? LifecycleStateFor(
     FakeAutoTradeStore store,
     string owner
@@ -7310,6 +7454,33 @@ public sealed partial class AutoTradeEngineTests
         PendingOrders.ToArray()
       );
     }
+
+    // Test-seeded broker "history" for ReconcileOrphanedGroupPlansAsync -
+    // real orders/deals the test wants FindHistoricalOrdersAsync /
+    // GetClosingDealsAsync to report, independent of the live _positions /
+    // PendingOrders snapshot above (which only models what is open right
+    // now, never what already closed).
+    public List<HistoricalOrderMatch> HistoricalOrders { get; } = [];
+    public Dictionary<long, List<ClosingDeal>> ClosingDealsByPosition { get; } = [];
+
+    public Task<IReadOnlyList<HistoricalOrderMatch>> FindHistoricalOrdersAsync(
+      long fromTimestampMs,
+      long toTimestampMs,
+      CancellationToken cancellationToken
+    ) => Task.FromResult<IReadOnlyList<HistoricalOrderMatch>>(
+      HistoricalOrders.ToArray()
+    );
+
+    public Task<IReadOnlyList<ClosingDeal>> GetClosingDealsAsync(
+      long positionId,
+      long fromTimestampMs,
+      long toTimestampMs,
+      CancellationToken cancellationToken
+    ) => Task.FromResult<IReadOnlyList<ClosingDeal>>(
+      ClosingDealsByPosition.TryGetValue(positionId, out var deals)
+        ? deals.ToArray()
+        : []
+    );
 
     public async Task<TradeExecution> PlaceMarketOrderAsync(
       MarketOrderRequest order,
@@ -8133,6 +8304,7 @@ public sealed partial class AutoTradeEngineTests
     ) => Task.FromResult(
       Values.TryGetValue(key, out var value) ? value : null
     );
+    private readonly HashSet<string> _groupPlanIds = [];
     public Task SaveGroupPlanAsync(
       AutoTradeGroupPlan plan,
       TimeSpan ttl,
@@ -8145,6 +8317,7 @@ public sealed partial class AutoTradeEngineTests
         RedisJsonContext.Default.AutoTradeGroupPlan
       );
       ValueTtls[key] = ttl;
+      _groupPlanIds.Add(plan.GroupId);
       return Task.CompletedTask;
     }
     public Task DeleteGroupPlanAsync(
@@ -8155,8 +8328,12 @@ public sealed partial class AutoTradeEngineTests
       var key = $"auto_trade:group_plan:{groupId}";
       Values.Remove(key);
       ValueTtls.Remove(key);
+      _groupPlanIds.Remove(groupId);
       return Task.CompletedTask;
     }
+    public Task<IReadOnlyList<string>> GetGroupPlanIdsAsync(
+      CancellationToken cancellationToken
+    ) => Task.FromResult<IReadOnlyList<string>>(_groupPlanIds.ToArray());
     public Task RecordLifecycleEventAsync(
       AutoTradeEvent tradeEvent,
       CancellationToken cancellationToken
