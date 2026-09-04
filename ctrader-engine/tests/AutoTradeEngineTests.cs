@@ -5098,6 +5098,117 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task MissingCloseFillFallsBackAfterBoundedWaitAndFinalizesState()
+  {
+    // A missing deal history must not leave a filled position permanently
+    // open. The fallback is the last protective stop, explicitly marked
+    // unconfirmed, never a later live quote.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      PositionCloseExecutionPriceToReturn = null,
+    };
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 4000.0m, 4000.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await store.Ordered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var positionId = client.StopAmendments.Single().PositionId;
+    var stop = client.StopAmendments.Single().StopLoss;
+
+    client.RemovePosition(positionId);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_close_execution_price_pending")
+    );
+    Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
+
+    now = now.AddSeconds(AutoTradeEngine.CloseHistoryMaxWaitSeconds + 1);
+    await WaitForEventAsync(store, "position_closed");
+
+    var closed = store.Events.Single(item => item.Type == "position_closed");
+    Assert.Equal(stop, closed.Price);
+    Assert.Null(closed.ReasonCode);
+    Assert.Contains("reason unconfirmed", closed.Message);
+    Assert.Contains(
+      "position_close_execution_price_fallback",
+      store.MetricsSnapshot()
+    );
+    Assert.DoesNotContain(positionId, store.Positions.Keys);
+    Assert.DoesNotContain(positionId, store.PositionMissing.Keys);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
+  public async Task MissingCloseHistoryDoesNotBlockAnotherMissingPosition()
+  {
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var now = Now;
+    var store = new FakeAutoTradeStore(CandidateJson());
+    var client = new FakeTradingClient
+    {
+      PositionCloseReasonToReturn = PositionCloseReason.Unknown,
+      PositionCloseExecutionPriceToReturn = null,
+    };
+    client.PositionCloseLookupOverrides[92] = new PositionCloseLookup(
+      PositionCloseReason.ManualOrExternalOrder,
+      4001.2m
+    );
+    client.SeedPosition(new TradingPosition(
+      91, Symbol.SymbolId, TradeDirection.Buy, 400, 4000.2m, 3993.7m,
+      Options().Label,
+      "av3|aaaaaaaaaa|aaaaaaaaaa|1|400|400|30|1|1000"
+    ));
+    client.SeedPosition(new TradingPosition(
+      92, Symbol.SymbolId, TradeDirection.Buy, 400, 4001.2m, 3994.7m,
+      Options().Label,
+      "av3|bbbbbbbbbb|bbbbbbbbbb|1|400|400|30|1|1000"
+    ));
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitUntilAsync(() => store.Positions.Count == 2);
+
+    client.RemovePosition(91);
+    client.RemovePosition(92);
+    now = Now.AddSeconds(16);
+    await WaitUntilAsync(() =>
+      store.MetricsSnapshot().Contains("position_missing_snapshot_suspected")
+    );
+    await Task.Delay(50, cts.Token);
+    now = now.AddSeconds(16);
+    await WaitForEventAsync(store, "position_closed");
+
+    var secondClosed = Assert.Single(
+      store.Events,
+      item => item.Type == "position_closed" && item.PositionId == 92
+    );
+    Assert.Equal(4001.2m, secondClosed.Price);
+    Assert.Equal("manual_or_external_close", secondClosed.ReasonCode);
+    Assert.Contains(91, store.Positions.Keys);
+
+    now = now.AddSeconds(AutoTradeEngine.CloseHistoryMaxWaitSeconds + 1);
+    await WaitUntilAsync(() =>
+      store.Events.Any(item => item.Type == "position_closed" && item.PositionId == 91)
+    );
+    Assert.DoesNotContain(91, store.Positions.Keys);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task LabelMismatchDoesNotConfirmMissingWhilePositionIdStillOpen()
   {
     // Broker Label drifted off options.Label but PositionId is still on the
@@ -6909,6 +7020,7 @@ public sealed partial class AutoTradeEngineTests
     // that exercise delayed history explicitly set this to null first.
     public decimal? PositionCloseExecutionPriceToReturn { get; set; } = 4000.2m;
     public decimal CloseExecutionPriceToReturn { get; set; } = 4013.2m;
+    public Dictionary<long, PositionCloseLookup> PositionCloseLookupOverrides { get; } = [];
     public List<long> PositionCloseReasonLookups { get; } = [];
     public List<long> PositionCloseOpenedAtTimestamps { get; } = [];
     public Task<PositionCloseLookup> DeterminePositionCloseReasonAsync(
@@ -6920,6 +7032,10 @@ public sealed partial class AutoTradeEngineTests
     {
       PositionCloseReasonLookups.Add(positionId);
       PositionCloseOpenedAtTimestamps.Add(openedAtTimestamp);
+      if (PositionCloseLookupOverrides.TryGetValue(positionId, out var lookup))
+      {
+        return Task.FromResult(lookup);
+      }
       return Task.FromResult(
         new PositionCloseLookup(
           PositionCloseReasonToReturn,
