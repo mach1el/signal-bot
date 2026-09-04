@@ -32,13 +32,13 @@ def _opp() -> ScalpOpportunity:
     discovered_at=100,
     source_bar_ts=90,
     zone_low=4000.0,
-    zone_high=4005.0,
-    key_level=4002.0,
+    zone_high=4001.0,
+    key_level=4000.5,
     trigger_type="sweep_reclaim",
     trigger_bar_ts=90,
-    trigger_price=4002.0,
-    invalidation_price=4000.5,
-    expected_target_price=4025.0,
+    trigger_price=4000.5,
+    invalidation_price=3999.5,
+    expected_target_price=4003.5,
     expected_target_pips=25.0,
     expected_stop_pips=15.0,
     expected_reward_risk=1.5,
@@ -91,7 +91,7 @@ def test_build_scalp_strategy_match_is_valid():
   assert match.full_take_profit_pips == 25
   assert match.targets_pips == (15, 25)
   # invalidation_price is the source of truth for structure_swing.
-  assert match.structure_swing == pytest.approx(4000.5)
+  assert match.structure_swing == pytest.approx(3999.5)
   assert match.structure_swing == pytest.approx(_opp().invalidation_price)
   assert match.family == "scalp"
   assert match.strategy_mode == "scalp_m1"
@@ -106,21 +106,21 @@ def test_build_scalp_strategy_match_sell_uses_invalidation_exactly():
     _opp(),
     direction="SELL",
     trigger_price=4050.0,
-    invalidation_price=4051.5,
+    invalidation_price=4052.5,
     expected_stop_pips=15.0,
     expected_target_pips=30.0,
     expected_target_price=4047.0,
     expected_reward_risk=2.0,
-    zone_low=4048.0,
-    zone_high=4052.0,
-    key_level=4050.0,
+    zone_low=4050.0,
+    zone_high=4051.0,
+    key_level=4050.5,
   )
   match = build_scalp_strategy_match(
     opp, _ctx(), bar_ts=120, quote_bid=4049.0, quote_ask=4050.0,
   )
   assert match.direction == "SELL"
   assert match.structure_swing == pytest.approx(opp.invalidation_price)
-  assert match.structure_swing == pytest.approx(4051.5)
+  assert match.structure_swing == pytest.approx(4052.5)
 
 
 def test_build_scalp_1to2_publishes_half_at_one_r():
@@ -131,7 +131,7 @@ def test_build_scalp_1to2_publishes_half_at_one_r():
   opp = replace(
     opp,
     expected_target_pips=30.0,
-    expected_target_price=4030.0,
+    expected_target_price=4004.0,
     expected_stop_pips=15.0,
     expected_reward_risk=2.0,
   )
@@ -181,7 +181,7 @@ def test_build_scalp_1to1_stays_single_full_exit():
   opp = replace(
     _opp(),
     expected_target_pips=15.0,
-    expected_target_price=4015.0,
+    expected_target_price=4002.5,
     expected_stop_pips=15.0,
     expected_reward_risk=1.0,
   )
@@ -204,7 +204,7 @@ def test_build_scalp_1to2_trade_plan_moves_sl_to_be_after_tp1():
   opp = replace(
     _opp(),
     expected_target_pips=30.0,
-    expected_target_price=4030.0,
+    expected_target_price=4004.0,
     expected_stop_pips=15.0,
     expected_reward_risk=2.0,
   )
@@ -246,7 +246,7 @@ def test_build_scalp_1to1_trade_plan_books_full_volume():
   opp = replace(
     _opp(),
     expected_target_pips=15.0,
-    expected_target_price=4015.0,
+    expected_target_price=4002.5,
     expected_stop_pips=15.0,
     expected_reward_risk=1.0,
   )

@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `2d2146a4c50ede784894cdec04f5252c58d2e961da818fb80f95bb7507813275`
-- Environment-bound fields: `504`
+- Contract fingerprint: `8183266e1dd5f12b9a6ef4bee626fa5d8bc02cd6c20db94e6c41eb51cdf811ab`
+- Environment-bound fields: `512`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -398,8 +398,11 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_CURRENT_CONTEXT_TTL_SECONDS` | `strategies.scalping.context.current_context_ttl_seconds` | `int` | no | no | — | `3600` |
 | `SCALPING_DAILY_LOSS_LIMIT_R` | `strategies.scalping.risk.daily_loss_limit_r` | `float` | no | no | — | `3.0` |
 | `SCALPING_HISTORIC_CONTEXT_TTL_SECONDS` | `strategies.scalping.context.historic_context_ttl_seconds` | `int` | no | no | — | `86400` |
+| `SCALPING_IMPULSE_BODY_DOMINANCE` | `strategies.scalping.archetypes.impulse_body_dominance` | `float` | no | no | — | `0.5` |
+| `SCALPING_IMPULSE_DISPLACEMENT_ATR_MULTIPLE` | `strategies.scalping.archetypes.impulse_displacement_atr_multiple` | `float` | no | no | — | `4.0` |
 | `SCALPING_IMPULSE_PULLBACK_ALLOWED_SESSIONS` | `strategies.scalping.archetypes.impulse_pullback_allowed_sessions` | `str` | no | no | — | `london` |
 | `SCALPING_IMPULSE_PULLBACK_ENABLED` | `strategies.scalping.archetypes.impulse_pullback_enabled` | `bool` | no | no | — | `True` |
+| `SCALPING_LEVEL_PROXIMITY_ATR_MULTIPLE` | `strategies.scalping.location.level_proximity_atr_multiple` | `float` | no | no | — | `1.0` |
 | `SCALPING_M1_LOOKBACK_BARS` | `strategies.scalping.context.m1_lookback_bars` | `int` | no | no | — | `60` |
 | `SCALPING_MAXIMUM_ACTIVE_OPPORTUNITIES` | `strategies.scalping.policy.maximum_active_opportunities` | `int` | no | no | — | `10` |
 | `SCALPING_MAXIMUM_CHASE_PIPS` | `strategies.scalping.activation.maximum_chase_pips` | `float` | no | no | — | `40.0` |
@@ -417,6 +420,8 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_MODE` | `strategies.scalping.mode` | `str` | no | no | — | `live` |
 | `SCALPING_PREFERRED_LADDER_PIPS` | `strategies.scalping.target.preferred_ladder_pips` | `str` | no | no | — | `20,25,30` |
 | `SCALPING_PULLBACK_BUY_MAX_POSITION` | `strategies.scalping.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.6` |
+| `SCALPING_PULLBACK_CORRECTIVE_RATIO` | `strategies.scalping.archetypes.pullback_corrective_ratio` | `float` | no | no | — | `0.7` |
+| `SCALPING_PULLBACK_EXTREME_CONFIRM_BARS` | `strategies.scalping.archetypes.pullback_extreme_confirm_bars` | `int` | no | no | — | `2` |
 | `SCALPING_PULLBACK_SELL_MIN_POSITION` | `strategies.scalping.location.pullback_sell_minimum_position` | `float` | no | no | — | `0.4` |
 | `SCALPING_RANGE_BUY_MAX_POSITION` | `strategies.scalping.location.range_buy_maximum_position` | `float` | no | no | — | `0.35` |
 | `SCALPING_RANGE_SELL_MIN_POSITION` | `strategies.scalping.location.range_sell_minimum_position` | `float` | no | no | — | `0.65` |
@@ -428,8 +433,11 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_SESSION_LOSS_LIMIT_R` | `strategies.scalping.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
 | `SCALPING_SIZING_MODE` | `strategies.scalping.risk.sizing_mode` | `str` | no | no | — | `risk` |
 | `SCALPING_STOP_BUFFER_ATR` | `strategies.scalping.stop.buffer_atr` | `float` | no | no | — | `0.1` |
+| `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `strategies.scalping.stop.buffer_m1_atr_multiple` | `float` | no | no | — | `1.2` |
+| `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `strategies.scalping.stop.buffer_minimum_spread_multiple` | `float` | no | no | — | `1.5` |
 | `SCALPING_STOP_MAXIMUM_PIPS` | `strategies.scalping.stop.maximum_pips` | `float` | no | no | — | `30.0` |
 | `SCALPING_STOP_MINIMUM_PIPS` | `strategies.scalping.stop.minimum_pips` | `float` | no | no | — | `12.0` |
+| `SCALPING_STOP_ZONE_MAXIMUM_ATR_MULTIPLE` | `strategies.scalping.stop.zone_maximum_atr_multiple` | `float` | no | no | — | `1.5` |
 | `SCALPING_TRIGGER_MAXIMUM_AGE_BARS` | `strategies.scalping.activation.trigger_maximum_age_bars` | `int` | no | no | — | `2` |
 | `SCALP_BARRIER_FALLBACK_ENABLED` | `strategies.scalp.scalp_barrier_fallback_enabled` | `bool` | no | no | — | `True` |
 | `SCALP_BARRIER_FALLBACK_MIN_CONFIRMATIONS` | `strategies.scalp.scalp_barrier_fallback_min_confirmations` | `int` | no | no | — | `1` |
