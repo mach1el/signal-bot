@@ -3989,6 +3989,20 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal(100, runner.RemainingVolume);
     Assert.Equal(ownerTargets[0], runner.CurrentStopLoss);
     Assert.Equal(5, runner.TargetOrdinals![runner.NextTargetIndex]);
+
+    // TP4 is intentionally absent from the shallow leg's broker plan. It is
+    // still a real owner level: notify and trail when price reaches it, but
+    // never invent a close/ledger entry for a zero-volume booking.
+    await HitAsync(ownerTargets[3]);
+    runner = Assert.Single(store.Positions.Values);
+    var reachedTp4 = Assert.Single(
+      store.Events,
+      item => item.Type == "manual_tp_reached" && item.TargetPips == 130
+    );
+    Assert.Equal(0, reachedTp4.Volume);
+    Assert.Contains("no broker volume booked", reachedTp4.Message);
+    Assert.Equal(ownerTargets[1], runner.CurrentStopLoss);
+    Assert.Contains(4, runner.ReachedTargetOrdinals!);
     Assert.Equal(new long[] { 300, 200, 100 }, client.Closes
       .Select(close => close.Volume));
 

@@ -915,6 +915,73 @@ async def test_take_profit_skips_when_tp_already_reached(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.no_database
+async def test_manual_tp_reached_is_notify_only(monkeypatch):
+  notify = AsyncMock(return_value={
+    "action": "tp_reached",
+    "ok": True,
+    "sid": 7,
+    "seq": 7,
+    "tp_number": 4,
+    "pips": 130,
+  })
+  post = AsyncMock()
+  monkeypatch.setattr("app.signals.trade_ops.do_tp_reached", notify)
+  monkeypatch.setattr("app.signals.trade_ops.post_result", post)
+  sig = {
+    "id": 7,
+    "action": "SELL",
+    "symbol": "XAU",
+    "entry": 4100.0,
+    "entry_end": 4105.0,
+    "sl": 4110.0,
+    "tps": [4097.0, 4094.0, 4090.0, 4087.0, 4080.0],
+  }
+  monkeypatch.setattr(manual_execution, "get_manual_signal", AsyncMock(return_value=sig))
+  monkeypatch.setattr(
+    manual_execution,
+    "get_signal_by_execution_intent_id",
+    AsyncMock(return_value=sig),
+  )
+
+  await manual_execution._handle_event(
+    None,
+    {
+      "type": "manual_tp_reached",
+      "stream": "algo_manual",
+      "candidate_id": "manual:7:0",
+      "position_id": 555,
+      "target_pips": 130,
+    },
+    {555: 7},
+  )
+
+  notify.assert_awaited_once_with({
+    "sid": 7,
+    "symbol": "XAU",
+    "tp_number": 4,
+    "pips": 130,
+  })
+  post.assert_awaited_once()
+
+
+@pytest.mark.no_database
+def test_trade_result_renders_unbooked_tp_as_reached():
+  from app.signals import trade_ops
+
+  rendered = trade_ops.render_result({
+    "action": "tp_reached",
+    "ok": True,
+    "seq": 7,
+    "tp_number": 4,
+    "pips": 130,
+  }, "XAU")
+
+  assert "TP4 reached" in rendered
+  assert "no volume booked" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_database
 async def test_handle_event_sl_moved_is_treated_as_stop_moved(monkeypatch):
   execute = AsyncMock()
   post = AsyncMock()
