@@ -2,8 +2,8 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `d9fc5a863b579b9bbf3ec96a21f0043b78a791c286daa645e6d8f91041b48b60`
-- Environment-bound fields: `499`
+- Contract fingerprint: `2d2146a4c50ede784894cdec04f5252c58d2e961da818fb80f95bb7507813275`
+- Environment-bound fields: `504`
 - Deprecated aliases: `21`
 
 Secret values are never emitted; secret defaults render as `<redacted>`.
@@ -131,7 +131,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_RANGE_FLIP_ENABLED` | `strategies.range_reversion.flip_enabled` | `bool` | no | yes | — | `False` |
 | `AUTO_TRADE_RANGE_HARD_ENTRY_DRIFT_PIPS` | `execution.range.hard_entry_drift_pips` | `float` | no | no | — | `20.0` |
 | `AUTO_TRADE_RANGE_MAX_ENTRY_DRIFT_ATR` | `execution.range.max_entry_drift_atr` | `float` | no | no | — | `0.35` |
-| `AUTO_TRADE_RANGE_MAX_RISK_MULTIPLIER` | `risk.sizing.range_max_risk_multiplier` | `float` | no | no | — | `2.0` |
+| `AUTO_TRADE_RANGE_MAX_RISK_MULTIPLIER` | `risk.sizing.range_max_risk_multiplier` | `float` | no | no | — | `1.5` |
 | `AUTO_TRADE_RANGE_MIN_ENTRY_DRIFT_PIPS` | `execution.range.min_entry_drift_pips` | `float` | no | no | — | `10.0` |
 | `AUTO_TRADE_RANGE_MIN_RR` | `execution.range.min_rr` | `float` | no | no | — | `1.0` |
 | `AUTO_TRADE_RANGE_MIN_TARGET_PIPS` | `execution.range.min_target_pips` | `float` | no | no | — | `15.0` |
@@ -218,7 +218,6 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `AUTO_TRADE_TREND_HARD_ENTRY_DRIFT_PIPS` | `execution.trend.hard_entry_drift_pips` | `float` | no | no | — | `30.0` |
 | `AUTO_TRADE_TREND_MAX_ENTRY_DRIFT_ATR` | `execution.trend.max_entry_drift_atr` | `float` | no | no | — | `0.85` |
 | `AUTO_TRADE_TREND_MIN_ENTRY_DRIFT_PIPS` | `execution.trend.min_entry_drift_pips` | `float` | no | no | — | `15.0` |
-| `AUTO_TRADE_TREND_PULLBACK_ENABLED` | `strategies.trend.pullback_enabled` | `bool` | no | no | — | `True` |
 | `AUTO_TRADE_TREND_STOP_MAX_PIPS` | `execution.trend.stop_max_pips` | `int` | no | yes | — | `60` |
 | `AUTO_TRADE_TREND_STOP_MIN_PIPS` | `execution.stops.trend.minimum_pips` | `int` | no | yes | — | `40` |
 | `AUTO_TRADE_UNFILLED_LEG_AFTER_TP_POLICY` | `execution.targeting.unfilled_leg_after_tp_policy` | `str` | no | yes | — | `cancel` |
@@ -310,6 +309,9 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `FIBONACCI_DEEP_PREMIUM` | `analysis.fibonacci.deep_premium` | `float` | no | no | — | `0.618` |
 | `FIBONACCI_ENABLED` | `analysis.fibonacci.enabled` | `bool` | no | no | — | `True` |
 | `FIBONACCI_EPSILON_ATR` | `analysis.fibonacci.epsilon_atr` | `float` | no | no | — | `0.15` |
+| `FLIP_ZONE_ACCEPT_BARS` | `analysis.flip_zone.accept_bars` | `Optional[int]` | no | no | — | `None` |
+| `FLIP_ZONE_BAND_BODY_FRACTION` | `analysis.flip_zone.band_body_fraction` | `float` | no | no | — | `0.5` |
+| `FLIP_ZONE_MAX_BREAK_AGE_BARS` | `analysis.flip_zone.max_break_age_bars` | `int` | no | no | — | `48` |
 | `GIT_SHA` | `bootstrap.build.git_sha` | `string` | no | yes | — | `unknown` |
 | `HEALTH_FILE` | `market_data.ctrader_feed.health_file` | `string` | no | no | — | `/tmp/ctrader-feed.heartbeat` |
 | `HOSTNAME` | `bootstrap.process.hostname` | `string` | no | no | — | `algo-worker` |
@@ -411,6 +413,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_MAXIMUM_SPREAD_PIPS` | `strategies.scalping.policy.maximum_spread_pips` | `float` | no | no | — | `5.0` |
 | `SCALPING_MINIMUM_NET_TARGET_PIPS` | `strategies.scalping.target.minimum_net_target_pips` | `float` | no | no | — | `15.0` |
 | `SCALPING_MINIMUM_REWARD_RISK` | `strategies.scalping.policy.minimum_reward_risk` | `float` | no | no | — | `1.1` |
+| `SCALPING_MINIMUM_STOP_SPREAD_MULTIPLE` | `strategies.scalping.stop.minimum_stop_spread_multiple` | `float` | no | no | — | `4.0` |
 | `SCALPING_MODE` | `strategies.scalping.mode` | `str` | no | no | — | `live` |
 | `SCALPING_PREFERRED_LADDER_PIPS` | `strategies.scalping.target.preferred_ladder_pips` | `str` | no | no | — | `20,25,30` |
 | `SCALPING_PULLBACK_BUY_MAX_POSITION` | `strategies.scalping.location.pullback_buy_maximum_position` | `float` | no | no | — | `0.6` |
@@ -421,7 +424,9 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_REARM_DISTANCE_ATR` | `strategies.scalping.activation.rearm_distance_atr` | `float` | no | no | — | `0.25` |
 | `SCALPING_RISK_FRACTION_PER_TRADE` | `strategies.scalping.risk.risk_fraction_per_trade` | `float` | no | no | — | `0.1` |
 | `SCALPING_RISK_MODE` | `strategies.scalping.risk.mode` | `str` | no | no | — | `live` |
+| `SCALPING_RISK_PERCENT_PER_TRADE` | `strategies.scalping.risk.risk_percent_per_trade` | `float` | no | no | — | `0.5` |
 | `SCALPING_SESSION_LOSS_LIMIT_R` | `strategies.scalping.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
+| `SCALPING_SIZING_MODE` | `strategies.scalping.risk.sizing_mode` | `str` | no | no | — | `risk` |
 | `SCALPING_STOP_BUFFER_ATR` | `strategies.scalping.stop.buffer_atr` | `float` | no | no | — | `0.1` |
 | `SCALPING_STOP_MAXIMUM_PIPS` | `strategies.scalping.stop.maximum_pips` | `float` | no | no | — | `30.0` |
 | `SCALPING_STOP_MINIMUM_PIPS` | `strategies.scalping.stop.minimum_pips` | `float` | no | no | — | `12.0` |
