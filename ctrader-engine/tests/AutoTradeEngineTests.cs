@@ -5258,7 +5258,16 @@ public sealed partial class AutoTradeEngineTests
     );
     Assert.DoesNotContain(store.Events, item => item.Type == "position_closed");
 
-    now = now.AddSeconds(AutoTradeEngine.CloseHistoryMaxWaitSeconds + 1);
+    // Owner 2026-09-04: the age bound alone is not enough once it drops
+    // below the post-quorum retry cadence - a pass is skipped entirely
+    // until CloseHistoryRetrySeconds has elapsed since its own last check,
+    // regardless of how far past CloseHistoryMaxWaitSeconds the position's
+    // age already is. Advance by whichever bound is larger, exactly what
+    // production needs to actually reach the fallback check.
+    now = now.AddSeconds(Math.Max(
+      AutoTradeEngine.CloseHistoryMaxWaitSeconds,
+      AutoTradeEngine.CloseHistoryRetrySeconds
+    ) + 1);
     await WaitForEventAsync(store, "position_closed");
 
     var closed = store.Events.Single(item => item.Type == "position_closed");
@@ -5323,7 +5332,12 @@ public sealed partial class AutoTradeEngineTests
     Assert.Equal("manual_or_external_close", secondClosed.ReasonCode);
     Assert.Contains(91, store.Positions.Keys);
 
-    now = now.AddSeconds(AutoTradeEngine.CloseHistoryMaxWaitSeconds + 1);
+    // See MissingCloseFillFallsBackAfterBoundedWaitAndFinalizesState for why
+    // this must be the larger of the two bounds, not just the age bound.
+    now = now.AddSeconds(Math.Max(
+      AutoTradeEngine.CloseHistoryMaxWaitSeconds,
+      AutoTradeEngine.CloseHistoryRetrySeconds
+    ) + 1);
     await WaitUntilAsync(() =>
       store.Events.Any(item => item.Type == "position_closed" && item.PositionId == 91)
     );
