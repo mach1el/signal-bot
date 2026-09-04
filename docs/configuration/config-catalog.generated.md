@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `8183266e1dd5f12b9a6ef4bee626fa5d8bc02cd6c20db94e6c41eb51cdf811ab`
-- Document fingerprint: `80512b571eb592b03e829ec6a3437b6ec5d3569627b487558abd09e202a63c1d`
+- Contract fingerprint: `d9df287d026b38c837f2cc46d0293b30fe2d439023c6f8370ca319108a5da0c2`
+- Document fingerprint: `f29dde822ada4cf7236b353ebc72fc9fa657c5a44c63eac69736b9aac50c5b2f`
 - Items: `579`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -605,7 +605,7 @@
 | `strategies.scalping.risk.risk_fraction_per_trade` | `SCALPING_RISK_FRACTION_PER_TRADE` | `float` | `fraction` | `configurable` | `0.1` |
 | `strategies.scalping.risk.risk_percent_per_trade` | `SCALPING_RISK_PERCENT_PER_TRADE` | `float` | `percent` | `configurable` | `0.5` |
 | `strategies.scalping.risk.session_loss_limit_r` | `SCALPING_SESSION_LOSS_LIMIT_R` | `float` | `multiplier` | `configurable` | `2.0` |
-| `strategies.scalping.risk.sizing_mode` | `SCALPING_SIZING_MODE` | `str` | `enum` | `configurable` | `"risk"` |
+| `strategies.scalping.risk.sizing_mode` | `SCALPING_SIZING_MODE` | `str` | `enum` | `configurable` | `"equity_table"` |
 | `strategies.scalping.stop.buffer_atr` | `SCALPING_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
 | `strategies.scalping.stop.buffer_m1_atr_multiple` | `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.2` |
 | `strategies.scalping.stop.buffer_minimum_spread_multiple` | `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `1.5` |

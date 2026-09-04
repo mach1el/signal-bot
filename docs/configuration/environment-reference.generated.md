@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `8183266e1dd5f12b9a6ef4bee626fa5d8bc02cd6c20db94e6c41eb51cdf811ab`
+- Contract fingerprint: `d9df287d026b38c837f2cc46d0293b30fe2d439023c6f8370ca319108a5da0c2`
 - Environment-bound fields: `512`
 - Deprecated aliases: `21`
 
@@ -431,7 +431,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_RISK_MODE` | `strategies.scalping.risk.mode` | `str` | no | no | — | `live` |
 | `SCALPING_RISK_PERCENT_PER_TRADE` | `strategies.scalping.risk.risk_percent_per_trade` | `float` | no | no | — | `0.5` |
 | `SCALPING_SESSION_LOSS_LIMIT_R` | `strategies.scalping.risk.session_loss_limit_r` | `float` | no | no | — | `2.0` |
-| `SCALPING_SIZING_MODE` | `strategies.scalping.risk.sizing_mode` | `str` | no | no | — | `risk` |
+| `SCALPING_SIZING_MODE` | `strategies.scalping.risk.sizing_mode` | `str` | no | no | — | `equity_table` |
 | `SCALPING_STOP_BUFFER_ATR` | `strategies.scalping.stop.buffer_atr` | `float` | no | no | — | `0.1` |
 | `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `strategies.scalping.stop.buffer_m1_atr_multiple` | `float` | no | no | — | `1.2` |
 | `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `strategies.scalping.stop.buffer_minimum_spread_multiple` | `float` | no | no | — | `1.5` |
