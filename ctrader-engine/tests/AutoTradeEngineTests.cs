@@ -4101,6 +4101,117 @@ public sealed partial class AutoTradeEngineTests
   }
 
   [Fact]
+  public async Task ManualAlgoDustRemainderBeforeFinalTargetStillNotifiesAndTrails()
+  {
+    // Owner reported 2026-09-04: TP5 needs the full remaining volume to
+    // close cleanly, so a broker partial close at TP4 would leave a dust
+    // remainder below MinVolume. The runtime already skips that partial and
+    // rides the whole remainder to TP5 (see "range-box scale-out skipped at
+    // runtime" below) - this proves manual /algo still gets the TP4 level
+    // notification and normal trail out of that skip, not silence.
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    const string candidateId = "manual:dust-remainder:0";
+    const string groupId = "manual-dust-remainder";
+    var ownerTargets = new[]
+    {
+      3996.5m, 3993.5m, 3989.5m, 3986.5m, 3979.5m,
+    };
+    var store = new FakeAutoTradeStore(ManualCandidateJson(
+      candidateId: candidateId
+    ));
+    store.SeedPublishedCandidate(candidateId);
+    store.Positions[92] = new AutoTradePositionState(
+      CandidateId: candidateId,
+      PositionId: 92,
+      SymbolId: Symbol.SymbolId,
+      Direction: TradeDirection.Sell,
+      EntryPrice: 3999.5m,
+      // TP1-TP3 already booked (300+200+100=600 of 705); only a 105-volume
+      // dust-prone remainder is left in front of TP4/TP5.
+      InitialVolume: 705,
+      RemainingVolume: 105,
+      Slices: [300, 200, 100, 100, 100],
+      TargetsPips: [30, 60, 100, 130, 200],
+      NextTargetIndex: 3,
+      OpenedAt: 900,
+      CurrentStopLoss: ownerTargets[0],
+      TargetOrdinals: [1, 2, 3, 4, 5],
+      GroupId: groupId,
+      GroupTrancheCount: 1,
+      InitialStopLoss: 4006.0m,
+      GroupInitialVolume: 705,
+      InitialTrancheVolume: 705,
+      Setup: "Manual Algo",
+      Stream: "algo_manual",
+      StrategyFamily: "manual",
+      TargetPrices: ownerTargets,
+      Symbol: "XAU"
+    );
+    var client = new FakeTradingClient
+    {
+      CloseExecutionPriceToReturn = ownerTargets[3],
+    };
+    client.SeedPosition(new TradingPosition(
+      PositionId: 92,
+      SymbolId: Symbol.SymbolId,
+      Direction: TradeDirection.Sell,
+      Volume: 105,
+      EntryPrice: 3999.5m,
+      StopLoss: ownerTargets[0],
+      Label: Options().Label,
+      Comment: "avm|runner|manual-dust-remainder|705|300,200,100,100,100|30,60,100,130,200|1,2,3,4,5|900|0",
+      ClientOrderId: "av-dust-remainder"
+    ));
+    var now = Now;
+    var engine = new AutoTradeEngine(Options(), store, () => now, _ => { });
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3990.0m, 3990.2m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+    var run = engine.RunSessionAsync(client, Symbol, cts.Token);
+    await WaitForEventAsync(store, "ready");
+
+    // Price reaches TP4 (130p). A broker close of Slices[3]=100 would leave
+    // 5 remaining, under MinVolume=100 - the dust-remainder guard must skip
+    // the close but still notify and trail exactly like a real booking.
+    now = now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3986.45m, 3986.5m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    Assert.Empty(client.Closes);
+    var reachedTp4 = Assert.Single(
+      store.Events,
+      item => item.Type == "manual_tp_reached"
+    );
+    Assert.Equal(130, reachedTp4.TargetPips);
+    Assert.Equal(0, reachedTp4.Volume);
+    Assert.Contains("no broker volume booked", reachedTp4.Message);
+    var runner = Assert.Single(store.Positions.Values);
+    Assert.Equal(105, runner.RemainingVolume);
+    Assert.Contains(4, runner.ReachedTargetOrdinals!);
+    // Trail after TP4 steps back two levels, same rule a real TP4 booking
+    // would use.
+    Assert.Equal(ownerTargets[1], runner.CurrentStopLoss);
+    Assert.Equal((92, ownerTargets[1]), Assert.Single(client.StopAmendments));
+
+    // Price then reaches TP5 - the full 105 remainder closes for real.
+    client.CloseExecutionPriceToReturn = ownerTargets[4];
+    now = now.AddSeconds(30);
+    await engine.ObserveSpotAsync(
+      new SpotPrice("XAU", 3979.45m, 3979.5m, now.ToUnixTimeSeconds()),
+      cts.Token
+    );
+
+    Assert.Empty(store.Positions);
+    Assert.Equal(105, Assert.Single(client.Closes).Volume);
+
+    cts.Cancel();
+    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+  }
+
+  [Fact]
   public async Task ManualAlgoFillAmendsAbsoluteVipStopAfterBetterFill()
   {
     // Live 2026-08-17 XAU #64: BUY zone 4385-4388, posted SL 4382. Limit sat
