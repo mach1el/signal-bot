@@ -649,3 +649,16 @@ def test_xau_technique_shares_uniform_fixed_rr_ladder():
   assert xau.targeting.close_ratios == (0.5, 0.5)
   assert xau.targeting.breakeven_after_r == 1.0
   assert xau.targeting.trail_after_r is None
+
+
+def test_xau_gets_a_smaller_opposing_barrier_buffer_than_fx():
+  # XAU's ATR is dollar-denominated; the FX-tuned 0.5x multiple buffers
+  # away 40-115+ pips of real opposing-structure room on XAU (measured in
+  # prod), comparable to or larger than XAU's own 25-100 pip stop
+  # envelope. XAU overrides to 0.15; FX keeps the global 0.5 default.
+  cfg = _load_production_example().config
+  xau = cfg.for_instrument("XAU")
+  eurusd = cfg.for_instrument("EURUSD")
+  assert xau.actionability.target_room.barrier_buffer_atr == pytest.approx(0.15)
+  assert eurusd.actionability.target_room.barrier_buffer_atr == pytest.approx(0.5)
+  assert cfg.actionability.target_room.barrier_buffer_atr == pytest.approx(0.5)
