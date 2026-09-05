@@ -3,8 +3,8 @@
 > Generated from the typed `ApexVoidConfig` Catalog V2 schema. Do not edit manually.
 
 - Catalog version: `2`
-- Contract fingerprint: `d9df287d026b38c837f2cc46d0293b30fe2d439023c6f8370ca319108a5da0c2`
-- Document fingerprint: `f29dde822ada4cf7236b353ebc72fc9fa657c5a44c63eac69736b9aac50c5b2f`
+- Contract fingerprint: `734a6325ae3bf9c41917fe74dcd4cee5b357a81b89162fe645a02b3948a94140`
+- Document fingerprint: `48e0a1bdb0f67e739df9ccd87c27ddd45a0166400f5a4ce352b4a5b2e62274cf`
 - Items: `579`
 - Runtime status: canonical-only; `app.core.config.runtime_config` is authoritative
 
@@ -609,7 +609,7 @@
 | `strategies.scalping.stop.buffer_atr` | `SCALPING_STOP_BUFFER_ATR` | `float` | `atr` | `configurable` | `0.1` |
 | `strategies.scalping.stop.buffer_m1_atr_multiple` | `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.2` |
 | `strategies.scalping.stop.buffer_minimum_spread_multiple` | `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `1.5` |
-| `strategies.scalping.stop.maximum_pips` | `SCALPING_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `30.0` |
+| `strategies.scalping.stop.maximum_pips` | `SCALPING_STOP_MAXIMUM_PIPS` | `float` | `pips` | `configurable` | `45.0` |
 | `strategies.scalping.stop.minimum_pips` | `SCALPING_STOP_MINIMUM_PIPS` | `float` | `pips` | `configurable` | `12.0` |
 | `strategies.scalping.stop.minimum_stop_spread_multiple` | `SCALPING_MINIMUM_STOP_SPREAD_MULTIPLE` | `float` | `multiplier` | `configurable` | `4.0` |
 | `strategies.scalping.stop.zone_maximum_atr_multiple` | `SCALPING_STOP_ZONE_MAXIMUM_ATR_MULTIPLE` | `float` | `atr` | `configurable` | `1.5` |
