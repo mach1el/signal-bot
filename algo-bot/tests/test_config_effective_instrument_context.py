@@ -239,7 +239,12 @@ def test_production_yaml_fx_live_executable_units():
   assert cfg.instruments.root["GBPJPY"].reaction_session == "tokyo_london"
   assert cfg.instruments.root["USDJPY"].reaction_session == "tokyo_london_ny"
   assert cfg.instruments.root["EURUSD"].overrides == {}
-  assert cfg.instruments.root["XAU"].overrides == {}
+  # XAU's ATR is dollar-denominated, so the FX-tuned barrier_buffer_atr
+  # (0.5) buffers away 40-115+ pips of real opposing-structure room -- an
+  # escape-hatch override, same shape as GBPJPY/USDJPY below.
+  assert cfg.instruments.root["XAU"].overrides == {
+    "actionability.target_room.barrier_buffer_atr": 0.15,
+  }
   # GBPJPY/USDJPY each keep exactly one escape-hatch override for a leaf no
   # pack composes: GBPJPY's event-cluster news guard, USDJPY's defended-
   # level guard. Neither duplicates anything the packs already expand.
