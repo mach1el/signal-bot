@@ -2,7 +2,7 @@
 
 > Generated from the canonical configuration catalog (`app.configuration.environment_contract`). Do not edit manually.
 
-- Contract fingerprint: `d9df287d026b38c837f2cc46d0293b30fe2d439023c6f8370ca319108a5da0c2`
+- Contract fingerprint: `734a6325ae3bf9c41917fe74dcd4cee5b357a81b89162fe645a02b3948a94140`
 - Environment-bound fields: `512`
 - Deprecated aliases: `21`
 
@@ -435,7 +435,7 @@ Secret values are never emitted; secret defaults render as `<redacted>`.
 | `SCALPING_STOP_BUFFER_ATR` | `strategies.scalping.stop.buffer_atr` | `float` | no | no | — | `0.1` |
 | `SCALPING_STOP_BUFFER_M1_ATR_MULTIPLE` | `strategies.scalping.stop.buffer_m1_atr_multiple` | `float` | no | no | — | `1.2` |
 | `SCALPING_STOP_BUFFER_MINIMUM_SPREAD_MULTIPLE` | `strategies.scalping.stop.buffer_minimum_spread_multiple` | `float` | no | no | — | `1.5` |
-| `SCALPING_STOP_MAXIMUM_PIPS` | `strategies.scalping.stop.maximum_pips` | `float` | no | no | — | `30.0` |
+| `SCALPING_STOP_MAXIMUM_PIPS` | `strategies.scalping.stop.maximum_pips` | `float` | no | no | — | `45.0` |
 | `SCALPING_STOP_MINIMUM_PIPS` | `strategies.scalping.stop.minimum_pips` | `float` | no | no | — | `12.0` |
 | `SCALPING_STOP_ZONE_MAXIMUM_ATR_MULTIPLE` | `strategies.scalping.stop.zone_maximum_atr_multiple` | `float` | no | no | — | `1.5` |
 | `SCALPING_TRIGGER_MAXIMUM_AGE_BARS` | `strategies.scalping.activation.trigger_maximum_age_bars` | `int` | no | no | — | `2` |
